@@ -130,8 +130,14 @@ func runChecks() async throws {
     precondition(model.pullRequests.isEmpty, "A reappearing PR remains dismissed")
     precondition(Notifier.notifiedIDs.isEmpty, "Dismissed PR must not notify again")
 
-    let restarted = AppModel(store: store, preferences: preferences)
-    precondition(restarted.dismissals[pr.id]?.headCommitOID == "c1", "A new model restores persisted dismissal")
+    // Scoped so the extra model is released before its refresh loop can run and notify concurrently.
+    weak var released: AppModel?
+    do {
+        let restarted = AppModel(store: store, preferences: preferences)
+        released = restarted
+        precondition(restarted.dismissals[pr.id]?.headCommitOID == "c1", "A new model restores persisted dismissal")
+    }
+    precondition(released == nil, "The extra model must be released so it cannot refresh concurrently")
 
     // Own comments don't bring the PR back; comments by others and new commits do.
     let later = Date().addingTimeInterval(60)
