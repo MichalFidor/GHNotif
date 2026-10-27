@@ -37,6 +37,34 @@ public partial class App : Application
     private bool refreshQueued;
     private int revision;
     private bool baseline;
+    private DateTimeOffset? lastUpdateCheck;
+    private bool checkingUpdates;
+    private HttpClient? updateHttp;
+    internal GitHubRelease? AvailableRelease { get; private set; }
+    internal string UpdateStatus { get; private set; } = "";
+    internal string InstalledVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
+
+    internal async Task CheckForUpdatesAsync()
+    {
+        if (checkingUpdates) return;
+        checkingUpdates = true;
+        try
+        {
+            var release = await GitHubRelease.LatestAsync(updateHttp ?? http);
+            AvailableRelease = release?.IsNewer(InstalledVersion) == true ? release : null;
+            UpdateStatus = AvailableRelease is { } next ? $"Dostępna wersja {next.TagName}" : "Masz najnowszą wersję.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or OperationCanceledException)
+        {
+            UpdateStatus = $"Nie udało się sprawdzić aktualizacji: {ex.Message}";
+        }
+        finally
+        {
+            lastUpdateCheck = DateTimeOffset.UtcNow;
+            checkingUpdates = false;
+            Changed?.Invoke();
+        }
+    }
 
     internal Config Config { get; private set; } = new();
     internal LocalState State { get; private set; } = new();
@@ -85,9 +113,15 @@ public partial class App : Application
         menu.Items.Add("Zakończ", null, (_, _) => Dispatcher.Invoke(() => Shutdown()));
         tray.ContextMenuStrip = menu;
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
-        timer.Tick += (_, _) => _ = RunAsync(RefreshAsync);
+        timer.Tick += (_, _) =>
+        {
+            _ = RunAsync(RefreshAsync);
+            if (lastUpdateCheck is null || DateTimeOffset.UtcNow - lastUpdateCheck >= TimeSpan.FromHours(6))
+                _ = CheckForUpdatesAsync();
+        };
         timer.Start();
         if (Config.Users.Count == 0) OpenSettings();
+        _ = CheckForUpdatesAsync();
         await RefreshAsync();
     }
 
@@ -102,6 +136,7 @@ public partial class App : Application
         State.Migrate(DateTimeOffset.UtcNow);
         Tokens = new(folder);
         Client = new(client ?? http);
+        updateHttp = client ?? http;
     }
 
     internal async Task RunAsync(Func<Task> action)

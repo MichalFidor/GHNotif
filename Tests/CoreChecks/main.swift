@@ -125,6 +125,27 @@ do {
 
 check(AppConfig.default.users.isEmpty, "default watch list is empty")
 
+do {
+    func release(_ tag: String, draft: Bool = false, prerelease: Bool = false,
+                 url: String = "https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0") throws -> GitHubRelease {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "tag_name": tag, "html_url": url, "draft": draft, "prerelease": prerelease
+        ])
+        return try JSONDecoder().decode(GitHubRelease.self, from: data)
+    }
+    check(try release("v0.2.0").isNewer(than: "0.1.0"), "new release detected")
+    check(try !release("v0.1.0").isNewer(than: "0.1.0"), "same release ignored")
+    check(try !release("v0.0.9").isNewer(than: "0.1.0"), "older release ignored")
+    check(try release("v0.10.0").isNewer(than: "0.9.0"), "numeric rather than lexical comparison")
+    check(try !release("v0.2.0", draft: true).isNewer(than: "0.1.0"), "draft ignored")
+    check(try !release("v0.2.0", prerelease: true).isNewer(than: "0.1.0"), "prerelease ignored")
+    check(ReleaseVersion("0.1") == nil && ReleaseVersion("0.2.0-beta") == nil, "invalid version rejected")
+    do {
+        _ = try release("v0.2.0", url: "https://example.com/").isNewer(than: "0.1.0")
+        check(false, "foreign update URL must fail")
+    } catch {}
+}
+
 if failures > 0 {
     print("\(failures) check(s) failed")
     exit(1)

@@ -101,6 +101,10 @@ internal sealed class TrayWindow : Window
         updated.Text = app.IsRefreshing ? "Odświeżanie…" : app.LastRefresh is { } time
             ? $"Odświeżono {time:HH:mm}" : "Jeszcze nie odświeżono";
         banners.Children.Clear();
+        if (app.AvailableRelease is { } release)
+            banners.Children.Add(Ui.Button($"Dostępna wersja {release.TagName} — pobierz",
+                "Otwórz GitHub Releases (aktualizacja ręczna)",
+                () => _ = app.RunAsync(() => { App.OpenGitHub(release.HtmlUrl); return Task.CompletedTask; })));
         if (app.Error is not null) banners.Children.Add(Ui.Text(app.Error, Brushes.Firebrick));
         if (app.Results.BlockedOrganizations.Count > 0)
             banners.Children.Add(Ui.Button("🔒 Brak dostępu SSO — autoryzuj token",

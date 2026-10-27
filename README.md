@@ -6,6 +6,14 @@ Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje o
 
 ## Instalacja macOS
 
+Gotowe paczki dla Apple Silicon i Intela: [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
+Rozpakuj ZIP i przenieś `GHNotif.app` do Applications. Nie wymaga to instalacji Swifta.
+Paczki nie są notaryzowane ani podpisane certyfikatem wydawcy — macOS może je zablokować
+przy pierwszym uruchomieniu. Po zweryfikowaniu źródła i sumy SHA-256 użyj
+Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to.
+
+Budowanie ze źródeł:
+
 ```bash
 ./scripts/build-app.sh            # buduje build/GHNotif.app
 ./scripts/build-app.sh --install  # kopiuje do ~/Applications i uruchamia
@@ -17,7 +25,7 @@ Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart: Ustawieni
 
 Wymaga Windows 10/11. Wersja portable zawiera .NET — użytkownik nie musi go instalować.
 
-1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z artefaktów udanego workflow **Windows** w GitHub Actions.
+1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
 3. Kliknij ikonę przy zegarku (może być schowana pod strzałką). Prawy przycisk: ustawienia, odświeżanie lub zakończenie.
 4. Dodaj osoby w ustawieniach i użyj `gh auth login` lub zapisz własny PAT.
@@ -68,11 +76,36 @@ Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawe
 
 Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik — prośbę o zmiany, oko — wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
-Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`) i monochromatyczna wersja do paska menu są generowane ze wspólnego źródła:
+Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
 ```bash
 swift scripts/generate-icons.swift # macOS
 ```
+
+## Powiadomienia macOS
+
+W ustawieniach aplikacji wybierz **Wyślij testowe powiadomienie**. Aplikacja poprosi
+o zgodę i pokaże wynik wysłania oraz stan alertów. Przyjęcie powiadomienia przez API
+nie gwarantuje wyświetlenia bannera: w Ustawienia systemowe → Powiadomienia → GHNotif
+włącz banery/dźwięk i sprawdź tryb skupienia. Testy automatyczne sprawdzają, że nowy
+PR i powrót odhaczonego PR-a wywołują powiadomienie; wygląd systemowego bannera
+wymaga sprawdzenia na zalogowanym Macu.
+
+## Wydania i aktualizacje
+
+Numer wersji pochodzi z `VERSION`. Obie aplikacje sprawdzają najnowszy stabilny release
+przy starcie i co 6 godzin; można też użyć **Sprawdź aktualizacje** w ustawieniach.
+Gdy jest nowsza wersja, w panelu pojawia się przycisk otwierający GitHub Releases.
+Sprawdzanie korzysta z publicznego API, bez tokenu i bez wysyłania listy obserwowanych osób.
+Błędy sprawdzania są widoczne w ustawieniach i nie przerywają pobierania PR-ów.
+
+Instalacja pozostaje ręczna: zakończ aplikację, rozpakuj nową paczkę i zastąp poprzednią
+aplikację/folder. Ustawienia, token i lokalny stan pozostają poza paczką.
+
+Publikacja: zaktualizuj `VERSION` i `RELEASE-NOTES.md`, wypchnij commit i tag `vX.Y.Z`
+zgodny z `VERSION`. Workflow **Release** uruchamia testy macOS/Windows, buduje cztery
+paczki (macOS arm64/x86_64, Windows x64/arm64), a dopiero po powodzeniu publikuje
+release z sumami `SHA256SUMS`. Sam build macOS ma podpis ad-hoc, bez notaryzacji.
 
 ## Jak to działa
 

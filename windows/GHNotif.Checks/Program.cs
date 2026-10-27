@@ -143,6 +143,27 @@ try
 }
 finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
 
+var update = new GitHubRelease("v0.2.0", "https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0", false, false);
+Check(update.IsNewer("0.1.0"), "New release detected");
+Check(!update.IsNewer("0.2.0") && !update.IsNewer("0.3.0"), "Same and older releases ignored");
+Check((update with { TagName = "v0.10.0" }).IsNewer("0.9.0"), "Numeric version comparison");
+Check(!(update with { Draft = true }).IsNewer("0.1.0"), "Draft release ignored");
+Check(!(update with { Prerelease = true }).IsNewer("0.1.0"), "Prerelease ignored");
+await ThrowsAsync<InvalidDataException>(() => Task.Run(() => GitHubRelease.ParseVersion("0.1-beta")), "Invalid version rejected");
+await ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
+    (update with { HtmlUrl = "https://example.com/" }).IsNewer("0.1.0")), "Foreign update URL rejected");
+using var noRelease = new HttpClient(new FakeHandler(_ =>
+    Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
+Check(await GitHubRelease.LatestAsync(noRelease) is null, "No published release is supported");
+using var rateLimited = new HttpClient(new FakeHandler(_ =>
+    Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden))));
+await ThrowsAsync<HttpRequestException>(() => GitHubRelease.LatestAsync(rateLimited), "Update HTTP errors surfaced");
+using var releases = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+{
+    Content = new StringContent(JsonSerializer.Serialize(update))
+})));
+Check((await GitHubRelease.LatestAsync(releases))?.IsNewer("0.1.0") == true, "Release response parsed");
+
 Console.WriteLine($"All {checks} Windows core checks passed.");
 
 sealed class FakeHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler

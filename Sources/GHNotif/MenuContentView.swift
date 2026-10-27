@@ -34,6 +34,11 @@ struct MenuContentView: View {
 
     private var header: some View {
         HStack {
+            Image("TrayLogo", bundle: .module)
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
             Text(layout.showDismissed ? "Załatwione PR-y" : "PR-y do review").font(.headline)
             Text("\(displayedPullRequests.count)").foregroundStyle(.secondary)
             Spacer()
@@ -59,6 +64,12 @@ struct MenuContentView: View {
 
     @ViewBuilder
     private var banners: some View {
+        if let release = model.availableRelease {
+            Banner(systemImage: "arrow.down.circle.fill", tint: .blue,
+                   text: "Dostępna nowa wersja \(release.tagName).", actionTitle: "Pobierz") {
+                NSWorkspace.shared.open(release.htmlURL)
+            }
+        }
         if let error = model.lastError {
             Banner(systemImage: "exclamationmark.triangle.fill", tint: .red, text: error)
         }

@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ApplicationIcon>../../assets/GHNotif.ico</ApplicationIcon>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../VERSION').Trim())</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../GHNotif.Core/GHNotif.Core.csproj" />

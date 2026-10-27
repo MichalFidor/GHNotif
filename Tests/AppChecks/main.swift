@@ -14,6 +14,8 @@ enum Keychain {
 final class Notifier {
     static var notifiedIDs: [String] = []
     func requestAuthorization() {}
+    func sendTest() async throws -> String { "Test" }
+    func diagnostics() async -> String { "Test" }
     func notify(about prs: [PullRequest]) { Self.notifiedIDs += prs.map(\.id) }
 }
 struct Outcome {
@@ -51,13 +53,32 @@ func runChecks() async throws {
     }
     let pr = makePR()
     GitHubClient.results = [pr]
-    let model = AppModel(store: store, preferences: preferences)
+    var releaseResult: GitHubRelease?
+    var releaseFails = false
+    let model = AppModel(store: store, preferences: preferences, releaseLoader: {
+        if releaseFails { throw GitHubError.http(403, "Rate limit") }
+        return releaseResult
+    })
     // Let the initial refresh loop finish before explicitly refreshing.
     for _ in 0..<100 {
         if model.lastRefresh != nil { break }
         try await Task.sleep(for: .milliseconds(10))
     }
     precondition(model.pullRequests.map(\.id) == [pr.id], "Initial PR is visible")
+    let releaseData = Data("""
+    {"tag_name":"v0.2.0","html_url":"https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0","draft":false,"prerelease":false}
+    """.utf8)
+    releaseResult = try JSONDecoder().decode(GitHubRelease.self, from: releaseData)
+    await model.checkForUpdates()
+    precondition(model.availableRelease?.tagName == "v0.2.0", "Update is exposed to the UI")
+    releaseFails = true
+    await model.checkForUpdates()
+    precondition(model.updateStatus.contains("Rate limit") && !model.checkingUpdates, "Update failure is visible")
+    precondition(model.pullRequests.map(\.id) == [pr.id], "Update failure preserves PR results")
+    releaseFails = false
+    releaseResult = nil
+    await model.checkForUpdates()
+    precondition(model.availableRelease == nil, "No release clears the update banner")
     model.dismiss(pr)
     precondition(model.pullRequests.isEmpty && model.dismissedPullRequests.map(\.id) == [pr.id])
     await model.refresh()

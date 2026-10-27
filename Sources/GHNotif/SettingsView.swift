@@ -51,6 +51,25 @@ struct SettingsView: View {
             Section("Odświeżanie i powiadomienia") {
                 Stepper("Co \(model.config.refreshMinutes) min", value: $model.config.refreshMinutes, in: 1...60)
                 Toggle("Powiadomienia o nowych PR-ach", isOn: $model.config.notify)
+                Button("Wyślij testowe powiadomienie") {
+                    Task { await model.testNotification() }
+                }
+                Link("Otwórz systemowe ustawienia powiadomień",
+                     destination: URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+                if !model.notificationStatus.isEmpty {
+                    Text(model.notificationStatus).font(.caption)
+                }
+            }
+
+            Section("GHNotif \(model.installedVersion)") {
+                Button("Sprawdź aktualizacje") {
+                    Task { await model.checkForUpdates() }
+                }
+                .disabled(model.checkingUpdates)
+                if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption) }
+                if let release = model.availableRelease {
+                    Link("Pobierz \(release.tagName)", destination: release.htmlURL)
+                }
             }
 
             Section("Token GitHub") {

@@ -44,6 +44,9 @@ internal static class Program
                 "Token must not be stored in plaintext");
             await app.RefreshAsync();
             Check(app.Results.PullRequests.Count == 1, "Fixture search must return one PR");
+            Check(app.InstalledVersion == File.ReadAllText("VERSION").Trim(), "Version matches release metadata");
+            await app.CheckForUpdatesAsync();
+            Check(app.AvailableRelease?.TagName == "v99.0.0", "New release is exposed to the UI");
             var panel = new TrayWindow(app);
             panel.ShowPanel();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -57,6 +60,8 @@ internal static class Program
             Directory.CreateDirectory("build");
             using (var file = File.Create("build/windows-preview.png")) encoder.Save(file);
             var rendered = Buttons(panel).ToList();
+            Check(rendered.Any(b => b.ToolTip?.ToString() == "Otwórz GitHub Releases (aktualizacja ręczna)"),
+                "Update download button is visible");
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true),
                 "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
             var done = rendered.Single(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true);
@@ -120,8 +125,17 @@ internal static class Program
 
     private sealed class FixtureHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") == true)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                    {"tag_name":"v99.0.0","html_url":"https://github.com/MichalFidor/GHNotif/releases/tag/v99.0.0",
+                    "draft":false,"prerelease":false}
+                    """)
+                });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""
                 {"data":{"viewer":{"login":"me"},"search":{"issueCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
@@ -133,5 +147,6 @@ internal static class Program
                 }]}}}
                 """)
             });
+        }
     }
 }

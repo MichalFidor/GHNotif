@@ -1,0 +1,76 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    strategy:
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        run: test "$GITHUB_REF_NAME" = "v$(tr -d '\r\n' < VERSION)"
+      - name: Core and application checks
+        run: |
+          swift run CoreChecks
+          bash scripts/check-app.sh
+      - name: Build macOS app
+        run: |
+          bash scripts/build-app.sh
+          ditto -c -k --sequesterRsrc --keepParent build/GHNotif.app "build/GHNotif-macos-$(uname -m).zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.runner }}
+          path: build/GHNotif-macos-*.zip
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -ne "v$((Get-Content VERSION -Raw).Trim())") { throw "Tag/version mismatch" }
+      - name: Core and UI checks
+        shell: pwsh
+        run: |
+          dotnet run --project windows/GHNotif.Checks -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Core checks failed" }
+          dotnet run --project windows/GHNotif.Windows.Checks -c Release
+          if ($LASTEXITCODE -ne 0) { throw "UI checks failed" }
+      - run: ./scripts/build-windows.ps1
+      - run: ./scripts/build-windows.ps1 -Runtime win-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: build/GHNotif-win-*.zip
+          if-no-files-found: error
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish release with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          sha256sum *.zip > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" *.zip SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "GHNotif $GITHUB_REF_NAME" --notes-file ../RELEASE-NOTES.md

@@ -10,9 +10,11 @@ struct GHNotifApp: App {
                 .environmentObject(model)
         } label: {
             HStack(spacing: 2) {
-                if model.lastError == nil {
-                    Image("TrayMark", bundle: .module).renderingMode(.template)
-                } else {
+                Image("TrayLogo", bundle: .module).renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+                if model.lastError != nil {
                     Image(systemName: "exclamationmark.triangle")
                 }
                 if !model.pullRequests.isEmpty {

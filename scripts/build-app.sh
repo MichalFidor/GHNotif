@@ -7,6 +7,7 @@ APP="build/GHNotif.app"
 
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)/GHNotif"
+VERSION="$(tr -d '\r\n' < VERSION)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -34,6 +35,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 
 codesign --force --sign - "$APP/Contents/Resources/GHNotif_GHNotif.bundle"
 codesign --force --sign - "$APP"

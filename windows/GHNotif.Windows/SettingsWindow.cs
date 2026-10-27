@@ -17,6 +17,7 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox notify = new() { Content = "Powiadomienia o nowych PR-ach", Margin = new Thickness(8) };
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
     private readonly TextBlock source = Ui.Text("");
+    private readonly TextBlock updateStatus = Ui.Text("");
     private bool adding;
 
     internal SettingsWindow(App app)
@@ -28,6 +29,10 @@ internal sealed class SettingsWindow : Window
         MinWidth = 420;
         MinHeight = 400;
         var content = new StackPanel { Margin = new Thickness(12) };
+        content.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
+        content.Children.Add(Ui.Button("Sprawdź aktualizacje", "Sprawdź najnowszy release na GitHubie",
+            () => _ = app.CheckForUpdatesAsync()));
+        content.Children.Add(updateStatus);
         content.Children.Add(Heading("Obserwowane osoby"));
         var add = new DockPanel();
         var addButton = Ui.Button("Dodaj", "Dodaj osobę po sprawdzeniu loginu na GitHubie", () => _ = app.RunAsync(AddUserAsync));
@@ -77,7 +82,11 @@ internal sealed class SettingsWindow : Window
         UpdateSource();
     }
 
-    private void UpdateSource() => source.Text = $"Źródło tokenu: {app.Tokens.Source}";
+    private void UpdateSource()
+    {
+        source.Text = $"Źródło tokenu: {app.Tokens.Source}";
+        updateStatus.Text = app.UpdateStatus;
+    }
 
     private Config Copy() => new()
     {

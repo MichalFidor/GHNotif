@@ -60,6 +60,9 @@ for size in [16, 32, 128, 256, 512] {
 for (size, filename) in [(18, "TrayMark.png"), (36, "TrayMark@2x.png")] {
     try render(size, template: true).write(to: resources.appendingPathComponent(filename))
 }
+for (size, filename) in [(20, "TrayLogo.png"), (40, "TrayLogo@2x.png")] {
+    try render(size).write(to: resources.appendingPathComponent(filename))
+}
 
 func littleEndian<T: FixedWidthInteger>(_ value: T) -> Data {
     var value = value.littleEndian

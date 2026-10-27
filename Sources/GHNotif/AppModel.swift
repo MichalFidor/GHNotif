@@ -22,12 +22,43 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastRefresh: Date?
     @Published private(set) var ssoBlockedOrgCount = 0
     @Published private(set) var tokenSource: TokenSource?
+    @Published private(set) var availableRelease: GitHubRelease?
+    @Published private(set) var updateStatus = ""
+    @Published private(set) var checkingUpdates = false
+    @Published private(set) var notificationStatus = ""
+
+    var installedVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
+    func checkForUpdates() async {
+        guard !checkingUpdates else { return }
+        checkingUpdates = true
+        defer { checkingUpdates = false }
+        do {
+            let release = try await releaseLoader()
+            availableRelease = try release.flatMap { try $0.isNewer(than: installedVersion) ? $0 : nil }
+            updateStatus = availableRelease.map { "Dostępna wersja \($0.tagName)" } ?? "Masz najnowszą wersję."
+        } catch {
+            updateStatus = "Nie udało się sprawdzić aktualizacji: \(error.localizedDescription)"
+        }
+    }
+
+    func testNotification() async {
+        do {
+            notificationStatus = try await notifier.sendTest()
+        } catch {
+            notificationStatus = "Błąd powiadomienia: \(error.localizedDescription)"
+        }
+    }
 
     private let store: ConfigStore
     private let preferences: UserDefaults
+    private let releaseLoader: () async throws -> GitHubRelease?
     private let notifier = Notifier()
     private var token: ResolvedToken?
     private var refreshLoop: Task<Void, Never>?
+    private var updateLoop: Task<Void, Never>?
     private var refreshPending = false
     /// After the watched set changes, the next result is treated as a baseline so existing PRs don't trigger alerts.
     private var suppressNextNotifications = false
@@ -54,9 +85,11 @@ final class AppModel: ObservableObject {
         set { preferences.set(newValue.map(Array.init), forKey: Self.seenIDsKey) }
     }
 
-    init(store: ConfigStore = ConfigStore(), preferences: UserDefaults = .standard) {
+    init(store: ConfigStore = ConfigStore(), preferences: UserDefaults = .standard,
+         releaseLoader: @escaping () async throws -> GitHubRelease? = { try await GitHubRelease.latest() }) {
         self.store = store
         self.preferences = preferences
+        self.releaseLoader = releaseLoader
         dismissals = Self.loadDismissals(from: preferences)
         collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
         do {
@@ -66,7 +99,26 @@ final class AppModel: ObservableObject {
             lastError = "Nie udało się wczytać \(store.fileURL.path): \(error.localizedDescription). Używam domyślnej listy (plik nie zostanie nadpisany do pierwszej zmiany)."
         }
         if config.notify { notifier.requestAuthorization() }
+        if ProcessInfo.processInfo.arguments.contains("--test-notification") {
+            Task {
+                await testNotification()
+                print(notificationStatus)
+                fflush(stdout)
+                try? await Task.sleep(for: .seconds(8))
+                print(await notifier.diagnostics())
+                fflush(stdout)
+            }
+        }
         startRefreshLoop()
+        if Bundle.main.bundleIdentifier == "com.michalfidor.ghnotif" {
+            updateLoop = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.checkForUpdates()
+                    do { try await Task.sleep(for: .seconds(6 * 60 * 60)) }
+                    catch { return }
+                }
+            }
+        }
     }
 
     var ssoSettingsURL: URL {
