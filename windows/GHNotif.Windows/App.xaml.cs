@@ -20,6 +20,10 @@ namespace GHNotif.Windows;
 
 public partial class App : Application
 {
+    private readonly bool startAutomatically;
+    public App() : this(true) { }
+    internal App(bool startAutomatically) => this.startAutomatically = startAutomatically;
+
     private Mutex? instance;
     private bool ownsMutex;
     private Forms.NotifyIcon? tray;
@@ -47,6 +51,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!startAutomatically) return;
         instance = new Mutex(true, @"Local\GHNotif.Windows", out ownsMutex);
         if (!ownsMutex)
         {

@@ -30,7 +30,8 @@ internal static class Program
     private static async Task RunChecks()
     {
         var folder = Path.Combine(Path.GetTempPath(), "ghnotif-ui-" + Guid.NewGuid());
-        var app = new TestApp();
+        // WPF schedules OnStartup automatically; disable real tray/configuration startup for this fixture.
+        var app = new App(startAutomatically: false);
         app.InitializeComponent();
         using var http = new HttpClient(new FixtureHandler());
         try
@@ -94,13 +95,6 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
-    }
-
-    // Application schedules OnStartup on the dispatcher even without Application.Run().
-    // Keep UI tests isolated from the real tray, configuration and credentials.
-    private sealed class TestApp : App
-    {
-        protected override void OnStartup(StartupEventArgs e) { }
     }
 
     private static IEnumerable<Button> Buttons(DependencyObject root)
