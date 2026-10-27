@@ -45,6 +45,8 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public let reviewDecision: ReviewDecision?
     public let checks: CheckState?
     public let headCommitOID: String?
+    /// GitHub login of the head commit's author; the pusher isn't exposed by the API.
+    public let headCommitAuthor: String?
     public let additions: Int
     public let deletions: Int
     public let labels: [String]
@@ -59,7 +61,8 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         authorAvatarURL: URL?, createdAt: Date, updatedAt: Date,
         reviewDecision: ReviewDecision?, checks: CheckState?,
         headCommitOID: String? = nil, activity: [Activity] = [], reasons: Set<MatchReason> = [.watchedAuthor],
-        additions: Int = 0, deletions: Int = 0, labels: [String] = [], reviews: [PullRequestReview] = []
+        additions: Int = 0, deletions: Int = 0, labels: [String] = [], reviews: [PullRequestReview] = [],
+        headCommitAuthor: String? = nil
     ) {
         self.id = id
         self.number = number
@@ -73,6 +76,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         self.reviewDecision = reviewDecision
         self.checks = checks
         self.headCommitOID = headCommitOID
+        self.headCommitAuthor = headCommitAuthor
         self.activity = activity
         self.reasons = reasons
         self.additions = additions
@@ -90,6 +94,47 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Human-readable list of what changed since the snapshot, e.g. "bob — zatwierdzenie".
+    public func changes(since snapshot: DismissalSnapshot, viewer: String?) -> [String] {
+        var lines: [String] = []
+        if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
+            lines.append(headCommitAuthor.map { "\($0) — nowe commity" } ?? "Nowe commity")
+        }
+        var seen = Set<String>()
+        for item in activity.sorted(by: { $0.date < $1.date }) where item.date > snapshot.dismissedAt
+            && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true) {
+            let line = "\(item.login) — \(item.kind.label)"
+            if seen.insert(line.lowercased()).inserted { lines.append(line) }
+        }
+        return lines
+    }
+
+    public func newActivity(since snapshot: NotificationSnapshot, viewer: String?) -> [String] {
+        var lines: [String] = []
+        if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
+            lines.append(headCommitAuthor.map { "\($0) — nowe commity" } ?? "Nowe commity")
+        }
+        for item in activity.sorted(by: { $0.date < $1.date })
+            where snapshot.activityDates[item.notificationKey] == nil
+                && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true) {
+            lines.append("\(item.login) — \(item.kind.label)")
+        }
+        return lines
+    }
+
+    public func notificationSnapshot(preserving previous: NotificationSnapshot?) -> NotificationSnapshot {
+        var activityDates = previous?.activityDates ?? [:]
+        for item in activity { activityDates[item.notificationKey] = item.date }
+        if activityDates.count > 200 {
+            activityDates = Dictionary(uniqueKeysWithValues:
+                activityDates.sorted { $0.value > $1.value }.prefix(200).map { ($0.key, $0.value) })
+        }
+        return NotificationSnapshot(
+            headCommitOID: headCommitOID ?? previous?.headCommitOID,
+            activityDates: activityDates
+        )
+    }
+
     public func hasViewerReviewedCurrentHead(_ viewer: String?) -> Bool {
         viewerReviewAt(viewer) != nil
     }
@@ -102,14 +147,95 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         }
 }
 
+public enum ActivityKind: Hashable, Sendable {
+    case comment
+    case approved
+    case changesRequested
+    case reviewComment
+    case reviewDismissed
+
+    /// Maps a GitHub `PullRequestReviewState`.
+    public init(reviewState: String?) {
+        switch reviewState {
+        case "APPROVED": self = .approved
+        case "CHANGES_REQUESTED": self = .changesRequested
+        case "DISMISSED": self = .reviewDismissed
+        default: self = .reviewComment
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .comment: "komentarz"
+        case .approved: "zatwierdzenie ✅"
+        case .changesRequested: "prośba o zmiany"
+        case .reviewComment: "komentarz w review"
+        case .reviewDismissed: "odrzucone review"
+        }
+    }
+}
+
 public struct Activity: Hashable, Sendable {
     public let login: String
     public let date: Date
+    public let kind: ActivityKind
+    public let id: String?
 
-    public init(login: String, date: Date) {
+    public init(login: String, date: Date, kind: ActivityKind = .comment, id: String? = nil) {
         self.login = login
         self.date = date
+        self.kind = kind
+        self.id = id
     }
+
+    public var notificationKey: String {
+        id ?? "\(login.lowercased())|\(kind.key)|\(Int64(date.timeIntervalSince1970 * 1_000_000))"
+    }
+}
+
+public struct NotificationSnapshot: Codable, Hashable, Sendable {
+    public var headCommitOID: String?
+    public var activityDates: [String: Date]
+
+    public init(headCommitOID: String?, activityDates: [String: Date] = [:]) {
+        self.headCommitOID = headCommitOID
+        self.activityDates = activityDates
+    }
+}
+
+private extension ActivityKind {
+    var key: String {
+        switch self {
+        case .comment: "comment"
+        case .approved: "approved"
+        case .changesRequested: "changes-requested"
+        case .reviewComment: "review-comment"
+        case .reviewDismissed: "review-dismissed"
+        }
+    }
+}
+
+/// A PR to announce together with the reasons shown in the notification body.
+public struct PullRequestAlert: Sendable {
+    public let pullRequest: PullRequest
+    public let details: [String]
+
+    public init(pullRequest: PullRequest, details: [String]) {
+        self.pullRequest = pullRequest
+        self.details = details
+    }
+
+    public static func new(_ pr: PullRequest) -> PullRequestAlert {
+        let detail = pr.reasons.contains(.reviewRequested) ? "Poproszono Cię o review"
+            : pr.reasons.contains(.mention) ? "Wspomniano Cię w PR-ze" : "Nowy PR od \(pr.author)"
+        return PullRequestAlert(pullRequest: pr, details: [detail])
+    }
+}
+
+/// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
+public func summarizeChanges(_ lines: [String], limit: Int = 3) -> String {
+    guard lines.count > limit else { return lines.joined(separator: "\n") }
+    return (lines.prefix(limit) + ["+\(lines.count - limit) więcej"]).joined(separator: "\n")
 }
 
 /// State of a PR at the moment it was dismissed; newer activity brings the PR back.

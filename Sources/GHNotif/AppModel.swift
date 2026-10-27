@@ -21,6 +21,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var snoozedPullRequests: [String: Date] {
         didSet { preferences.set(try? JSONEncoder().encode(snoozedPullRequests), forKey: Self.snoozedKey) }
     }
+    private var notificationSnapshots: [String: NotificationSnapshot] = [:] {
+        didSet {
+            do {
+                preferences.set(try JSONEncoder().encode(notificationSnapshots), forKey: Self.notificationSnapshotsKey)
+            } catch {
+                NSLog("GHNotif: nie udało się zapisać stanu powiadomień: %@", error.localizedDescription)
+            }
+        }
+    }
     @Published private(set) var isLoading = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastRefresh: Date?
@@ -73,6 +82,7 @@ final class AppModel: ObservableObject {
     private static let collapsedKey = "collapsedRepositories"
     private static let seenIDsKey = "seenPullRequestIDs"
     private static let snoozedKey = "snoozedPullRequests"
+    private static let notificationSnapshotsKey = "notificationActivitySnapshots"
 
     var pullRequests: [PullRequest] {
         allPullRequests.filter { dismissals[$0.id] == nil && !isSnoozed($0) }
@@ -153,6 +163,7 @@ final class AppModel: ObservableObject {
         self.preferences = preferences
         self.releaseLoader = releaseLoader
         dismissals = Self.loadDismissals(from: preferences)
+        notificationSnapshots = Self.loadNotificationSnapshots(from: preferences)
         collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
         if let data = preferences.data(forKey: Self.snoozedKey),
            let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
@@ -237,7 +248,8 @@ final class AppModel: ObservableObject {
                 }
             }
             let reactivated = reactivateDismissed(in: outcome.pullRequests, viewer: outcome.viewerLogin)
-            handleNotifications(for: outcome.pullRequests, reactivated: reactivated, wokeFromSnooze: wokeFromSnooze)
+            handleNotifications(for: outcome.pullRequests, reactivated: reactivated,
+                                wokeFromSnooze: wokeFromSnooze, viewer: outcome.viewerLogin)
             allPullRequests = outcome.pullRequests
             ssoBlockedOrgCount = outcome.ssoBlockedOrgIDs.count
             lastError = nil
@@ -295,15 +307,16 @@ final class AppModel: ObservableObject {
         return resolved
     }
 
-    /// Un-dismisses PRs with new activity and returns them.
-    private func reactivateDismissed(in prs: [PullRequest], viewer: String?) -> [PullRequest] {
+    /// Un-dismisses PRs with new activity and returns them with a description of what changed.
+    private func reactivateDismissed(in prs: [PullRequest], viewer: String?) -> [PullRequestAlert] {
         var updated = dismissals
-        var reactivated: [PullRequest] = []
+        var reactivated: [PullRequestAlert] = []
         for pr in prs {
             guard let snapshot = updated[pr.id] else { continue }
             if pr.hasNewActivity(since: snapshot, viewer: viewer) {
                 updated[pr.id] = nil
-                reactivated.append(pr)
+                let changes = pr.changes(since: snapshot, viewer: viewer)
+                reactivated.append(PullRequestAlert(pullRequest: pr, details: changes.isEmpty ? ["Nowa aktywność"] : changes))
             } else if snapshot.headCommitOID == nil, let oid = pr.headCommitOID {
                 // Dismissals migrated from the ID-only format get their commit baseline on the first refresh.
                 updated[pr.id]?.headCommitOID = oid
@@ -313,17 +326,31 @@ final class AppModel: ObservableObject {
         return reactivated
     }
 
-    private func handleNotifications(for prs: [PullRequest], reactivated: [PullRequest],
-                                     wokeFromSnooze: [PullRequest]) {
+    private func handleNotifications(for prs: [PullRequest], reactivated: [PullRequestAlert],
+                                     wokeFromSnooze: [PullRequest], viewer: String?) {
         let ids = Set(prs.map(\.id))
-        defer {
-            seenIDs = ids
-            suppressNextNotifications = false
+        let seen = seenIDs
+        var alerts: [PullRequestAlert] = []
+        if config.notify, !suppressNextNotifications, let seen {
+            let fresh = prs.filter { !seen.contains($0.id) && dismissals[$0.id] == nil && !isSnoozed($0) }
+            let returned = reactivated.filter { seen.contains($0.pullRequest.id) }
+            let woke = wokeFromSnooze.filter { seen.contains($0.id) && dismissals[$0.id] == nil }
+            alerts = fresh.map(PullRequestAlert.new) + returned
+                + woke.map { PullRequestAlert(pullRequest: $0, details: ["Koniec odłożenia"]) }
+            let handledIDs = Set(alerts.map { $0.pullRequest.id })
+            for pr in prs where seen.contains(pr.id) && !handledIDs.contains(pr.id)
+                && dismissals[pr.id] == nil && !isSnoozed(pr) {
+                guard let snapshot = notificationSnapshots[pr.id] else { continue }
+                let details = pr.newActivity(since: snapshot, viewer: viewer)
+                if !details.isEmpty { alerts.append(PullRequestAlert(pullRequest: pr, details: details)) }
+            }
         }
-        guard config.notify, !suppressNextNotifications, let seen = seenIDs else { return }
-        let fresh = prs.filter { !seen.contains($0.id) && dismissals[$0.id] == nil && !isSnoozed($0) }
-        notifier.notify(about: fresh + reactivated.filter { seen.contains($0.id) }
-            + wokeFromSnooze.filter { seen.contains($0.id) && dismissals[$0.id] == nil })
+        notificationSnapshots = Dictionary(uniqueKeysWithValues: prs.map {
+            ($0.id, $0.notificationSnapshot(preserving: notificationSnapshots[$0.id]))
+        })
+        seenIDs = ids
+        suppressNextNotifications = false
+        notifier.notify(about: alerts)
     }
 
     private static func loadDismissals(from preferences: UserDefaults) -> [String: DismissalSnapshot] {
@@ -337,6 +364,16 @@ final class AppModel: ObservableObject {
         let migrated = Dictionary(uniqueKeysWithValues: Set(legacy).map { ($0, DismissalSnapshot(dismissedAt: now, headCommitOID: nil)) })
         if !migrated.isEmpty { preferences.set(try? JSONEncoder().encode(migrated), forKey: dismissalsKey) }
         return migrated
+    }
+
+    private static func loadNotificationSnapshots(from preferences: UserDefaults) -> [String: NotificationSnapshot] {
+        guard let data = preferences.data(forKey: notificationSnapshotsKey) else { return [:] }
+        do {
+            return try JSONDecoder().decode([String: NotificationSnapshot].self, from: data)
+        } catch {
+            NSLog("GHNotif: nie udało się odczytać stanu powiadomień: %@", error.localizedDescription)
+            return [:]
+        }
     }
 
     private func configDidChange(from old: AppConfig) {

@@ -1,3 +1,9 @@
+# GHNotif 0.4.0
+
+- Powiadomienia pokazują konkretną aktywność na PR-ze: komentarze, zatwierdzenia, prośby o zmiany i nowe commity.
+- Nowe komentarze/review/commity na już obserwowanych PR-ach też wywołują powiadomienie; to samo zdarzenie nie jest powtarzane przy odświeżeniach.
+- Powiadomienia zbiorcze pokazują skrócone podsumowanie PR-ów i zmian.
+
 # GHNotif 0.3.1
 
 - Poprawiono układ wierszy PR: akcje odłożenia i oznaczenia są teraz bliżej PR-a, zamiast być rozciągnięte do prawej krawędzi okna.

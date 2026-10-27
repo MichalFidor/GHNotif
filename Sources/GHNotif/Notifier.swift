@@ -48,21 +48,24 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         return "Zgoda: \(settings.authorizationStatus.rawValue), styl alertów: \(settings.alertStyle.rawValue), Centrum powiadomień: \(settings.notificationCenterSetting.rawValue), test w Centrum: \(testDelivered ? "tak" : "nie")."
     }
 
-    func notify(about newPRs: [PullRequest]) {
-        guard center != nil, !newPRs.isEmpty else { return }
-        if newPRs.count > 3 {
+    func notify(about alerts: [PullRequestAlert]) {
+        guard center != nil, !alerts.isEmpty else { return }
+        if alerts.count > 3 {
             let content = UNMutableNotificationContent()
-            content.title = "\(newPRs.count) PR-ów wymaga uwagi"
-            content.body = Set(newPRs.map(\.author)).sorted().joined(separator: ", ")
+            content.title = "\(alerts.count) PR-ów wymaga uwagi"
+            content.body = summarizeChanges(alerts.map {
+                "#\($0.pullRequest.number): \($0.details.first ?? $0.pullRequest.title)"
+            })
             content.sound = .default
             enqueue(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
             return
         }
-        for pr in newPRs {
+        for alert in alerts {
+            let pr = alert.pullRequest
             let content = UNMutableNotificationContent()
             content.title = "\(pr.repository) #\(pr.number)"
-            content.subtitle = pr.author
-            content.body = pr.title
+            content.subtitle = pr.title
+            content.body = summarizeChanges(alert.details)
             content.sound = .default
             content.userInfo = ["url": pr.url.absoluteString]
             enqueue(UNNotificationRequest(identifier: pr.id, content: content, trigger: nil))

@@ -185,9 +185,9 @@ public struct GitHubClient: Sendable {
             repository { nameWithOwner }
             additions deletions
             labels(first: 100) { nodes { name } }
-            commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-            comments(last: 10) { nodes { createdAt author { __typename login } } }
-            reviews(last: 100) { nodes { submittedAt state commit { oid } author { __typename login } } }
+            commits(last: 1) { nodes { commit { oid author { user { login } } statusCheckRollup { state } } } }
+            comments(last: 10) { nodes { id createdAt author { __typename login } } }
+            reviews(last: 100) { nodes { id submittedAt state commit { oid } author { __typename login } } }
           }
         }
       }
@@ -249,7 +249,12 @@ private struct PRNode: Decodable {
         struct Node: Decodable {
             struct Commit: Decodable {
                 struct Rollup: Decodable { let state: CheckState? }
+                struct GitActor: Decodable {
+                    struct User: Decodable { let login: String }
+                    let user: User?
+                }
                 let oid: String?
+                let author: GitActor?
                 let statusCheckRollup: Rollup?
             }
             let commit: Commit
@@ -264,6 +269,7 @@ private struct PRNode: Decodable {
 
     struct Comments: Decodable {
         struct Node: Decodable {
+            let id: String?
             let createdAt: Date
             let author: Actor?
         }
@@ -272,9 +278,12 @@ private struct PRNode: Decodable {
 
     struct Reviews: Decodable {
         struct Node: Decodable {
+            struct ReviewedCommit: Decodable { let oid: String? }
+            let id: String?
             let submittedAt: Date?
+            let state: String?
             let author: Actor?
-            let commit: Commits.Node.Commit?
+            let commit: ReviewedCommit?
         }
         let nodes: [Lossy<Node>]
     }
@@ -300,14 +309,18 @@ private struct PRNode: Decodable {
     let deletions: Int?
     let labels: Labels?
 
-    private static func activity(_ author: Actor?, _ date: Date?) -> Activity? {
+    private static func activity(_ id: String?, _ author: Actor?, _ date: Date?, _ kind: ActivityKind) -> Activity? {
         guard let author, author.__typename != "Bot", let date else { return nil }
-        return Activity(login: author.login, date: date)
+        return Activity(login: author.login, date: date, kind: kind, id: id)
     }
 
     var pullRequest: PullRequest {
-        let commentActivity = comments?.nodes.compactMap { $0.value.flatMap { Self.activity($0.author, $0.createdAt) } } ?? []
-        let reviewActivity = reviews?.nodes.compactMap { $0.value.flatMap { Self.activity($0.author, $0.submittedAt) } } ?? []
+        let commentActivity = comments?.nodes.compactMap {
+            $0.value.flatMap { Self.activity($0.id, $0.author, $0.createdAt, .comment) }
+        } ?? []
+        let reviewActivity = reviews?.nodes.compactMap { node in
+            node.value.flatMap { Self.activity($0.id, $0.author, $0.submittedAt, ActivityKind(reviewState: $0.state)) }
+        } ?? []
         return PullRequest(
             id: id, number: number, title: title, url: url,
             repository: repository.nameWithOwner,
@@ -324,7 +337,8 @@ private struct PRNode: Decodable {
             reviews: reviews?.nodes.compactMap { node in
                 guard let review = node.value, let login = review.author?.login else { return nil }
                 return PullRequestReview(login: login, commitOID: review.commit?.oid, submittedAt: review.submittedAt)
-            } ?? []
+            } ?? [],
+            headCommitAuthor: commits?.nodes.last?.commit.author?.user?.login
         )
     }
 }

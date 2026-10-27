@@ -13,10 +13,14 @@ enum Keychain {
 }
 final class Notifier {
     static var notifiedIDs: [String] = []
+    static var notifiedDetails: [[String]] = []
     func requestAuthorization() {}
     func sendTest() async throws -> String { "Test" }
     func diagnostics() async -> String { "Test" }
-    func notify(about prs: [PullRequest]) { Self.notifiedIDs += prs.map(\.id) }
+    func notify(about alerts: [PullRequestAlert]) {
+        Self.notifiedIDs += alerts.map(\.pullRequest.id)
+        Self.notifiedDetails += alerts.map(\.details)
+    }
 }
 struct Outcome {
     let pullRequests: [PullRequest]
@@ -35,6 +39,8 @@ struct GitHubClient {
 
 @MainActor
 func runChecks() async throws {
+    Notifier.notifiedIDs = []
+    Notifier.notifiedDetails = []
     let domain = "GHNotifTests.\(UUID().uuidString)"
     let preferences = UserDefaults(suiteName: domain)!
     preferences.removePersistentDomain(forName: domain)
@@ -66,6 +72,25 @@ func runChecks() async throws {
         try await Task.sleep(for: .milliseconds(10))
     }
     precondition(model.pullRequests.map(\.id) == [pr.id], "Initial PR is visible")
+    let activeReview = Activity(login: "reviewer", date: Date(), kind: .approved, id: "review-active")
+    GitHubClient.results = [makePR(activity: [activeReview])]
+    await model.refresh()
+    precondition(Notifier.notifiedDetails.last == ["reviewer — zatwierdzenie ✅"],
+                 "Activity on an active PR notifies with actor and action")
+    let activeAlertCount = Notifier.notifiedIDs.count
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == activeAlertCount, "Activity does not notify twice on refresh")
+    GitHubClient.results = [makePR(activity: [Activity(login: "me", date: Date(), id: "own-comment")])]
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == activeAlertCount, "Own activity does not notify")
+    GitHubClient.results = [pr]
+    await model.refresh()
+    let snapshotsData = preferences.data(forKey: "notificationActivitySnapshots")!
+    let snapshots = try JSONDecoder().decode([String: NotificationSnapshot].self, from: snapshotsData)
+    precondition(snapshots[pr.id]?.activityDates["review-active"] != nil,
+                 "Seen activity is persisted to avoid repeats after restart")
+    Notifier.notifiedIDs = []
+    Notifier.notifiedDetails = []
     let releaseData = Data("""
     {"tag_name":"v0.2.0","html_url":"https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0","draft":false,"prerelease":false}
     """.utf8)
@@ -109,14 +134,17 @@ func runChecks() async throws {
     GitHubClient.results = [makePR(activity: [Activity(login: "me", date: later)])]
     await model.refresh()
     precondition(model.pullRequests.isEmpty, "Own comment keeps the PR dismissed")
-    GitHubClient.results = [makePR(activity: [Activity(login: "reviewer", date: later)])]
+    GitHubClient.results = [makePR(activity: [Activity(login: "reviewer", date: later, kind: .approved)])]
     await model.refresh()
-    precondition(model.pullRequests.map(\.id) == [pr.id], "Comment by someone else brings the PR back")
+    precondition(model.pullRequests.map(\.id) == [pr.id], "Review by someone else brings the PR back")
     precondition(Notifier.notifiedIDs == [pr.id], "Reactivated PR notifies: \(Notifier.notifiedIDs)")
+    precondition(Notifier.notifiedDetails.last == ["reviewer — zatwierdzenie ✅"],
+                 "Notification says who did what: \(Notifier.notifiedDetails)")
     model.dismiss(model.pullRequests[0])
     GitHubClient.results = [makePR(oid: "c2", activity: [Activity(login: "reviewer", date: later)])]
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "New commit brings the PR back")
+    precondition(Notifier.notifiedDetails.last?.first == "Nowe commity", "Push is described: \(Notifier.notifiedDetails)")
 
     model.dismiss(model.pullRequests[0])
     model.restore(pr)
@@ -175,7 +203,9 @@ if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--verify-per
     let preferences = UserDefaults(suiteName: CommandLine.arguments[2])!
     let data = preferences.data(forKey: "dismissedPullRequests") ?? Data()
     let dismissals = try? JSONDecoder().decode([String: DismissalSnapshot].self, from: data)
-    exit(dismissals?["PR_TEST"] != nil ? 0 : 1)
+    let activityData = preferences.data(forKey: "notificationActivitySnapshots") ?? Data()
+    let activitySnapshots = try? JSONDecoder().decode([String: NotificationSnapshot].self, from: activityData)
+    exit(dismissals?["PR_TEST"] != nil && activitySnapshots?["PR_TEST"]?.activityDates["review-active"] != nil ? 0 : 1)
 }
 
 Task { @MainActor in

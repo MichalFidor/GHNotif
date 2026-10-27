@@ -185,9 +185,10 @@ public partial class App : Application
                 var next = State.Clone();
                 var wokeFromSnooze = next.ExpireSnoozes(result.PullRequests, DateTimeOffset.UtcNow);
                 if (config.AutoDismissReviewed) next.AutoDismissReviewed(result.PullRequests, result.ViewerLogin);
-                var reactivated = next.Reactivate(result.PullRequests, result.ViewerLogin);
-                var fresh = next.Observe(result.PullRequests, config.Notify, baseline, reactivated,
-                    wokeFromSnooze.ToHashSet(StringComparer.Ordinal));
+                var reactivated = next.Reactivate(result.PullRequests, result.ViewerLogin, out var changes);
+                var woke = wokeFromSnooze.ToHashSet(StringComparer.Ordinal);
+                var fresh = next.ObserveAlerts(result.PullRequests, config.Notify, baseline, result.ViewerLogin,
+                    reactivated, woke, changes);
                 stateStore.Save(next);
                 State = next;
                 Results = result;
@@ -197,8 +198,13 @@ public partial class App : Application
                 UpdateTray();
                 if (fresh.Count > 0 && tray is not null)
                 {
-                    tray.BalloonTipTitle = $"{fresh.Count} PR-ów wymaga uwagi";
-                    tray.BalloonTipText = string.Join(", ", fresh.Select(pr => pr.Author).Distinct());
+                    var single = fresh.Count == 1 ? fresh[0] : null;
+                    tray.BalloonTipTitle = Clip(single is null ? $"{fresh.Count} PR-ów wymaga uwagi"
+                        : $"{single.PullRequest.Repository} #{single.PullRequest.Number}", 63);
+                    tray.BalloonTipText = Clip(single is null
+                        ? ActivityText.Summarize(fresh.Select(alert =>
+                            $"#{alert.PullRequest.Number}: {alert.Details.FirstOrDefault() ?? alert.PullRequest.Title}").ToList())
+                        : $"{single.PullRequest.Title}\n{ActivityText.Summarize(single.Details)}", 255);
                     tray.ShowBalloonTip(5000);
                 }
             } while (refreshQueued);
@@ -288,6 +294,9 @@ public partial class App : Application
         settings.Show();
         settings.Activate();
     }
+
+    // NotifyIcon balloons reject titles over 63 and texts over 255 characters.
+    private static string Clip(string text, int max) => text.Length <= max ? text : text[..(max - 1)] + "…";
 
     internal static void OpenGitHub(string url)
     {

@@ -14,6 +14,49 @@ public sealed record PullRequest(
     public int Deletions { get; init; }
     public IReadOnlyList<string> Labels { get; init; } = [];
     public IReadOnlyList<PullRequestReview> Reviews { get; init; } = [];
+    /// GitHub login of the head commit's author; the pusher isn't exposed by the API.
+    public string? HeadCommitAuthor { get; init; }
+
+    /// Human-readable list of what changed since the snapshot, e.g. "bob — zatwierdzenie".
+    public List<string> Changes(DismissalSnapshot snapshot, string? viewer)
+    {
+        var lines = new List<string>();
+        if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
+            lines.Add(HeadCommitAuthor is null ? "Nowe commity" : $"{HeadCommitAuthor} — nowe commity");
+        foreach (var item in (Activity ?? []).Where(item => item.Date > snapshot.DismissedAt
+                     && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
+        {
+            var line = $"{item.Login} — {item.Kind.Label()}";
+            if (!lines.Contains(line, StringComparer.OrdinalIgnoreCase)) lines.Add(line);
+        }
+        return lines;
+    }
+
+    public List<string> NewActivity(NotificationSnapshot snapshot, string? viewer)
+    {
+        var lines = new List<string>();
+        if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
+            lines.Add(HeadCommitAuthor is null ? "Nowe commity" : $"{HeadCommitAuthor} — nowe commity");
+        foreach (var item in (Activity ?? []).Where(item => !snapshot.ActivityDates.ContainsKey(item.NotificationKey)
+                     && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
+            lines.Add($"{item.Login} — {item.Kind.Label()}");
+        return lines;
+    }
+
+    public NotificationSnapshot CreateNotificationSnapshot(NotificationSnapshot? previous)
+    {
+        var activityDates = previous?.ActivityDates.ToDictionary(kv => kv.Key, kv => kv.Value)
+            ?? new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        foreach (var item in Activity ?? []) activityDates[item.NotificationKey] = item.Date;
+        if (activityDates.Count > 200)
+            activityDates = activityDates.OrderByDescending(kv => kv.Value).Take(200)
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        return new NotificationSnapshot
+        {
+            HeadCommitOid = HeadCommitOid ?? previous?.HeadCommitOid,
+            ActivityDates = activityDates
+        };
+    }
 
     /// True when, since the dismissal, someone pushed commits or someone other than the viewer commented/reviewed.
     public bool HasNewActivity(DismissalSnapshot snapshot, string? viewer) =>
@@ -36,7 +79,50 @@ public enum MatchReason { WatchedAuthor, Mention, ReviewRequested }
 public enum SortOrder { RecentlyUpdated, OldestFirst, LargestChanges }
 
 /// A comment or submitted review by a human (bots are skipped while parsing).
-public sealed record PrActivity(string Login, DateTimeOffset Date);
+public sealed record PrActivity(string Login, DateTimeOffset Date, ActivityKind Kind = ActivityKind.Comment, string? Id = null)
+{
+    public string NotificationKey => Id ?? $"{Login.ToUpperInvariant()}|{Kind}|{Date.UtcDateTime.Ticks}";
+}
+
+public enum ActivityKind { Comment, Approved, ChangesRequested, ReviewComment, ReviewDismissed }
+
+public sealed class NotificationSnapshot
+{
+    public string? HeadCommitOid { get; set; }
+    public Dictionary<string, DateTimeOffset> ActivityDates { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed record PullRequestAlert(PullRequest PullRequest, IReadOnlyList<string> Details);
+
+public static class ActivityText
+{
+    /// Maps a GitHub `PullRequestReviewState`.
+    public static ActivityKind FromReviewState(string? state) => state switch
+    {
+        "APPROVED" => ActivityKind.Approved,
+        "CHANGES_REQUESTED" => ActivityKind.ChangesRequested,
+        "DISMISSED" => ActivityKind.ReviewDismissed,
+        _ => ActivityKind.ReviewComment
+    };
+
+    public static string Label(this ActivityKind kind) => kind switch
+    {
+        ActivityKind.Approved => "zatwierdzenie ✅",
+        ActivityKind.ChangesRequested => "prośba o zmiany",
+        ActivityKind.ReviewComment => "komentarz w review",
+        ActivityKind.ReviewDismissed => "odrzucone review",
+        _ => "komentarz"
+    };
+
+    /// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
+    public static string Summarize(IReadOnlyList<string> lines, int limit = 3) => lines.Count <= limit
+        ? string.Join("\n", lines)
+        : string.Join("\n", lines.Take(limit).Append($"+{lines.Count - limit} więcej"));
+
+    public static string NewPullRequest(PullRequest pr) =>
+        pr.Reasons.Contains(MatchReason.ReviewRequested) ? "Poproszono Cię o review"
+        : pr.Reasons.Contains(MatchReason.Mention) ? "Wspomniano Cię w PR-ze" : $"Nowy PR od {pr.Author}";
+}
 public sealed record PullRequestReview(string Login, string? CommitOid, DateTimeOffset? SubmittedAt);
 
 /// State of a PR when it was dismissed; newer activity brings the PR back.
@@ -98,12 +184,14 @@ public sealed class LocalState
     public HashSet<string> Collapsed { get; set; } = [];
     public Dictionary<string, DateTimeOffset> Snoozed { get; set; } = [];
     public HashSet<string>? Seen { get; set; }
+    public Dictionary<string, NotificationSnapshot> NotificationSnapshots { get; set; } = new(StringComparer.Ordinal);
 
     public void Migrate(DateTimeOffset now)
     {
         Dismissals ??= [];
         Collapsed ??= [];
         Snoozed ??= [];
+        NotificationSnapshots ??= new(StringComparer.Ordinal);
         foreach (var id in Dismissed ?? []) Dismissals.TryAdd(id, new DismissalSnapshot { DismissedAt = now });
         Dismissed = null;
     }
@@ -114,7 +202,12 @@ public sealed class LocalState
             kv => new DismissalSnapshot { DismissedAt = kv.Value.DismissedAt, HeadCommitOid = kv.Value.HeadCommitOid }),
         Collapsed = Collapsed.ToHashSet(),
         Snoozed = Snoozed.ToDictionary(kv => kv.Key, kv => kv.Value),
-        Seen = Seen?.ToHashSet()
+        Seen = Seen?.ToHashSet(),
+        NotificationSnapshots = NotificationSnapshots.ToDictionary(kv => kv.Key, kv => new NotificationSnapshot
+        {
+            HeadCommitOid = kv.Value.HeadCommitOid,
+            ActivityDates = kv.Value.ActivityDates.ToDictionary(item => item.Key, item => item.Value)
+        }, StringComparer.Ordinal)
     };
 
     public bool IsDismissed(string id) => Dismissals.ContainsKey(id);
@@ -169,14 +262,22 @@ public sealed class LocalState
         prs.Where(pr => IsSnoozed(pr.Id, now ?? DateTimeOffset.UtcNow));
 
     /// Un-dismisses PRs with new activity and returns them.
-    public List<PullRequest> Reactivate(IEnumerable<PullRequest> prs, string? viewer)
+    public List<PullRequest> Reactivate(IEnumerable<PullRequest> prs, string? viewer) =>
+        Reactivate(prs, viewer, out _);
+
+    /// Un-dismisses PRs with new activity; `changes` describes what happened per PR ID.
+    public List<PullRequest> Reactivate(IEnumerable<PullRequest> prs, string? viewer,
+        out Dictionary<string, List<string>> changes)
     {
         var reactivated = new List<PullRequest>();
+        changes = new(StringComparer.Ordinal);
         foreach (var pr in prs)
         {
             if (!Dismissals.TryGetValue(pr.Id, out var snapshot)) continue;
             if (pr.HasNewActivity(snapshot, viewer))
             {
+                var described = pr.Changes(snapshot, viewer);
+                changes[pr.Id] = described.Count > 0 ? described : ["Nowa aktywność"];
                 Dismissals.Remove(pr.Id);
                 reactivated.Add(pr);
             }
@@ -187,15 +288,45 @@ public sealed class LocalState
     }
 
     public List<PullRequest> Observe(IEnumerable<PullRequest> prs, bool notify, bool baseline,
-        IReadOnlyCollection<PullRequest>? reactivated = null, IReadOnlySet<string>? wokeFromSnooze = null)
+        IReadOnlyCollection<PullRequest>? reactivated = null, IReadOnlySet<string>? wokeFromSnooze = null) =>
+        ObserveAlerts(prs, notify, baseline, null, reactivated, wokeFromSnooze)
+            .Select(alert => alert.PullRequest).ToList();
+
+    public List<PullRequestAlert> ObserveAlerts(IEnumerable<PullRequest> prs, bool notify, bool baseline,
+        string? viewer, IReadOnlyCollection<PullRequest>? reactivated = null,
+        IReadOnlySet<string>? wokeFromSnooze = null,
+        IReadOnlyDictionary<string, List<string>>? reactivationChanges = null)
     {
         var current = prs.ToList();
-        var alerts = notify && !baseline && Seen is not null
-            ? current.Where(pr => !Seen.Contains(pr.Id) && !IsDismissed(pr.Id) && !IsSnoozed(pr.Id, DateTimeOffset.UtcNow))
-                .Concat((reactivated ?? []).Where(pr => Seen.Contains(pr.Id))).ToList()
-                .Concat(current.Where(pr => wokeFromSnooze?.Contains(pr.Id) == true && Seen.Contains(pr.Id)
-                    && !IsDismissed(pr.Id))).ToList()
-            : [];
+        var previousSeen = Seen;
+        var alerts = new List<PullRequestAlert>();
+        if (notify && !baseline && previousSeen is not null)
+        {
+            var fresh = current.Where(pr => !previousSeen.Contains(pr.Id) && !IsDismissed(pr.Id)
+                && !IsSnoozed(pr.Id, DateTimeOffset.UtcNow)).ToList();
+            alerts.AddRange(fresh.Select(pr => new PullRequestAlert(pr, [ActivityText.NewPullRequest(pr)])));
+            foreach (var pr in (reactivated ?? []).Where(pr => previousSeen.Contains(pr.Id)))
+            {
+                var details = reactivationChanges is not null && reactivationChanges.TryGetValue(pr.Id, out var changes)
+                    ? changes : ["Nowa aktywność"];
+                alerts.Add(new PullRequestAlert(pr, details));
+            }
+            foreach (var pr in current.Where(pr => wokeFromSnooze?.Contains(pr.Id) == true
+                         && previousSeen.Contains(pr.Id) && !IsDismissed(pr.Id)))
+                alerts.Add(new PullRequestAlert(pr, ["Koniec odłożenia"]));
+
+            var handled = alerts.Select(alert => alert.PullRequest.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var pr in current.Where(pr => previousSeen.Contains(pr.Id) && !handled.Contains(pr.Id)
+                         && !IsDismissed(pr.Id) && !IsSnoozed(pr.Id, DateTimeOffset.UtcNow)))
+            {
+                if (!NotificationSnapshots.TryGetValue(pr.Id, out var snapshot)) continue;
+                var changes = pr.NewActivity(snapshot, viewer);
+                if (changes.Count > 0) alerts.Add(new PullRequestAlert(pr, changes));
+            }
+        }
+        NotificationSnapshots = current.ToDictionary(pr => pr.Id,
+            pr => pr.CreateNotificationSnapshot(NotificationSnapshots.GetValueOrDefault(pr.Id)),
+            StringComparer.Ordinal);
         Seen = current.Select(pr => pr.Id).ToHashSet();
         return alerts;
     }

@@ -52,12 +52,12 @@ do {
        "author":{"login":"alice","avatarUrl":"https://avatars.githubusercontent.com/u/1"},
        "repository":{"nameWithOwner":"o/r"},
        "additions":14,"deletions":3,"labels":{"nodes":[{"name":"bug"},{"name":"triage"}]},
-       "commits":{"nodes":[{"commit":{"oid":"abc123","statusCheckRollup":{"state":"FAILURE"}}}]},
-       "comments":{"nodes":[{"createdAt":"2026-10-22T10:00:00Z","author":{"__typename":"User","login":"bob"}},
+       "commits":{"nodes":[{"commit":{"oid":"abc123","author":{"user":{"login":"dave"}},"statusCheckRollup":{"state":"FAILURE"}}}]},
+       "comments":{"nodes":[{"id":"comment-1","createdAt":"2026-10-22T10:00:00Z","author":{"__typename":"User","login":"bob"}},
                             {"createdAt":"2026-10-22T11:00:00Z","author":{"__typename":"Bot","login":"ci-bot"}},
                             {"createdAt":"2026-10-22T12:00:00Z","author":null}]},
-       "reviews":{"nodes":[{"submittedAt":"2026-10-23T10:00:00Z","author":{"__typename":"User","login":"carol"}},
-                           {"submittedAt":"2026-10-23T11:00:00Z","state":"APPROVED","commit":{"oid":"abc123"},"author":{"__typename":"User","login":"me"}},
+       "reviews":{"nodes":[{"id":"review-1","submittedAt":"2026-10-23T10:00:00Z","state":"CHANGES_REQUESTED","author":{"__typename":"User","login":"carol"}},
+                           {"id":"review-2","submittedAt":"2026-10-23T11:00:00Z","state":"APPROVED","commit":{"oid":"abc123"},"author":{"__typename":"User","login":"me"}},
                            {"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}},
       {},
       {"id":"PR_2","number":3,"title":"No CI","url":"https://github.com/o/r/pull/3",
@@ -79,6 +79,26 @@ do {
           "change size and labels parsed")
     check(first.activity.map(\.login) == ["bob", "carol", "me"],
           "human comments and submitted reviews kept, bots/ghosts/pending skipped")
+    check(first.activity.map(\.kind) == [.comment, .changesRequested, .approved], "activity kinds parsed")
+    check(first.headCommitAuthor == "dave", "head commit author parsed")
+    let since = DismissalSnapshot(dismissedAt: Date(timeIntervalSince1970: 0), headCommitOID: "old")
+    check(first.changes(since: since, viewer: "me") == ["dave — nowe commity", "bob — komentarz", "carol — prośba o zmiany"],
+          "changes describe who did what, excluding the viewer")
+    let activeSnapshot = first.notificationSnapshot(preserving: nil)
+    let newReview = Activity(login: "erin", date: Date(), kind: .approved, id: "review-new")
+    let activeUpdate = PullRequest(
+        id: first.id, number: first.number, title: first.title, url: first.url, repository: first.repository,
+        author: first.author, authorAvatarURL: first.authorAvatarURL, createdAt: first.createdAt,
+        updatedAt: first.updatedAt, reviewDecision: first.reviewDecision, checks: first.checks,
+        headCommitOID: first.headCommitOID, activity: first.activity + [newReview], reasons: first.reasons,
+        additions: first.additions, deletions: first.deletions, labels: first.labels, reviews: first.reviews,
+        headCommitAuthor: first.headCommitAuthor
+    )
+    check(activeUpdate.newActivity(since: activeSnapshot, viewer: "me") == ["erin — zatwierdzenie ✅"],
+          "new activity on an active PR is detected")
+    let updatedSnapshot = activeUpdate.notificationSnapshot(preserving: activeSnapshot)
+    check(activeUpdate.newActivity(since: updatedSnapshot, viewer: "me").isEmpty,
+          "activity snapshots prevent duplicate alerts")
     check(first.hasViewerReviewedCurrentHead("ME"), "review on current head identified case-insensitively")
     check(page.pullRequests[1].activity.isEmpty && page.pullRequests[1].headCommitOID == nil, "missing activity tolerated")
 } catch {
@@ -151,6 +171,10 @@ do {
     check(!pr(oid: "a1", activity: [mine]).hasNewActivity(since: snapshot, viewer: "me"), "own comment ignored (case-insensitive)")
     let unknownCommit = DismissalSnapshot(dismissedAt: dismissedAt, headCommitOID: nil)
     check(!pr(oid: "b2", activity: []).hasNewActivity(since: unknownCommit, viewer: "me"), "no commit baseline -> no commit reactivation")
+    let twice = pr(oid: "a1", activity: [after, Activity(login: "bob", date: dismissedAt.addingTimeInterval(90))])
+    check(twice.changes(since: snapshot, viewer: "me") == ["bob — komentarz"], "repeated activity collapsed")
+    check(pr(oid: "b2", activity: []).changes(since: snapshot, viewer: "me") == ["Nowe commity"], "push without known author")
+    check(summarizeChanges(["a", "b", "c", "d", "e"]) == "a\nb\nc\n+2 więcej", "long change lists truncated")
     let encoded = try JSONEncoder().encode(snapshot)
     check(try JSONDecoder().decode(DismissalSnapshot.self, from: encoded) == snapshot, "snapshot round-trips")
 } catch {

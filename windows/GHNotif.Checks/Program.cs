@@ -29,10 +29,10 @@ string Node(string id, bool deleted = false) => $$$$"""
     "createdAt":"2026-10-01T10:00:00Z","updatedAt":"2026-10-02T10:00:00Z",
     "reviewDecision":null,"author":{{{{(deleted ? "null" : """{"login":"example","avatarUrl":null}""")}}}},
     "additions":14,"deletions":3,"labels":{"nodes":[{"name":"wip"}]},
-    "repository":{"nameWithOwner":"example/demo"},"commits":{"nodes":[{"commit":{"oid":"c1","statusCheckRollup":null}}]},
-    "comments":{"nodes":[{"createdAt":"2026-10-03T10:00:00Z","author":{"__typename":"User","login":"reviewer"}},
+    "repository":{"nameWithOwner":"example/demo"},"commits":{"nodes":[{"commit":{"oid":"c1","author":{"user":{"login":"pusher"}},"statusCheckRollup":null}}]},
+    "comments":{"nodes":[{"id":"comment-1","createdAt":"2026-10-03T10:00:00Z","author":{"__typename":"User","login":"reviewer"}},
       {"createdAt":"2026-10-03T11:00:00Z","author":{"__typename":"Bot","login":"ci"}},{"createdAt":"2026-10-03T12:00:00Z","author":null}]},
-    "reviews":{"nodes":[{"submittedAt":"2026-10-04T10:00:00Z","state":"APPROVED","commit":{"oid":"c1"},
+    "reviews":{"nodes":[{"id":"review-1","submittedAt":"2026-10-04T10:00:00Z","state":"APPROVED","commit":{"oid":"c1"},
       "author":{"__typename":"User","login":"me"}},{"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}}
     """;
 string Page(string nodes, bool more, string cursor = "cursor") => $$$$"""
@@ -52,6 +52,11 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     Check(reviewedState.Reactivate([pr with { HeadCommitOid = "c2" }], "me").Single().Id == pr.Id,
         "New commit after review reactivates PR");
     Check(pr.Activity!.Select(a => a.Login).SequenceEqual(["reviewer", "me"]), "Only human, submitted activity kept");
+    Check(pr.Activity!.Select(a => a.Kind).SequenceEqual([ActivityKind.Comment, ActivityKind.Approved]), "Activity kinds parsed");
+    Check(pr.HeadCommitAuthor == "pusher", "Head commit author parsed");
+    var since = new DismissalSnapshot { DismissedAt = DateTimeOffset.MinValue, HeadCommitOid = "c0" };
+    Check(pr.Changes(since, "me").SequenceEqual(["pusher — nowe commity", "reviewer — komentarz"]),
+        "Changes describe who did what, excluding the viewer");
 }
 
 var requests = new List<string>();
@@ -134,10 +139,27 @@ Check(state.Reactivate(prs, "me").Count == 0, "Old activity keeps PR dismissed")
 
 var one = prs.Single(pr => pr.Id == "one");
 var later = DateTimeOffset.Parse("2026-10-05T00:00:00Z");
+var activeState = new LocalState();
+Check(activeState.ObserveAlerts([one], true, false, "me").Count == 0, "Active activity baseline does not notify");
+var activeReview = one with
+{
+    Activity = (one.Activity ?? []).Append(new("reviewer", later, ActivityKind.ChangesRequested, "review-new")).ToList()
+};
+var activityAlert = activeState.ObserveAlerts([activeReview], true, false, "me").Single();
+Check(activityAlert.Details.SequenceEqual(["reviewer — prośba o zmiany"]),
+    "New review on an active PR reports actor and action");
+Check(activeState.ObserveAlerts([activeReview], true, false, "me").Count == 0, "Active review does not notify twice");
+var activeCommit = activeReview with { HeadCommitOid = "c2", HeadCommitAuthor = "pusher" };
+Check(activeState.ObserveAlerts([activeCommit], true, false, "me").Single().Details
+    .SequenceEqual(["pusher — nowe commity"]), "New commit on an active PR is reported");
+Check(activeState.Clone().NotificationSnapshots.ContainsKey("one"), "Notification state is cloned for persistence");
 var probe = state.Clone();
 Check(probe.Reactivate([one with { Activity = [new("ME", later)] }], "me").Count == 0, "Own comment ignored");
-Check(probe.Reactivate([one with { Activity = [new("reviewer", later)] }], "me").Count == 1 && !probe.IsDismissed("one"),
-    "New comment by someone else reactivates");
+Check(probe.Reactivate([one with { Activity = [new("reviewer", later, ActivityKind.ChangesRequested)] }], "me",
+        out var described).Count == 1 && !probe.IsDismissed("one"),
+    "New review by someone else reactivates");
+Check(described["one"].SequenceEqual(["reviewer — prośba o zmiany"]), "Reactivation reports who did what");
+Check(ActivityText.Summarize(["a", "b", "c", "d"]) == "a\nb\nc\n+1 więcej", "Long change lists truncated");
 Check(state.IsDismissed("one"), "Clone is independent");
 probe = state.Clone();
 Check(probe.Reactivate([one with { HeadCommitOid = "c2" }], "me").Count == 1, "New commit reactivates");

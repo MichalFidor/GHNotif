@@ -20,9 +20,9 @@ public sealed class GitHubClient(HttpClient http)
               author { login avatarUrl } repository { nameWithOwner }
               additions deletions
               labels(first: 100) { nodes { name } }
-              commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-              comments(last: 10) { nodes { createdAt author { __typename login } } }
-              reviews(last: 100) { nodes { submittedAt state commit { oid } author { __typename login } } }
+              commits(last: 1) { nodes { commit { oid author { user { login } } statusCheckRollup { state } } } }
+              comments(last: 10) { nodes { id createdAt author { __typename login } } }
+              reviews(last: 100) { nodes { id submittedAt state commit { oid } author { __typename login } } }
             } }
           }
         }
@@ -150,6 +150,7 @@ public sealed class GitHubClient(HttpClient http)
         var author = node.GetProperty("author");
         string? checks = null;
         string? oid = null;
+        string? headAuthor = null;
         var additions = node.TryGetProperty("additions", out var additionsNode) ? additionsNode.GetInt32() : 0;
         var deletions = node.TryGetProperty("deletions", out var deletionsNode) ? deletionsNode.GetInt32() : 0;
         var labels = node.TryGetProperty("labels", out var labelConnection)
@@ -174,6 +175,8 @@ public sealed class GitHubClient(HttpClient http)
         {
             var commit = commits[0].GetProperty("commit");
             oid = Text(commit, "oid");
+            if (commit.TryGetProperty("author", out var gitAuthor) && gitAuthor.ValueKind == JsonValueKind.Object
+                && gitAuthor.TryGetProperty("user", out var commitUser)) headAuthor = Text(commitUser, "login");
             if (commit.TryGetProperty("statusCheckRollup", out var rollup)) checks = Text(rollup, "state");
         }
         var activity = Activity(node, "comments", "createdAt").Concat(Activity(node, "reviews", "submittedAt")).ToList();
@@ -187,7 +190,8 @@ public sealed class GitHubClient(HttpClient http)
             Additions = additions,
             Deletions = deletions,
             Labels = labels,
-            Reviews = reviews
+            Reviews = reviews,
+            HeadCommitAuthor = headAuthor
         };
     }
 
@@ -200,7 +204,9 @@ public sealed class GitHubClient(HttpClient http)
             var login = Text(author, "login");
             var date = Text(item, dateField);
             if (login is null || date is null || Text(author, "__typename") == "Bot") continue;
-            yield return new PrActivity(login, DateTimeOffset.Parse(date, System.Globalization.CultureInfo.InvariantCulture));
+            var kind = connection == "reviews" ? ActivityText.FromReviewState(Text(item, "state")) : ActivityKind.Comment;
+            yield return new PrActivity(login, DateTimeOffset.Parse(date, System.Globalization.CultureInfo.InvariantCulture),
+                kind, Text(item, "id"));
         }
     }
 
