@@ -229,12 +229,14 @@ public sealed class LocalState
         foreach (var pr in prs)
             if (!IsDismissed(pr.Id) && pr.ViewerReviewAt(viewer) is { } reviewedAt)
             {
-                Snoozed.Remove(pr.Id);
-                Dismissals[pr.Id] = new DismissalSnapshot
+                var snapshot = new DismissalSnapshot
                 {
                     DismissedAt = reviewedAt,
                     HeadCommitOid = pr.HeadCommitOid
                 };
+                if (pr.HasNewActivity(snapshot, viewer)) continue;
+                Snoozed.Remove(pr.Id);
+                Dismissals[pr.Id] = snapshot;
             }
     }
     public void Snooze(PullRequest pr, DateTimeOffset until)

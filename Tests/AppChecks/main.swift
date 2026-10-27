@@ -166,6 +166,41 @@ func runChecks() async throws {
     await model.refresh()
     precondition(model.pullRequests.isEmpty && model.dismissedPullRequests.map(\.id) == [pr.id],
                  "Review of the current commit automatically marks the PR done")
+    let commentAfterReview = Activity(login: "commenter", date: reviewAt.addingTimeInterval(60), id: "after-review")
+    let reviewedPR = makePR(
+        activity: [commentAfterReview],
+        reviews: [PullRequestReview(login: "me", commitOID: "c1", submittedAt: reviewAt)]
+    )
+    GitHubClient.results = [reviewedPR]
+    let beforeComment = Notifier.notifiedIDs.count
+    await model.refresh()
+    precondition(model.pullRequests.map(\.id) == [pr.id], "Comment after my review reactivates the PR")
+    precondition(Notifier.notifiedIDs.count == beforeComment + 1
+                 && Notifier.notifiedDetails.last == ["commenter — komentarz"],
+                 "Comment after review notifies once")
+    for _ in 0..<4 { await model.refresh() }
+    precondition(Notifier.notifiedIDs.count == beforeComment + 1,
+                 "Repeated refreshes must not re-dismiss and re-notify the same comment after review")
+    let nextComment = Activity(login: "commenter", date: reviewAt.addingTimeInterval(120), id: "next-after-review")
+    GitHubClient.results = [makePR(
+        activity: [commentAfterReview, nextComment], reviews: reviewedPR.reviews
+    )]
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == beforeComment + 2,
+                 "A genuinely new comment after review still notifies")
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == beforeComment + 2, "New comment is not repeated either")
+    model.snooze(pr, until: Date().addingTimeInterval(3600))
+    await model.refresh()
+    precondition(model.snoozedRequests.map(\.id) == [pr.id] && Notifier.notifiedIDs.count == beforeComment + 2,
+                 "Old review does not cancel snooze after later activity")
+    GitHubClient.results = [makePR(
+        activity: [commentAfterReview, nextComment],
+        reviews: [PullRequestReview(login: "me", commitOID: "c1", submittedAt: reviewAt.addingTimeInterval(180))]
+    )]
+    await model.refresh()
+    precondition(model.pullRequests.isEmpty && model.dismissedPullRequests.map(\.id) == [pr.id],
+                 "A newer review marks the PR done again")
     GitHubClient.results = [makePR(oid: "c2", reviews: [PullRequestReview(login: "me", commitOID: "c1", submittedAt: reviewAt)])]
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "A commit after my review reactivates the PR")

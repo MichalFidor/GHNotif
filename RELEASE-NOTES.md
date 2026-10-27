@@ -1,3 +1,7 @@
+# GHNotif 0.4.1
+
+- Naprawiono powtarzające się powiadomienia o tej samej aktywności, gdy włączone jest automatyczne oznaczanie PR-ów po własnym review.
+
 # GHNotif 0.4.0
 
 - Powiadomienia pokazują konkretną aktywność na PR-ze: komentarze, zatwierdzenia, prośby o zmiany i nowe commity.

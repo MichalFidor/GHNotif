@@ -57,6 +57,42 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     var since = new DismissalSnapshot { DismissedAt = DateTimeOffset.MinValue, HeadCommitOid = "c0" };
     Check(pr.Changes(since, "me").SequenceEqual(["pusher — nowe commity", "reviewer — komentarz"]),
         "Changes describe who did what, excluding the viewer");
+
+    var reviewState = new LocalState();
+    reviewState.AutoDismissReviewed([pr], "me");
+    reviewState.ObserveAlerts([pr], true, true, "me");
+    var reviewAt = pr.ViewerReviewAt("me")!.Value;
+    var comment = new PrActivity("commenter", reviewAt.AddMinutes(1), Id: "after-review");
+    var commented = pr with { Activity = [.. pr.Activity!, comment] };
+    List<PullRequestAlert> RefreshReviewed(PullRequest current)
+    {
+        reviewState.AutoDismissReviewed([current], "me");
+        var returned = reviewState.Reactivate([current], "me", out var details);
+        return reviewState.ObserveAlerts([current], true, false, "me", returned,
+            reactivationChanges: details);
+    }
+    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["commenter — komentarz"]),
+        "Comment after review notifies once");
+    for (var i = 0; i < 4; i++)
+    {
+        reviewState = JsonSerializer.Deserialize<LocalState>(JsonSerializer.Serialize(reviewState))!;
+        Check(RefreshReviewed(commented).Count == 0 && !reviewState.IsDismissed(pr.Id),
+            "Repeated refresh and state reload do not re-notify a comment after review");
+    }
+    var nextComment = new PrActivity("commenter", reviewAt.AddMinutes(2), Id: "next-after-review");
+    commented = commented with { Activity = [.. commented.Activity!, nextComment] };
+    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["commenter — komentarz"]),
+        "A genuinely new comment after review still notifies");
+    Check(RefreshReviewed(commented).Count == 0, "New comment is not repeated either");
+    reviewState.Snooze(commented, DateTimeOffset.UtcNow.AddHours(1));
+    Check(RefreshReviewed(commented).Count == 0 && reviewState.IsSnoozed(pr.Id, DateTimeOffset.UtcNow),
+        "Old review does not cancel snooze after later activity");
+    var reviewedAgain = commented with
+    {
+        Reviews = [new PullRequestReview("me", "c1", reviewAt.AddMinutes(3))]
+    };
+    Check(RefreshReviewed(reviewedAgain).Count == 0 && reviewState.IsDismissed(pr.Id),
+        "A newer review marks the PR done again");
 }
 
 var requests = new List<string>();

@@ -240,10 +240,10 @@ final class AppModel: ObservableObject {
             if config.autoDismissReviewed, let viewer = outcome.viewerLogin {
                 for pr in outcome.pullRequests {
                     if let reviewedAt = pr.viewerReviewAt(viewer), dismissals[pr.id] == nil {
+                        let snapshot = DismissalSnapshot(dismissedAt: reviewedAt, headCommitOID: pr.headCommitOID)
+                        guard !pr.hasNewActivity(since: snapshot, viewer: viewer) else { continue }
                         snoozedPullRequests[pr.id] = nil
-                        dismissals[pr.id] = DismissalSnapshot(
-                            dismissedAt: reviewedAt, headCommitOID: pr.headCommitOID
-                        )
+                        dismissals[pr.id] = snapshot
                     }
                 }
             }
