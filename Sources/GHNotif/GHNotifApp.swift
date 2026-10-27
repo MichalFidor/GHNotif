@@ -10,11 +10,16 @@ struct GHNotifApp: App {
                 .environmentObject(model)
         } label: {
             HStack(spacing: 2) {
-                Image(systemName: model.lastError == nil ? "arrow.triangle.pull" : "exclamationmark.triangle")
+                if model.lastError == nil {
+                    Image("TrayMark", bundle: .module).renderingMode(.template)
+                } else {
+                    Image(systemName: "exclamationmark.triangle")
+                }
                 if !model.pullRequests.isEmpty {
                     Text("\(model.pullRequests.count)")
                 }
             }
+            .help(model.lastError == nil ? "GHNotif — PR-y wymagające uwagi" : "GHNotif — błąd pobierania PR-ów")
         }
         .menuBarExtraStyle(.window)
 

@@ -11,6 +11,9 @@ BIN="$(swift build -c release --show-bin-path)/GHNotif"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/GHNotif"
+cp assets/GHNotif.icns "$APP/Contents/Resources/GHNotif.icns"
+# SwiftPM resolves Bundle.module from the app's resource directory.
+cp -R "$(dirname "$BIN")/GHNotif_GHNotif.bundle" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,6 +24,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>GHNotif</string>
     <key>CFBundleDisplayName</key><string>GHNotif</string>
     <key>CFBundleExecutable</key><string>GHNotif</string>
+    <key>CFBundleIconFile</key><string>GHNotif.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
@@ -31,6 +35,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+codesign --force --sign - "$APP/Contents/Resources/GHNotif_GHNotif.bundle"
 codesign --force --sign - "$APP"
 echo "Built $APP"
 

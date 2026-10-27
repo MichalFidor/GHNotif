@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     targets: [
         .target(name: "GHNotifCore"),
-        .executableTarget(name: "GHNotif", dependencies: ["GHNotifCore"]),
+        .executableTarget(name: "GHNotif", dependencies: ["GHNotifCore"], resources: [.process("Resources")]),
         // Plain executable instead of a test target: Command Line Tools ship neither XCTest nor Swift Testing macros.
         .executableTarget(name: "CoreChecks", dependencies: ["GHNotifCore"], path: "Tests/CoreChecks"),
     ],

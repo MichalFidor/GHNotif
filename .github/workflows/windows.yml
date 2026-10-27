@@ -1,0 +1,33 @@
+name: Windows
+on:
+  push:
+    paths: ["windows/**", "assets/**", "scripts/build-windows.ps1", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**", "assets/**", "scripts/build-windows.ps1", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Core tests
+        run: dotnet run --project windows/GHNotif.Checks -c Release
+      - name: Windows UI and DPAPI tests
+        run: dotnet run --project windows/GHNotif.Windows.Checks -c Release
+      - name: Build portable Windows x64 app
+        run: ./scripts/build-windows.ps1
+      - name: Build portable Windows ARM64 app
+        run: ./scripts/build-windows.ps1 -Runtime win-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GHNotif-Windows
+          path: build/GHNotif-win-*.zip
+          if-no-files-found: error

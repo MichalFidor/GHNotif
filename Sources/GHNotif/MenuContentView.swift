@@ -183,6 +183,7 @@ private struct PullRequestRow: View {
                     }
                     .frame(width: 22, height: 22)
                     .clipShape(Circle())
+                    .help("Autor: \(pr.author)")
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(pr.title).lineLimit(2)
@@ -197,7 +198,7 @@ private struct PullRequestRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(pr.url.absoluteString)
+            .help("Otwórz PR w przeglądarce\n" + pr.url.absoluteString)
             Button(action: toggleDismissed) {
                 Image(systemName: isDismissed ? "arrow.uturn.backward.circle" : "checkmark.circle")
                     .foregroundStyle(isDismissed ? Color.accentColor : .secondary)
@@ -223,11 +224,11 @@ private struct ReviewBadge: View {
     var body: some View {
         switch decision {
         case .approved:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Approved")
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Review: PR zatwierdzony")
         case .changesRequested:
-            Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange).help("Changes requested")
+            Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange).help("Review: poproszono o zmiany")
         case .reviewRequired:
-            Image(systemName: "eye").foregroundStyle(.secondary).help("Review required")
+            Image(systemName: "eye").foregroundStyle(.secondary).help("Review: wymagane zatwierdzenie")
         case nil:
             EmptyView()
         }
@@ -240,11 +241,11 @@ private struct ChecksIndicator: View {
     var body: some View {
         switch state {
         case .success:
-            Circle().fill(.green).frame(width: 8, height: 8).help("CI: success").padding(.top, 5)
+            Circle().fill(.green).frame(width: 8, height: 8).help("CI: wszystkie sprawdzenia zakończone powodzeniem").padding(.top, 5)
         case .failure, .error:
-            Circle().fill(.red).frame(width: 8, height: 8).help("CI: failed").padding(.top, 5)
+            Circle().fill(.red).frame(width: 8, height: 8).help("CI: błąd lub nieudane sprawdzenia").padding(.top, 5)
         case .pending, .expected:
-            Circle().fill(.yellow).frame(width: 8, height: 8).help("CI: pending").padding(.top, 5)
+            Circle().fill(.yellow).frame(width: 8, height: 8).help("CI: oczekuje lub jest w toku").padding(.top, 5)
         case nil:
             EmptyView()
         }
