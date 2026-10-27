@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GHNotif.Core;
 using GHNotif.Windows;
@@ -41,11 +42,23 @@ internal static class Program
             Check(!File.ReadAllText(Path.Combine(folder, "token.dat")).Contains("fixture-token"),
                 "Token must not be stored in plaintext");
             await app.RefreshAsync();
+            Check(app.Results.PullRequests.Count == 1, "Fixture search must return one PR");
             var panel = new TrayWindow(app);
             panel.ShowPanel();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             panel.UpdateLayout();
             Check(panel.ActualHeight > 150 && panel.ActualWidth >= 500, "PR panel must not collapse");
-            var done = Buttons(panel).Single(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true);
+            var preview = new RenderTargetBitmap((int)Math.Ceiling(panel.ActualWidth * 1.5),
+                (int)Math.Ceiling(panel.ActualHeight * 1.5), 144, 144, PixelFormats.Pbgra32);
+            preview.Render(panel);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(preview));
+            Directory.CreateDirectory("build");
+            using (var file = File.Create("build/windows-preview.png")) encoder.Save(file);
+            var rendered = Buttons(panel).ToList();
+            Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true),
+                "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
+            var done = rendered.Single(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true);
             done.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 0, "Dismiss button removes PR");
             await app.RefreshAsync();
@@ -54,12 +67,14 @@ internal static class Program
                 "Dismiss saved to disk");
             Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż załatwione PR-y"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             panel.UpdateLayout();
             Buttons(panel).Single(b => Equals(b.ToolTip, "Przywróć na listę wymagających uwagi"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 1, "Restore button works");
             var settings = new SettingsWindow(app);
             settings.Show();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Settings render");
             settings.Close();

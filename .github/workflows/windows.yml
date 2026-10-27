@@ -22,6 +22,13 @@ jobs:
         run: dotnet run --project windows/GHNotif.Checks -c Release
       - name: Windows UI and DPAPI tests
         run: dotnet run --project windows/GHNotif.Windows.Checks -c Release
+      - name: Upload UI preview (fictional data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GHNotif-Windows-preview
+          path: build/windows-preview.png
+          if-no-files-found: ignore
       - name: Build portable Windows x64 app
         run: ./scripts/build-windows.ps1
       - name: Build portable Windows ARM64 app
