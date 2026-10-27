@@ -20,6 +20,18 @@ public enum MatchReason: String, Hashable, Sendable, CaseIterable {
     case reviewRequested
 }
 
+public struct PullRequestReview: Hashable, Sendable {
+    public let login: String
+    public let commitOID: String?
+    public let submittedAt: Date?
+
+    public init(login: String, commitOID: String?, submittedAt: Date?) {
+        self.login = login
+        self.commitOID = commitOID
+        self.submittedAt = submittedAt
+    }
+}
+
 public struct PullRequest: Identifiable, Hashable, Sendable {
     public let id: String
     public let number: Int
@@ -33,6 +45,10 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public let reviewDecision: ReviewDecision?
     public let checks: CheckState?
     public let headCommitOID: String?
+    public let additions: Int
+    public let deletions: Int
+    public let labels: [String]
+    public let reviews: [PullRequestReview]
     /// Recent comments and reviews by humans (bots excluded).
     public let activity: [Activity]
     /// Why the PR is listed; a PR can match several searches.
@@ -42,7 +58,8 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         id: String, number: Int, title: String, url: URL, repository: String, author: String,
         authorAvatarURL: URL?, createdAt: Date, updatedAt: Date,
         reviewDecision: ReviewDecision?, checks: CheckState?,
-        headCommitOID: String? = nil, activity: [Activity] = [], reasons: Set<MatchReason> = [.watchedAuthor]
+        headCommitOID: String? = nil, activity: [Activity] = [], reasons: Set<MatchReason> = [.watchedAuthor],
+        additions: Int = 0, deletions: Int = 0, labels: [String] = [], reviews: [PullRequestReview] = []
     ) {
         self.id = id
         self.number = number
@@ -58,6 +75,10 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         self.headCommitOID = headCommitOID
         self.activity = activity
         self.reasons = reasons
+        self.additions = additions
+        self.deletions = deletions
+        self.labels = labels
+        self.reviews = reviews
     }
 
     /// True when, since the dismissal, someone pushed commits or someone other than `viewer` commented/reviewed.
@@ -68,6 +89,17 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
                 && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true)
         }
     }
+
+    public func hasViewerReviewedCurrentHead(_ viewer: String?) -> Bool {
+        viewerReviewAt(viewer) != nil
+    }
+
+    public func viewerReviewAt(_ viewer: String?) -> Date? {
+        guard let viewer, let headCommitOID else { return nil }
+        return reviews.filter {
+            $0.login.caseInsensitiveCompare(viewer) == .orderedSame && $0.commitOID == headCommitOID
+        }.compactMap(\.submittedAt).max()
+        }
 }
 
 public struct Activity: Hashable, Sendable {

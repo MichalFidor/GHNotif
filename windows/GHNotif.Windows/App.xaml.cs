@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.Win32;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -74,6 +75,14 @@ public partial class App : Application
     internal string? Error { get; private set; }
     internal DateTimeOffset? LastRefresh { get; private set; }
     internal bool IsRefreshing => refreshing;
+    internal bool LaunchAtLogin
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+            return key?.GetValue("GHNotif") is string;
+        }
+    }
     internal event Action? Changed;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -174,8 +183,11 @@ public partial class App : Application
                 if (version != revision) { refreshQueued = true; continue; }
                 // Save seen IDs before publishing or notifying; a write failure must not look like success.
                 var next = State.Clone();
+                var wokeFromSnooze = next.ExpireSnoozes(result.PullRequests, DateTimeOffset.UtcNow);
+                if (config.AutoDismissReviewed) next.AutoDismissReviewed(result.PullRequests, result.ViewerLogin);
                 var reactivated = next.Reactivate(result.PullRequests, result.ViewerLogin);
-                var fresh = next.Observe(result.PullRequests, config.Notify, baseline, reactivated);
+                var fresh = next.Observe(result.PullRequests, config.Notify, baseline, reactivated,
+                    wokeFromSnooze.ToHashSet(StringComparer.Ordinal));
                 stateStore.Save(next);
                 State = next;
                 Results = result;
@@ -199,6 +211,11 @@ public partial class App : Application
         if (!next.Restore(pr.Id)) next.Dismiss(pr, DateTimeOffset.UtcNow);
     });
 
+    internal void Snooze(PullRequest pr, DateTimeOffset until) =>
+        UpdateState(next => next.Snooze(pr, until));
+
+    internal void Unsnooze(PullRequest pr) => UpdateState(next => next.Unsnooze(pr.Id));
+
     internal void ToggleCollapsed(string repository) => UpdateState(next => next.ToggleCollapsed(repository));
 
     private void UpdateState(Action<LocalState> change)
@@ -215,13 +232,39 @@ public partial class App : Application
     {
         config.Validate();
         var changedSearch = !config.Users.SequenceEqual(Config.Users) || config.ExtraQualifiers != Config.ExtraQualifiers
-            || config.IncludeMentions != Config.IncludeMentions || config.IncludeReviewRequests != Config.IncludeReviewRequests;
+            || config.IncludeMentions != Config.IncludeMentions || config.IncludeReviewRequests != Config.IncludeReviewRequests
+            || config.ExcludedRepositories.SequenceEqual(Config.ExcludedRepositories) == false
+            || config.ExcludedLabels.SequenceEqual(Config.ExcludedLabels) == false
+            || config.AutoDismissReviewed != Config.AutoDismissReviewed;
         configStore.Save(config);
         Config = config;
         baseline |= changedSearch;
         revision++;
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
         await RefreshAsync();
+    }
+
+    internal async Task ImportTeamAsync(string organization, string team)
+    {
+        var users = await Client.TeamMembersAsync(await Tokens.ResolveAsync(), organization, team);
+        var config = Config.Copy();
+        config.Users = QueryBuilder.Normalize(config.Users.Concat(users)).ToList();
+        await SaveConfigAsync(config);
+    }
+
+    internal void SetLaunchAtLogin(bool enabled)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")
+            ?? throw new InvalidOperationException("Nie można otworzyć klucza autostartu Windows.");
+        if (enabled)
+        {
+            var executable = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(executable))
+                throw new InvalidOperationException("Nie można ustalić ścieżki aplikacji dla autostartu.");
+            key.SetValue("GHNotif", $"\"{executable}\"");
+        }
+        else key.DeleteValue("GHNotif", false);
+        Changed?.Invoke();
     }
 
     internal void CredentialsChanged()

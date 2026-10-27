@@ -1,6 +1,12 @@
 import Foundation
 
 public struct AppConfig: Codable, Equatable, Sendable {
+    public enum SortOrder: String, Codable, CaseIterable, Sendable {
+        case recentlyUpdated
+        case oldestFirst
+        case largestChanges
+    }
+
     public var users: [String]
     /// Extra search qualifiers, e.g. `org:my-org`. Empty means every repository the token can see.
     public var extraQualifiers: String
@@ -10,10 +16,15 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var includeMentions: Bool
     /// Also show open PRs where a review is requested from the signed-in user personally (not via a team).
     public var includeReviewRequests: Bool
+    public var autoDismissReviewed: Bool
+    public var excludedRepositories: [String]
+    public var excludedLabels: [String]
+    public var sortOrder: SortOrder
 
     public init(
         users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true,
-        includeMentions: Bool = true, includeReviewRequests: Bool = false
+        includeMentions: Bool = true, includeReviewRequests: Bool = false, autoDismissReviewed: Bool = true,
+        excludedRepositories: [String] = [], excludedLabels: [String] = [], sortOrder: SortOrder = .recentlyUpdated
     ) {
         self.users = users
         self.extraQualifiers = extraQualifiers
@@ -21,6 +32,10 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.notify = notify
         self.includeMentions = includeMentions
         self.includeReviewRequests = includeReviewRequests
+        self.autoDismissReviewed = autoDismissReviewed
+        self.excludedRepositories = excludedRepositories
+        self.excludedLabels = excludedLabels
+        self.sortOrder = sortOrder
     }
 
     /// Missing keys (config files from older versions) fall back to defaults.
@@ -34,10 +49,22 @@ public struct AppConfig: Codable, Equatable, Sendable {
         includeMentions = try container.decodeIfPresent(Bool.self, forKey: .includeMentions) ?? fallback.includeMentions
         includeReviewRequests = try container.decodeIfPresent(Bool.self, forKey: .includeReviewRequests)
             ?? fallback.includeReviewRequests
+        autoDismissReviewed = try container.decodeIfPresent(Bool.self, forKey: .autoDismissReviewed)
+            ?? fallback.autoDismissReviewed
+        excludedRepositories = try container.decodeIfPresent([String].self, forKey: .excludedRepositories) ?? []
+        excludedLabels = try container.decodeIfPresent([String].self, forKey: .excludedLabels) ?? []
+        sortOrder = try container.decodeIfPresent(SortOrder.self, forKey: .sortOrder) ?? fallback.sortOrder
     }
 
     /// True when at least one search would run.
     public var hasSearches: Bool { !users.isEmpty || includeMentions || includeReviewRequests }
+
+    public func includes(_ pr: PullRequest) -> Bool {
+        !excludedRepositories.contains(where: { $0.caseInsensitiveCompare(pr.repository) == .orderedSame })
+            && !pr.labels.contains { label in
+                excludedLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame })
+            }
+    }
 
     public static let `default` = AppConfig(users: [])
 }

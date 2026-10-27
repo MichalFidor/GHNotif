@@ -51,11 +51,13 @@ do {
        "createdAt":"2026-10-20T10:00:00Z","updatedAt":"2026-10-21T10:00:00Z","reviewDecision":"APPROVED",
        "author":{"login":"alice","avatarUrl":"https://avatars.githubusercontent.com/u/1"},
        "repository":{"nameWithOwner":"o/r"},
+       "additions":14,"deletions":3,"labels":{"nodes":[{"name":"bug"},{"name":"triage"}]},
        "commits":{"nodes":[{"commit":{"oid":"abc123","statusCheckRollup":{"state":"FAILURE"}}}]},
        "comments":{"nodes":[{"createdAt":"2026-10-22T10:00:00Z","author":{"__typename":"User","login":"bob"}},
                             {"createdAt":"2026-10-22T11:00:00Z","author":{"__typename":"Bot","login":"ci-bot"}},
                             {"createdAt":"2026-10-22T12:00:00Z","author":null}]},
        "reviews":{"nodes":[{"submittedAt":"2026-10-23T10:00:00Z","author":{"__typename":"User","login":"carol"}},
+                           {"submittedAt":"2026-10-23T11:00:00Z","state":"APPROVED","commit":{"oid":"abc123"},"author":{"__typename":"User","login":"me"}},
                            {"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}},
       {},
       {"id":"PR_2","number":3,"title":"No CI","url":"https://github.com/o/r/pull/3",
@@ -73,7 +75,11 @@ do {
     check(page.pullRequests[1].author == "ghost" && page.pullRequests[1].checks == nil, "missing author / CI tolerated")
     check(page.viewerLogin == "me", "viewer login parsed")
     check(first.headCommitOID == "abc123", "head commit parsed")
-    check(first.activity.map(\.login) == ["bob", "carol"], "human comments and submitted reviews kept, bots/ghosts/pending skipped")
+    check(first.additions == 14 && first.deletions == 3 && first.labels == ["bug", "triage"],
+          "change size and labels parsed")
+    check(first.activity.map(\.login) == ["bob", "carol", "me"],
+          "human comments and submitted reviews kept, bots/ghosts/pending skipped")
+    check(first.hasViewerReviewedCurrentHead("ME"), "review on current head identified case-insensitively")
     check(page.pullRequests[1].activity.isEmpty && page.pullRequests[1].headCommitOID == nil, "missing activity tolerated")
 } catch {
     check(false, "search response parsing threw \(error)")
@@ -86,6 +92,21 @@ do {
     check(error == .graphQL("Bad query"), "GraphQL error message surfaced")
 } catch {
     check(false, "unexpected error type \(error)")
+}
+
+do {
+    let pr = PullRequest(id: "filtered", number: 2, title: "t",
+        url: URL(string: "https://github.com/acme/archive/pull/2")!, repository: "acme/archive", author: "a",
+        authorAvatarURL: nil, createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil,
+        labels: ["Do-Not-Review"])
+    var config = AppConfig(users: [])
+    config.excludedRepositories = ["ACME/ARCHIVE"]
+    check(!config.includes(pr), "repository exclusion ignores case")
+    config.excludedRepositories = []
+    config.excludedLabels = ["do-not-review"]
+    check(!config.includes(pr), "label exclusion ignores case")
+    config.excludedLabels = ["wip"]
+    check(config.includes(pr), "unmatched exclusions keep PR visible")
 }
 
 check(GitHubClient.ssoBlockedOrgIDs(from: "partial-results; organizations=21955855,20582480") == ["21955855", "20582480"],

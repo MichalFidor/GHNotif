@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace GHNotif.Core;
 
@@ -7,7 +8,8 @@ public sealed class JsonStore<T>(string path) where T : new()
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
     public T Load() => File.Exists(path)

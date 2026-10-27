@@ -1,11 +1,13 @@
-# GHNotif 0.2.0
+# GHNotif 0.3.0
 
-- Logo w pasku menu macOS jest widoczne obok licznika (wcześniej był tylko licznik).
-- Wzmianki: otwarte PR-y, w których ktoś Cię wspomniał (`@`), dowolnego autora (także spoza listy i Twoje). Domyślnie włączone.
-- Opcjonalnie prośby o Twoje review (tylko osobiste, nie zespołowe). Domyślnie wyłączone, żeby nie zalewać listy.
-- Ustawienia w stylu Apple: menu po lewej (Osoby / Wyszukiwanie / Ogólne / Token), treść po prawej; lista osób domyślnie zwinięta, z licznikiem i filtrem. Na Windows analogiczna nawigacja po lewej.
-- Poprawka: po zwinięciu wszystkich repozytoriów lista nie „ucieka” już na środek okna — panel zmniejsza się i zostaje przy pasku menu / zasobniku.
-- Starsze pliki konfiguracji są wczytywane bez zmian, nowe opcje dostają wartości domyślne.
+- Automatycznie oznaczaj PR jako załatwiony po własnym review aktualnego commita; nowy commit przywraca go na listę.
+- Odkładaj PR na 2 godziny lub do jutra rano. Osobna lista odłożonych i powiadomienie po powrocie.
+- Filtry wykluczające repozytoria i etykiety; sortowanie według aktualizacji, wieku lub rozmiaru zmian.
+- W wierszu PR-a pokazuj liczbę dodanych/usuniętych linii (status CI i decyzja review były już dostępne).
+- Import/eksport listy obserwowanych osób oraz import członków zespołu GitHub (token wymaga dostępu do członkostwa organizacji).
+- Przełącznik autostartu przy logowaniu w ustawieniach macOS i Windows.
+- Dodano publiczny Homebrew tap: `brew tap MichalFidor/ghnotif && brew install --cask ghnotif`. Aktualizacje: `brew upgrade --cask ghnotif`.
+- Workflow wydania generuje cask z sumami paczek i może synchronizować go z tapem; wymaga sekretu i zmiennej repozytorium opisanych w README.
 
 ## Instalacja
 

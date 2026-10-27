@@ -1,9 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Microsoft.Win32;
 using GHNotif.Core;
 
 namespace GHNotif.Windows;
@@ -19,6 +23,17 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox mentions = new() { Content = "PR-y, w których ktoś mnie wspomniał (@)", Margin = new Thickness(8) };
     private readonly CheckBox reviewRequests = new() { Content = "PR-y z prośbą o moje review", Margin = new Thickness(8) };
     private readonly TextBox filter = new() { Margin = new Thickness(3, 6, 3, 6) };
+    private readonly TextBox organization = new() { Margin = new Thickness(3), MinWidth = 140 };
+    private readonly TextBox team = new() { Margin = new Thickness(3), MinWidth = 140 };
+    private readonly TextBox excludedRepos = new() { Margin = new Thickness(8) };
+    private readonly TextBox excludedLabels = new() { Margin = new Thickness(8) };
+    private readonly CheckBox autoDismissReviewed = new()
+    {
+        Content = "Oznaczaj jako załatwione po moim review bieżącego commita",
+        Margin = new Thickness(8)
+    };
+    private readonly CheckBox launchAtLogin = new() { Content = "Uruchamiaj przy logowaniu", Margin = new Thickness(8) };
+    private readonly ComboBox sortOrder = new() { Margin = new Thickness(8), MinWidth = 190 };
     private readonly Expander peopleExpander = new() { Margin = new Thickness(0, 12, 0, 0), IsExpanded = false };
     private readonly TabControl tabs = new() { TabStripPlacement = Dock.Left, Padding = new Thickness(8, 0, 0, 0) };
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
@@ -51,6 +66,17 @@ internal sealed class SettingsWindow : Window
         list.Children.Add(new ScrollViewer { Content = users, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         peopleExpander.Content = list;
         people.Children.Add(peopleExpander);
+        people.Children.Add(Heading("Import zespołu GitHub"));
+        var teamFields = new StackPanel { Orientation = Orientation.Horizontal };
+        teamFields.Children.Add(organization);
+        teamFields.Children.Add(team);
+        people.Children.Add(teamFields);
+        people.Children.Add(Ui.Button("Importuj członków zespołu",
+            "Wymaga dostępu do członkostwa organizacji: read:org (classic) lub Members: read (fine-grained)",
+            () => _ = app.RunAsync(ImportTeamAsync)));
+        people.Children.Add(Ui.Button("Importuj / eksportuj listę osób", "Wymiana pliku JSON zawierającego wyłącznie loginy",
+            () => _ = app.RunAsync(ExchangeWatchlistAsync)));
+        people.Children.Add(Ui.Text("Import zespołu wymaga dostępu do członkostwa organizacji. Eksport nie zawiera tokenu ani innych ustawień."));
 
         var search = Page();
         search.Children.Add(Heading("Dodatkowo pokazuj"));
@@ -63,6 +89,15 @@ internal sealed class SettingsWindow : Window
         extra.Text = app.Config.ExtraQualifiers;
         extra.ToolTip = "Dodatkowe kwalifikatory GitHub, np. org:my-org. Puste = wszystkie dostępne repozytoria.";
         search.Children.Add(extra);
+        excludedRepos.Text = string.Join(", ", app.Config.ExcludedRepositories);
+        excludedLabels.Text = string.Join(", ", app.Config.ExcludedLabels);
+        search.Children.Add(Heading("Wykluczenia"));
+        excludedRepos.ToolTip = "Repozytoria owner/repo, oddzielone przecinkami";
+        excludedLabels.ToolTip = "Etykiety, oddzielone przecinkami";
+        search.Children.Add(Ui.Text("Repozytoria (owner/repo)"));
+        search.Children.Add(excludedRepos);
+        search.Children.Add(Ui.Text("Etykiety"));
+        search.Children.Add(excludedLabels);
         search.Children.Add(Ui.Button("Zapisz", "Zapisz ustawienia wyszukiwania", () => _ = app.RunAsync(SaveAsync)));
 
         var general = Page();
@@ -71,6 +106,19 @@ internal sealed class SettingsWindow : Window
         general.Children.Add(minutes);
         notify.IsChecked = app.Config.Notify;
         general.Children.Add(notify);
+        autoDismissReviewed.IsChecked = app.Config.AutoDismissReviewed;
+        general.Children.Add(autoDismissReviewed);
+        sortOrder.SelectedValuePath = "Tag";
+        sortOrder.Items.Add(new ComboBoxItem { Content = "Ostatnio aktualizowane", Tag = SortOrder.RecentlyUpdated });
+        sortOrder.Items.Add(new ComboBoxItem { Content = "Najstarsze najpierw", Tag = SortOrder.OldestFirst });
+        sortOrder.Items.Add(new ComboBoxItem { Content = "Największe zmiany", Tag = SortOrder.LargestChanges });
+        sortOrder.SelectedValue = app.Config.SortOrder;
+        general.Children.Add(Heading("Sortowanie"));
+        general.Children.Add(sortOrder);
+        launchAtLogin.IsChecked = app.LaunchAtLogin;
+        launchAtLogin.Checked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(true); return Task.CompletedTask; });
+        launchAtLogin.Unchecked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(false); return Task.CompletedTask; });
+        general.Children.Add(launchAtLogin);
         general.Children.Add(Ui.Button("Zapisz", "Zapisz interwał i powiadomienia", () => _ = app.RunAsync(SaveAsync)));
         general.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
         general.Children.Add(Ui.Button("Sprawdź aktualizacje", "Sprawdź najnowszy release na GitHubie",
@@ -154,8 +202,57 @@ internal sealed class SettingsWindow : Window
         config.Notify = notify.IsChecked == true;
         config.IncludeMentions = mentions.IsChecked == true;
         config.IncludeReviewRequests = reviewRequests.IsChecked == true;
+        config.AutoDismissReviewed = autoDismissReviewed.IsChecked == true;
+        config.ExcludedRepositories = ParseValues(excludedRepos.Text);
+        config.ExcludedLabels = ParseValues(excludedLabels.Text);
+        config.SortOrder = sortOrder.SelectedValue is SortOrder selected ? selected : SortOrder.RecentlyUpdated;
         await app.SaveConfigAsync(config);
     }
+
+    private async Task ImportTeamAsync()
+    {
+        if (string.IsNullOrWhiteSpace(organization.Text) || string.IsNullOrWhiteSpace(team.Text))
+            throw new InvalidOperationException("Podaj organizację i slug zespołu.");
+        await app.ImportTeamAsync(organization.Text.Trim(), team.Text.Trim());
+        RenderUsers();
+    }
+
+    private async Task ExchangeWatchlistAsync()
+    {
+        var choice = MessageBox.Show("Tak — eksportuj listę do pliku. Nie — importuj istniejącą listę.",
+            "Lista obserwowanych osób", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        if (choice == MessageBoxResult.Cancel) return;
+        if (choice == MessageBoxResult.Yes)
+        {
+            var save = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "ghnotif-watchlist.json" };
+            if (save.ShowDialog() != true) return;
+            File.WriteAllText(save.FileName, JsonSerializer.Serialize(new { formatVersion = 1, users = app.Config.Users },
+                new JsonSerializerOptions { WriteIndented = true }));
+            return;
+        }
+        var open = new OpenFileDialog { Filter = "JSON lub tekst (*.json;*.txt)|*.json;*.txt|Wszystkie pliki|*.*" };
+        if (open.ShowDialog() != true) return;
+        var text = File.ReadAllText(open.FileName);
+        List<string> imported;
+        if (!text.TrimStart().StartsWith('{') && !text.TrimStart().StartsWith('['))
+            imported = text.Split(['\r', '\n', ',', ' '], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        else using (var json = JsonDocument.Parse(text))
+        {
+            var root = json.RootElement;
+            imported = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()!).ToList()
+                : root.GetProperty("users").EnumerateArray().Select(item => item.GetString()!).ToList();
+        }
+        var config = Copy();
+        config.Users = QueryBuilder.Normalize(config.Users.Concat(imported)).ToList();
+        await app.SaveConfigAsync(config);
+        RenderUsers();
+    }
+
+    private static List<string> ParseValues(string value) => value.Split([',', '\r', '\n'],
+        StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     private async Task AddUserAsync()
     {

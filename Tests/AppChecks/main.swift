@@ -27,9 +27,10 @@ struct GitHubClient {
     let token: String
     static var results: [PullRequest] = []
     func searchPullRequests(config: AppConfig) async throws -> Outcome {
-        Outcome(pullRequests: Self.results)
+        Outcome(pullRequests: Self.results.filter(config.includes))
     }
     func canonicalLogin(for login: String) async throws -> String? { login }
+    func teamMembers(organization: String, team: String) async throws -> [String] { ["member1", "member2"] }
 }
 
 @MainActor
@@ -43,12 +44,12 @@ func runChecks() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
     try store.save(AppConfig(users: ["test-user"]))
-    func makePR(oid: String = "c1", activity: [Activity] = []) -> PullRequest {
+    func makePR(oid: String = "c1", activity: [Activity] = [], reviews: [PullRequestReview] = []) -> PullRequest {
         PullRequest(
             id: "PR_TEST", number: 1, title: "Test", url: URL(string: "https://github.com/o/r/pull/1")!,
             repository: "o/r", author: "test-user", authorAvatarURL: nil,
             createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil,
-            headCommitOID: oid, activity: activity
+            headCommitOID: oid, activity: activity, reviews: reviews
         )
     }
     let pr = makePR()
@@ -111,7 +112,7 @@ func runChecks() async throws {
     GitHubClient.results = [makePR(activity: [Activity(login: "reviewer", date: later)])]
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "Comment by someone else brings the PR back")
-    precondition(Notifier.notifiedIDs == [pr.id], "Reactivated PR notifies")
+    precondition(Notifier.notifiedIDs == [pr.id], "Reactivated PR notifies: \(Notifier.notifiedIDs)")
     model.dismiss(model.pullRequests[0])
     GitHubClient.results = [makePR(oid: "c2", activity: [Activity(login: "reviewer", date: later)])]
     await model.refresh()
@@ -128,6 +129,26 @@ func runChecks() async throws {
     model.toggleCollapsed("o/r")
     precondition(!model.isCollapsed("o/r") && preferences.stringArray(forKey: "collapsedRepositories") == [])
 
+    model.snooze(pr, until: Date().addingTimeInterval(60))
+    precondition(model.pullRequests.isEmpty && model.snoozedRequests.map(\.id) == [pr.id], "Snooze hides but preserves the PR")
+    model.unsnooze(pr)
+    precondition(model.pullRequests.map(\.id) == [pr.id], "Unsnooze restores the PR")
+    let reviewAt = Date()
+    GitHubClient.results = [makePR(reviews: [PullRequestReview(login: "ME", commitOID: "c1", submittedAt: reviewAt)])]
+    await model.refresh()
+    precondition(model.pullRequests.isEmpty && model.dismissedPullRequests.map(\.id) == [pr.id],
+                 "Review of the current commit automatically marks the PR done")
+    GitHubClient.results = [makePR(oid: "c2", reviews: [PullRequestReview(login: "me", commitOID: "c1", submittedAt: reviewAt)])]
+    await model.refresh()
+    precondition(model.pullRequests.map(\.id) == [pr.id], "A commit after my review reactivates the PR")
+
+    try model.importWatchlist(Data(#"["other-user"]"#.utf8))
+    precondition(model.config.users.contains("other-user"), "Watchlist import merges users")
+    let watchlist = try JSONDecoder().decode(WatchlistFixture.self, from: model.watchlistData())
+    precondition(watchlist.users.contains("other-user") && watchlist.formatVersion == 1, "Watchlist export has only versioned users")
+    try await model.importTeam(organization: "example", team: "qa")
+    precondition(model.config.users.contains("member1") && model.config.users.contains("member2"), "Team members are imported")
+
     // Legacy ID-only storage is migrated and gets a commit baseline on the next refresh.
     let legacyDomain = domain + ".legacy"
     let legacy = UserDefaults(suiteName: legacyDomain)!
@@ -143,6 +164,11 @@ func runChecks() async throws {
     await model.refresh()
     precondition(model.allPullRequests.isEmpty, "An empty watch list clears results")
     print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications)")
+}
+
+private struct WatchlistFixture: Decodable {
+    let formatVersion: Int
+    let users: [String]
 }
 
 if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--verify-persistence" {

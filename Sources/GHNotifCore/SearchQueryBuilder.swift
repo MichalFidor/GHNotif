@@ -52,4 +52,9 @@ public enum SearchQueryBuilder {
         if login.hasPrefix("@") { login.removeFirst() }
         return login
     }
+
+    public static func normalizeLogins(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        return raw.map(normalizeLogin).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    }
 }

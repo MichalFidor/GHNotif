@@ -28,10 +28,12 @@ string Node(string id, bool deleted = false) => $$$$"""
     {"id":"{{{{id}}}}","number":42,"title":"Test","url":"https://github.com/example/demo/pull/42",
     "createdAt":"2026-10-01T10:00:00Z","updatedAt":"2026-10-02T10:00:00Z",
     "reviewDecision":null,"author":{{{{(deleted ? "null" : """{"login":"example","avatarUrl":null}""")}}}},
+    "additions":14,"deletions":3,"labels":{"nodes":[{"name":"wip"}]},
     "repository":{"nameWithOwner":"example/demo"},"commits":{"nodes":[{"commit":{"oid":"c1","statusCheckRollup":null}}]},
     "comments":{"nodes":[{"createdAt":"2026-10-03T10:00:00Z","author":{"__typename":"User","login":"reviewer"}},
       {"createdAt":"2026-10-03T11:00:00Z","author":{"__typename":"Bot","login":"ci"}},{"createdAt":"2026-10-03T12:00:00Z","author":null}]},
-    "reviews":{"nodes":[{"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}}
+    "reviews":{"nodes":[{"submittedAt":"2026-10-04T10:00:00Z","state":"APPROVED","commit":{"oid":"c1"},
+      "author":{"__typename":"User","login":"me"}},{"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}}
     """;
 string Page(string nodes, bool more, string cursor = "cursor") => $$$$"""
     {"data":{"viewer":{"login":"me"},"search":{"issueCount":2,"pageInfo":{"hasNextPage":{{{{more.ToString().ToLowerInvariant()}}}},"endCursor":"{{{{cursor}}}}"},
@@ -42,7 +44,14 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     var pr = GitHubClient.ParsePullRequest(document.RootElement);
     Check(pr.Id == "legacy-id" && pr.Author == "ghost" && pr.Checks is null, "Deleted author and missing CI");
     Check(pr.HeadCommitOid == "c1", "Head commit parsed");
-    Check(pr.Activity!.Select(a => a.Login).SequenceEqual(["reviewer"]), "Only human, submitted activity kept");
+    Check(pr.Additions == 14 && pr.Deletions == 3 && pr.Labels.SequenceEqual(["wip"]), "Diff size and labels parsed");
+    Check(pr.HasViewerReviewedCurrentHead("ME"), "Review on current head identified case-insensitively");
+    var reviewedState = new LocalState();
+    reviewedState.AutoDismissReviewed([pr], "me");
+    Check(reviewedState.IsDismissed(pr.Id), "Current-head review automatically dismisses PR");
+    Check(reviewedState.Reactivate([pr with { HeadCommitOid = "c2" }], "me").Single().Id == pr.Id,
+        "New commit after review reactivates PR");
+    Check(pr.Activity!.Select(a => a.Login).SequenceEqual(["reviewer", "me"]), "Only human, submitted activity kept");
 }
 
 var requests = new List<string>();
@@ -77,6 +86,13 @@ Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSea
 var legacyConfig = JsonSerializer.Deserialize<Config>("{\"users\":[\"a\"],\"notify\":false}",
     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
 Check(legacyConfig.IncludeMentions && !legacyConfig.IncludeReviewRequests, "Old config gets new defaults");
+
+var filtering = new Config { ExcludedRepositories = ["EXAMPLE/DEMO"] };
+var parsedPr = GitHubClient.ParsePullRequest(JsonDocument.Parse(Node("filter")).RootElement);
+Check(!filtering.Includes(parsedPr), "Repository exclusion is case-insensitive");
+filtering.ExcludedRepositories.Clear();
+filtering.ExcludedLabels = ["WIP"];
+Check(!filtering.Includes(parsedPr), "Label exclusion is case-insensitive");
 
 var merging = 0;
 using var mergeHttp = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
@@ -130,6 +146,13 @@ var back = alerts.Reactivate([one with { HeadCommitOid = "c2" }, prs[1]], "me");
 Check(alerts.Observe(prs, true, false, back).Select(pr => pr.Id).SequenceEqual(["one"]), "Reactivated PR notifies");
 state.ToggleCollapsed("example/demo");
 Check(state.Collapsed.Contains("example/demo"), "Collapse toggles on");
+state.Snooze(one, DateTimeOffset.UtcNow.AddHours(2));
+Check(state.Visible(prs).All(pr => pr.Id != "one") && state.SnoozedPullRequests(prs).Any(pr => pr.Id == "one"),
+    "Snoozed PR is hidden from active and retained in snoozed view");
+Check(state.Clone().Snoozed.ContainsKey("one"), "Snooze state is cloned for persistence");
+var expired = state.ExpireSnoozes(prs, DateTimeOffset.UtcNow.AddHours(3)).ToHashSet();
+Check(expired.Contains("one") && state.Visible(prs).Any(pr => pr.Id == "one"), "Expired snooze returns PR to active");
+state.Dismiss(one, DateTimeOffset.UtcNow);
 
 var directory = Path.Combine(Path.GetTempPath(), "ghnotif-checks-" + Guid.NewGuid());
 try

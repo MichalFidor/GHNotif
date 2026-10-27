@@ -12,12 +12,25 @@ struct MenuContentView: View {
 
     private var groupedByRepository: [(repository: String, prs: [PullRequest])] {
         Dictionary(grouping: displayedPullRequests, by: \.repository)
-            .map { ($0.key, $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
+            .map { ($0.key, sorted($0.value)) }
             .sorted { $0.repository.localizedCaseInsensitiveCompare($1.repository) == .orderedAscending }
     }
 
     private var displayedPullRequests: [PullRequest] {
-        layout.showDismissed ? model.dismissedPullRequests : model.pullRequests
+        switch layout.list {
+        case .active: model.pullRequests
+        case .done: model.dismissedPullRequests
+        case .snoozed: model.snoozedRequests
+        }
+    }
+
+    private func sorted(_ prs: [PullRequest]) -> [PullRequest] {
+        switch model.config.sortOrder {
+        case .recentlyUpdated: prs.sorted { $0.updatedAt > $1.updatedAt }
+        case .oldestFirst: prs.sorted { $0.createdAt < $1.createdAt }
+        case .largestChanges:
+            prs.sorted { Int64($0.additions) + Int64($0.deletions) > Int64($1.additions) + Int64($1.deletions) }
+        }
     }
 
     var body: some View {
@@ -45,16 +58,23 @@ struct MenuContentView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 22, height: 22)
-            Text(layout.showDismissed ? "Załatwione PR-y" : "PR-y do review").font(.headline)
+            Text(layout.list.title).font(.headline)
             Text("\(displayedPullRequests.count)").foregroundStyle(.secondary)
             Spacer()
-            Button {
-                layout.showDismissed.toggle()
+            Menu {
+                ForEach(PullRequestList.allCases) { list in
+                    Button {
+                        layout.list = list
+                    } label: {
+                        if layout.list == list { Label(list.title, systemImage: "checkmark") }
+                        else { Text(list.title) }
+                    }
+                }
             } label: {
-                Image(systemName: layout.showDismissed ? "tray" : "checkmark.circle")
+                Image(systemName: layout.list.icon)
             }
             .buttonStyle(.borderless)
-            .help(layout.showDismissed ? "Pokaż wymagające uwagi" : "Pokaż załatwione")
+            .help("Wybierz listę PR-ów")
             if model.isLoading { ProgressView().controlSize(.small) }
             Button {
                 Task { await model.refresh() }
@@ -107,13 +127,22 @@ struct MenuContentView: View {
                         }
                         if !collapsed {
                             ForEach(group.prs) { pr in
-                                PullRequestRow(pr: pr, isDismissed: layout.showDismissed) {
-                                    if layout.showDismissed {
+                                PullRequestRow(pr: pr, list: layout.list, toggleDismissed: {
+                                    if layout.list == .done {
                                         model.restore(pr)
+                                    } else if layout.list == .snoozed {
+                                        model.unsnooze(pr)
                                     } else {
                                         model.dismiss(pr)
                                     }
-                                }
+                                }, snooze: {
+                                    model.snooze(pr, until: Date().addingTimeInterval(2 * 60 * 60))
+                                }, snoozeTomorrow: {
+                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1,
+                                                                         to: Calendar.current.startOfDay(for: Date()))!
+                                    model.snooze(pr, until: Calendar.current.date(bySettingHour: 9, minute: 0,
+                                        second: 0, of: tomorrow) ?? tomorrow)
+                                })
                             }
                         }
                     }
@@ -130,7 +159,9 @@ struct MenuContentView: View {
     private var emptyStateText: String {
         if !model.config.hasSearches { return "Nikogo nie obserwujesz – dodaj osoby w Ustawieniach." }
         if model.isLoading && model.lastRefresh == nil { return "Ładowanie…" }
-        if layout.showDismissed { return "Brak załatwionych PR-ów." }
+        if layout.list == .done { return "Brak załatwionych PR-ów." }
+        if layout.list == .snoozed { return "Brak odłożonych PR-ów." }
+        if !model.snoozedRequests.isEmpty { return "PR-y odłożone na później ⏰" }
         if !model.dismissedPullRequests.isEmpty { return "Wszystko załatwione 🎉" }
         return "Brak otwartych PR-ów 🎉"
     }
@@ -157,7 +188,26 @@ struct MenuContentView: View {
 private final class ListLayout: ObservableObject {
     @Published var contentHeight: CGFloat = 0
     @Published var panelHeight: CGFloat = 0
-    @Published var showDismissed = false
+    @Published var list: PullRequestList = .active
+}
+
+private enum PullRequestList: String, CaseIterable, Identifiable {
+    case active, done, snoozed
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .active: "PR-y do review"
+        case .done: "Załatwione"
+        case .snoozed: "Odłożone"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .active: "tray"
+        case .done: "checkmark.circle"
+        case .snoozed: "clock"
+        }
+    }
 }
 
 /// Shrinks or grows the hosting window to `height`, keeping its top edge fixed under the menu bar.
@@ -238,12 +288,14 @@ private struct Banner: View {
 
 private struct PullRequestRow: View {
     let pr: PullRequest
-    let isDismissed: Bool
+    let list: PullRequestList
     let toggleDismissed: () -> Void
+    let snooze: () -> Void
+    let snoozeTomorrow: () -> Void
     @StateObject private var hover = HoverState()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 5) {
             Button {
                 NSWorkspace.shared.open(pr.url)
             } label: {
@@ -259,11 +311,10 @@ private struct PullRequestRow: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(pr.title).lineLimit(2)
-                        Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named)))")
+                        Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named))) · +\(pr.additions)/−\(pr.deletions)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Spacer(minLength: 4)
                     ReasonBadges(reasons: pr.reasons)
                     ReviewBadge(decision: pr.reviewDecision)
                     ChecksIndicator(state: pr.checks)
@@ -272,13 +323,23 @@ private struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
             .help("Otwórz PR w przeglądarce\n" + pr.url.absoluteString)
+            if list == .active {
+                Menu {
+                    Button("Za 2 godziny", systemImage: "clock") { snooze() }
+                    Button("Jutro rano", systemImage: "sunrise") { snoozeTomorrow() }
+                } label: {
+                    Image(systemName: "clock").foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Przypomnij później")
+            }
             Button(action: toggleDismissed) {
-                Image(systemName: isDismissed ? "arrow.uturn.backward.circle" : "checkmark.circle")
-                    .foregroundStyle(isDismissed ? Color.accentColor : .secondary)
+                Image(systemName: list == .active ? "checkmark.circle" : "arrow.uturn.backward.circle")
+                    .foregroundStyle(list == .active ? Color.secondary : Color.accentColor)
             }
             .buttonStyle(.borderless)
-            .help(isDismissed ? "Przywróć na listę wymagających uwagi" : "Oznacz jako załatwione")
-            .accessibilityLabel(isDismissed ? "Przywróć PR" : "Oznacz PR jako załatwiony")
+            .help(list == .active ? "Oznacz jako załatwione" : "Przywróć na listę wymagających uwagi")
+            .accessibilityLabel(list == .active ? "Oznacz PR jako załatwiony" : "Przywróć PR")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

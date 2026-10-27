@@ -18,9 +18,11 @@ public sealed class GitHubClient(HttpClient http)
             nodes { ... on PullRequest {
               id number title url createdAt updatedAt reviewDecision
               author { login avatarUrl } repository { nameWithOwner }
+              additions deletions
+              labels(first: 100) { nodes { name } }
               commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
               comments(last: 10) { nodes { createdAt author { __typename login } } }
-              reviews(last: 10) { nodes { submittedAt author { __typename login } } }
+              reviews(last: 100) { nodes { submittedAt state commit { oid } author { __typename login } } }
             } }
           }
         }
@@ -62,7 +64,8 @@ public sealed class GitHubClient(HttpClient http)
                 if (page >= 9) throw new InvalidDataException("Przekroczono limit stron GitHub.");
             }
         }
-        return new(prs.Values.OrderByDescending(pr => pr.UpdatedAt).ToList(), blocked, viewer);
+        var filtered = prs.Values.Where(config.Includes).ToList();
+        return new(filtered, blocked, viewer);
     }
 
     public async Task<string> CanonicalLoginAsync(string token, string login, CancellationToken ct = default)
@@ -74,6 +77,38 @@ public sealed class GitHubClient(HttpClient http)
         ThrowErrors(json.RootElement);
         var user = json.RootElement.GetProperty("data").GetProperty("user");
         return Text(user, "login") ?? throw new InvalidOperationException("Nie znaleziono użytkownika.");
+    }
+
+    public async Task<List<string>> TeamMembersAsync(string token, string organization, string team,
+        CancellationToken ct = default)
+    {
+        static bool SafeSlug(string value) => value.Length > 0
+            && value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
+        if (!SafeSlug(organization) || !SafeSlug(team))
+            throw new InvalidOperationException("Podaj poprawną nazwę organizacji i slug zespołu.");
+        var members = new List<string>();
+        for (var page = 1; page <= 10; page++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.github.com/orgs/{organization}/teams/{team}/members?per_page=100&page={page}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
+            using var response = await http.SendAsync(request, ct);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                throw new HttpRequestException("Token GitHub jest nieprawidłowy lub wygasł.");
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException(response.StatusCode == HttpStatusCode.Forbidden
+                    ? "Brak dostępu do członkostwa organizacji (read:org lub Members: read)."
+                    : $"GitHub API: HTTP {(int)response.StatusCode}. Sprawdź nazwę zespołu i dostęp tokenu.");
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
+                cancellationToken: ct);
+            var logins = document.RootElement.EnumerateArray().Select(user => Text(user, "login"))
+                .Where(login => login is not null).Select(login => login!).ToList();
+            members.AddRange(logins);
+            if (logins.Count < 100) return members;
+        }
+        throw new InvalidOperationException("Zespół ma ponad 1000 członków; ogranicz import.");
     }
 
     private async Task<HttpResponseMessage> PostAsync(string token, string query, object variables, CancellationToken ct)
@@ -115,6 +150,25 @@ public sealed class GitHubClient(HttpClient http)
         var author = node.GetProperty("author");
         string? checks = null;
         string? oid = null;
+        var additions = node.TryGetProperty("additions", out var additionsNode) ? additionsNode.GetInt32() : 0;
+        var deletions = node.TryGetProperty("deletions", out var deletionsNode) ? deletionsNode.GetInt32() : 0;
+        var labels = node.TryGetProperty("labels", out var labelConnection)
+            ? labelConnection.GetProperty("nodes").EnumerateArray().Select(label => Text(label, "name"))
+                .Where(name => name is not null).Select(name => name!).ToList()
+            : [];
+        var reviews = new List<PullRequestReview>();
+        if (node.TryGetProperty("reviews", out var reviewConnection))
+            foreach (var review in reviewConnection.GetProperty("nodes").EnumerateArray())
+            {
+                if (!review.TryGetProperty("author", out var reviewAuthor) || Text(reviewAuthor, "__typename") == "Bot")
+                    continue;
+                var login = Text(reviewAuthor, "login");
+                if (login is null) continue;
+                var date = Text(review, "submittedAt");
+                var commitOid = review.TryGetProperty("commit", out var reviewedCommit) ? Text(reviewedCommit, "oid") : null;
+                reviews.Add(new(login, commitOid, date is null ? null : DateTimeOffset.Parse(date,
+                    System.Globalization.CultureInfo.InvariantCulture)));
+            }
         var commits = node.GetProperty("commits").GetProperty("nodes");
         if (commits.GetArrayLength() > 0)
         {
@@ -123,12 +177,18 @@ public sealed class GitHubClient(HttpClient http)
             if (commit.TryGetProperty("statusCheckRollup", out var rollup)) checks = Text(rollup, "state");
         }
         var activity = Activity(node, "comments", "createdAt").Concat(Activity(node, "reviews", "submittedAt")).ToList();
-        return new(node.GetProperty("id").GetString()!, node.GetProperty("number").GetInt32(),
+        return new PullRequest(node.GetProperty("id").GetString()!, node.GetProperty("number").GetInt32(),
             node.GetProperty("title").GetString()!, node.GetProperty("url").GetString()!,
             node.GetProperty("repository").GetProperty("nameWithOwner").GetString()!,
             Text(author, "login") ?? "ghost", Text(author, "avatarUrl"),
             node.GetProperty("createdAt").GetDateTimeOffset(), node.GetProperty("updatedAt").GetDateTimeOffset(),
-            Text(node, "reviewDecision"), checks, oid, activity);
+            Text(node, "reviewDecision"), checks, oid, activity)
+        {
+            Additions = additions,
+            Deletions = deletions,
+            Labels = labels,
+            Reviews = reviews
+        };
     }
 
     private static IEnumerable<PrActivity> Activity(JsonElement node, string connection, string dateField)

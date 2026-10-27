@@ -11,6 +11,7 @@ public enum GitHubError: LocalizedError, Equatable {
         case let .http(code, body): return "GitHub API zwróciło HTTP \(code): \(body.prefix(200))"
         case let .graphQL(message): return "GitHub API: \(message)"
         }
+
     }
 }
 
@@ -32,7 +33,13 @@ public struct GitHubClient: Sendable {
             }
             return try await group.reduce(into: []) { $0.append($1) }
         }
-        return Self.merge(outcomes)
+        var merged = Self.merge(outcomes)
+        merged = SearchOutcome(
+            pullRequests: merged.pullRequests.filter(config.includes),
+            ssoBlockedOrgIDs: merged.ssoBlockedOrgIDs,
+            viewerLogin: merged.viewerLogin
+        )
+        return merged
     }
 
     /// Combines search results, merging the match reasons of PRs found by several searches.
@@ -83,6 +90,35 @@ public struct GitHubClient: Sendable {
             throw GitHubError.graphQL(errors.map(\.message).joined(separator: "; "))
         }
         return nil
+    }
+
+    public func teamMembers(organization: String, team: String) async throws -> [String] {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        guard organization.unicodeScalars.allSatisfy(safe.contains),
+              team.unicodeScalars.allSatisfy(safe.contains), !organization.isEmpty, !team.isEmpty else {
+            throw GitHubError.graphQL("Podaj poprawną nazwę organizacji i slug zespołu.")
+        }
+        var members: [String] = []
+        for page in 1...10 {
+            var components = URLComponents(string: "https://api.github.com/orgs/\(organization)/teams/\(team)/members")!
+            components.queryItems = [URLQueryItem(name: "per_page", value: "100"),
+                                     URLQueryItem(name: "page", value: String(page))]
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, "Brak odpowiedzi HTTP") }
+            if http.statusCode == 401 { throw GitHubError.unauthorized }
+            guard (200..<300).contains(http.statusCode) else {
+                throw GitHubError.http(http.statusCode, String(decoding: data, as: UTF8.self))
+            }
+            let users = try JSONDecoder().decode([TeamMember].self, from: data)
+            members.append(contentsOf: users.map(\.login))
+            if users.count < 100 { return members }
+        }
+        throw GitHubError.graphQL("Zespół ma ponad 1000 członków; ogranicz import.")
     }
 
     private func post(query: String, variables: [String: String]) async throws -> (Data, HTTPURLResponse) {
@@ -147,9 +183,11 @@ public struct GitHubClient: Sendable {
             id number title url createdAt updatedAt reviewDecision
             author { login avatarUrl }
             repository { nameWithOwner }
+            additions deletions
+            labels(first: 100) { nodes { name } }
             commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
             comments(last: 10) { nodes { createdAt author { __typename login } } }
-            reviews(last: 10) { nodes { submittedAt author { __typename login } } }
+            reviews(last: 100) { nodes { submittedAt state commit { oid } author { __typename login } } }
           }
         }
       }
@@ -158,6 +196,8 @@ public struct GitHubClient: Sendable {
 }
 
 // MARK: - GraphQL DTOs
+
+private struct TeamMember: Decodable { let login: String }
 
 private struct GraphQLResponse<T: Decodable>: Decodable {
     let data: T?
@@ -234,8 +274,14 @@ private struct PRNode: Decodable {
         struct Node: Decodable {
             let submittedAt: Date?
             let author: Actor?
+            let commit: Commits.Node.Commit?
         }
         let nodes: [Lossy<Node>]
+    }
+
+    struct Labels: Decodable {
+        struct Node: Decodable { let name: String }
+        let nodes: [Node]
     }
 
     let id: String
@@ -250,6 +296,9 @@ private struct PRNode: Decodable {
     let commits: Commits?
     let comments: Comments?
     let reviews: Reviews?
+    let additions: Int?
+    let deletions: Int?
+    let labels: Labels?
 
     private static func activity(_ author: Actor?, _ date: Date?) -> Activity? {
         guard let author, author.__typename != "Bot", let date else { return nil }
@@ -268,7 +317,14 @@ private struct PRNode: Decodable {
             reviewDecision: reviewDecision,
             checks: commits?.nodes.last?.commit.statusCheckRollup?.state,
             headCommitOID: commits?.nodes.last?.commit.oid,
-            activity: commentActivity + reviewActivity
+            activity: commentActivity + reviewActivity,
+            additions: additions ?? 0,
+            deletions: deletions ?? 0,
+            labels: labels?.nodes.map(\.name) ?? [],
+            reviews: reviews?.nodes.compactMap { node in
+                guard let review = node.value, let login = review.author?.login else { return nil }
+                return PullRequestReview(login: login, commitOID: review.commit?.oid, submittedAt: review.submittedAt)
+            } ?? []
         )
     }
 }

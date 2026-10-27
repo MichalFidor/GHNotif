@@ -6,9 +6,18 @@ Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje o
 
 ## Instalacja macOS
 
-Gotowe paczki dla Apple Silicon i Intela: [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
+**Homebrew (zalecane):**
+
+```bash
+brew tap MichalFidor/ghnotif
+brew install --cask ghnotif
+# aktualizacja:
+brew upgrade --cask ghnotif
+```
+
+Gotowe paczki dla Apple Silicon i Intela są też w [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 Rozpakuj ZIP i przenieś `GHNotif.app` do Applications. Nie wymaga to instalacji Swifta.
-Paczki nie są notaryzowane ani podpisane certyfikatem wydawcy — macOS może je zablokować
+Paczki Homebrew również nie są notaryzowane ani podpisane certyfikatem wydawcy — macOS może je zablokować
 przy pierwszym uruchomieniu. Po zweryfikowaniu źródła i sumy SHA-256 użyj
 Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to.
 
@@ -19,7 +28,7 @@ Budowanie ze źródeł:
 ./scripts/build-app.sh --install  # kopiuje do ~/Applications i uruchamia
 ```
 
-Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart: Ustawienia systemowe → Ogólne → Rzeczy otwierane podczas logowania → dodaj `GHNotif.app`.
+Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można włączyć w GHNotif → Ustawienia → Ogólne.
 
 ## Instalacja Windows
 
@@ -31,7 +40,7 @@ Wymaga Windows 10/11. Wersja portable zawiera .NET — użytkownik nie musi go i
 4. Dodaj osoby w ustawieniach i użyj `gh auth login` lub zapisz własny PAT.
 
 Aplikacja nie jest podpisana certyfikatem wydawcy; Windows SmartScreen może pokazać ostrzeżenie. Uruchamiaj wyłącznie buildy z zaufanego źródła.
-Zamknięcie panelu ukrywa go w zasobniku. Autostart: `Win+R` → `shell:startup` → dodaj skrót do `GHNotif.Windows.exe`. Przenieś folder przed utworzeniem skrótu.
+Zamknięcie panelu ukrywa go w zasobniku. Autostart można włączyć w ustawieniach aplikacji.
 
 Budowanie na Windowsie (wymagany .NET 10 SDK):
 
@@ -53,9 +62,9 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 Ustawienia (pasek menu → „Ustawienia…”) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
 
-- **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem.
-- **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`).
-- **Ogólne** – interwał odświeżania, powiadomienia, wersja i aktualizacje.
+- **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
+- **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
+- **Ogólne** – interwał odświeżania, powiadomienia, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
 - **Token** – źródło tokenu i opcjonalny PAT.
 
 Nowa instalacja zaczyna z pustą listą osób.
@@ -70,7 +79,7 @@ Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
 Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
-Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych/widzianych PR-ów i zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
+Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych, odłożonych i widzianych PR-ów oraz zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
 Ustawienia obu platform są niezależne, bez synchronizacji.
 
 ## Załatwione PR-y
@@ -81,6 +90,14 @@ Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znik
 - nowy komentarz lub review od kogoś innego niż Ty (komentarze botów są pomijane).
 
 Zmiana tytułu, etykiet czy samego statusu CI nie przywraca PR-a.
+
+Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez Ciebie review bieżącego commita. Nowy commit przywraca go na listę. Opcję można wyłączyć w ustawieniach.
+
+## Odkładanie PR-ów i sortowanie
+
+Zegar przy PR-ze odkłada go na 2 godziny albo do jutra rano. Odłożone PR-y są w osobnej liście i wracają po upływie czasu (z powiadomieniem, jeśli powiadomienia są włączone). Repozytoria można wykluczyć wpisując `owner/repo`, a etykiety po nazwie. Sortowanie: ostatnio aktualizowane, najstarsze lub największe zmiany. Przy PR-ze widać też liczbę dodanych/usuniętych linii, status CI i decyzję review.
+
+Import/eksport listy obserwowanych przenosi wyłącznie loginy — nigdy token ani prywatne ustawienia. Import członków zespołu korzysta z endpointu GitHub do odczytu członków organizacji.
 
 Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otwartych PR-ów. Strzałka przy PR-ze przywraca go na główną listę. To wyłącznie lokalny stan aplikacji, nie review ani zamknięcie PR-a na GitHubie. Identyfikatory wraz z momentem odhaczenia i ostatnim commitem są przechowywane w preferencjach macOS lub pliku stanu Windows, poza repozytorium.
 
@@ -115,13 +132,16 @@ Gdy jest nowsza wersja, w panelu pojawia się przycisk otwierający GitHub Relea
 Sprawdzanie korzysta z publicznego API, bez tokenu i bez wysyłania listy obserwowanych osób.
 Błędy sprawdzania są widoczne w ustawieniach i nie przerywają pobierania PR-ów.
 
-Instalacja pozostaje ręczna: zakończ aplikację, rozpakuj nową paczkę i zastąp poprzednią
-aplikację/folder. Ustawienia, token i lokalny stan pozostają poza paczką.
+Przy instalacji ZIP aktualizacja pozostaje ręczna. Homebrew: `brew upgrade --cask ghnotif`.
+W obu przypadkach ustawienia, token i lokalny stan pozostają poza paczką.
 
 Publikacja: zaktualizuj `VERSION` i `RELEASE-NOTES.md`, wypchnij commit i tag `vX.Y.Z`
 zgodny z `VERSION`. Workflow **Release** uruchamia testy macOS/Windows, buduje cztery
 paczki (macOS arm64/x86_64, Windows x64/arm64), a dopiero po powodzeniu publikuje
 release z sumami `SHA256SUMS`. Sam build macOS ma podpis ad-hoc, bez notaryzacji.
+Workflow dołącza też cask `ghnotif.rb` do release'u. Automatyczna synchronizacja tapu
+w kolejnych wydaniach wymaga repozytorium variable `HOMEBREW_TAP_ENABLED=true` i secretu
+`HOMEBREW_TAP_TOKEN` z prawem zapisu do `MichalFidor/homebrew-ghnotif`.
 
 ## Jak to działa
 

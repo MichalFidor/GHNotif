@@ -1,3 +1,4 @@
+import AppKit
 import GHNotifCore
 import SwiftUI
 
@@ -22,6 +23,7 @@ struct SettingsView: View {
             List(SettingsPane.allCases, selection: $form.pane) { pane in
                 SidebarLabel(pane: pane).tag(pane)
             }
+
             .frame(minWidth: 190)
             .navigationSplitViewColumnWidth(190)
             .toolbar(removing: .sidebarToggle)
@@ -30,7 +32,11 @@ struct SettingsView: View {
                 .navigationTitle((form.pane ?? .people).title)
         }
         .frame(width: 680, height: 480)
-        .onAppear { form.extraQualifiers = model.config.extraQualifiers }
+        .onAppear {
+            form.extraQualifiers = model.config.extraQualifiers
+            form.excludedRepositories = model.config.excludedRepositories.joined(separator: ", ")
+            form.excludedLabels = model.config.excludedLabels.joined(separator: ", ")
+        }
     }
 
     @ViewBuilder
@@ -93,6 +99,29 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Section("Lista zespołu") {
+                TextField("Organizacja", text: $form.organization, prompt: Text("np. acme"))
+                TextField("Slug zespołu", text: $form.team, prompt: Text("np. qa"))
+                Button(form.importingTeam ? "Pobieranie…" : "Importuj członków zespołu") {
+                    importTeam()
+                }
+                .disabled(form.importingTeam || form.organization.isEmpty || form.team.isEmpty)
+                Text("Wymaga dostępu do członkostwa organizacji: read:org (classic) lub Members: read (fine-grained).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Kopia listy") {
+                HStack {
+                    Button("Eksportuj") { exportWatchlist() }
+                    Button("Importuj") { importWatchlist() }
+                }
+                Text("Plik zawiera wyłącznie loginy obserwowanych osób — nie zawiera tokenu ani ustawień.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let listError = form.listError {
+                    Text(listError).font(.caption).foregroundStyle(.red)
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -135,6 +164,17 @@ struct SettingsView: View {
                 Text("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            Section("Filtry wykluczające") {
+                TextField("Repozytoria (oddziel przecinkami)", text: $form.excludedRepositories,
+                          prompt: Text("np. acme/archive, acme/infra"))
+                TextField("Etykiety (oddziel przecinkami)", text: $form.excludedLabels,
+                          prompt: Text("np. do-not-review, wip"))
+                Button("Zapisz filtry") {
+                    model.config.excludedRepositories = splitValues(form.excludedRepositories)
+                    model.config.excludedLabels = splitValues(form.excludedLabels)
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -158,6 +198,20 @@ struct SettingsView: View {
                 if !model.notificationStatus.isEmpty {
                     Text(model.notificationStatus).font(.caption)
                 }
+            }
+
+            Section("Workflow") {
+                Toggle("Oznaczaj jako załatwione po moim review bieżącego commita",
+                       isOn: $model.config.autoDismissReviewed)
+                Picker("Sortowanie PR-ów", selection: $model.config.sortOrder) {
+                    Text("Ostatnio aktualizowane").tag(AppConfig.SortOrder.recentlyUpdated)
+                    Text("Najstarsze najpierw").tag(AppConfig.SortOrder.oldestFirst)
+                    Text("Największe zmiany").tag(AppConfig.SortOrder.largestChanges)
+                }
+                Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
+                    get: { model.launchAtLogin },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
             }
 
             Section("GHNotif \(model.installedVersion)") {
@@ -210,6 +264,46 @@ struct SettingsView: View {
             form.isAdding = false
             form.addError = error
             if error == nil { form.newLogin = "" }
+        }
+    }
+
+    private func splitValues(_ value: String) -> [String] {
+        Array(Set(value.split(whereSeparator: { $0 == "," || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })).sorted()
+    }
+
+    private func exportWatchlist() {
+        do {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "ghnotif-watchlist.json"
+            panel.allowedContentTypes = [.json]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try model.watchlistData().write(to: url, options: .atomic)
+            form.listError = nil
+        } catch { form.listError = error.localizedDescription }
+    }
+
+    private func importWatchlist() {
+        do {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.json, .plainText]
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try model.importWatchlist(Data(contentsOf: url))
+            form.listError = nil
+        } catch { form.listError = error.localizedDescription }
+    }
+
+    private func importTeam() {
+        guard !form.importingTeam else { return }
+        form.importingTeam = true
+        form.listError = nil
+        Task {
+            defer { form.importingTeam = false }
+            do {
+                try await model.importTeam(organization: form.organization, team: form.team)
+            } catch { form.listError = error.localizedDescription }
         }
     }
 }
@@ -273,4 +367,10 @@ private final class FormState: ObservableObject {
     @Published var pat = ""
     @Published var filter = ""
     @Published var showPeople = false
+    @Published var organization = ""
+    @Published var team = ""
+    @Published var importingTeam = false
+    @Published var listError: String?
+    @Published var excludedRepositories = ""
+    @Published var excludedLabels = ""
 }

@@ -1,5 +1,6 @@
 import Foundation
 import GHNotifCore
+import ServiceManagement
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -17,6 +18,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var collapsedRepositories: Set<String> {
         didSet { preferences.set(collapsedRepositories.sorted(), forKey: Self.collapsedKey) }
     }
+    @Published private(set) var snoozedPullRequests: [String: Date] {
+        didSet { preferences.set(try? JSONEncoder().encode(snoozedPullRequests), forKey: Self.snoozedKey) }
+    }
     @Published private(set) var isLoading = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastRefresh: Date?
@@ -26,6 +30,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var updateStatus = ""
     @Published private(set) var checkingUpdates = false
     @Published private(set) var notificationStatus = ""
+    @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var installedVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
@@ -67,14 +72,71 @@ final class AppModel: ObservableObject {
     private static let dismissalsKey = "dismissedPullRequests"
     private static let collapsedKey = "collapsedRepositories"
     private static let seenIDsKey = "seenPullRequestIDs"
+    private static let snoozedKey = "snoozedPullRequests"
 
-    var pullRequests: [PullRequest] { allPullRequests.filter { dismissals[$0.id] == nil } }
+    var pullRequests: [PullRequest] {
+        allPullRequests.filter { dismissals[$0.id] == nil && !isSnoozed($0) }
+    }
     var dismissedPullRequests: [PullRequest] { allPullRequests.filter { dismissals[$0.id] != nil } }
+    var snoozedRequests: [PullRequest] { allPullRequests.filter { isSnoozed($0) } }
+
+    private func isSnoozed(_ pr: PullRequest) -> Bool {
+        guard let until = snoozedPullRequests[pr.id] else { return false }
+        return until > Date()
+    }
 
     func dismiss(_ pr: PullRequest) {
+        snoozedPullRequests[pr.id] = nil
         dismissals[pr.id] = DismissalSnapshot(dismissedAt: Date(), headCommitOID: pr.headCommitOID)
     }
     func restore(_ pr: PullRequest) { dismissals[pr.id] = nil }
+    func snooze(_ pr: PullRequest, until: Date) {
+        dismissals[pr.id] = nil
+        snoozedPullRequests[pr.id] = until
+    }
+    func unsnooze(_ pr: PullRequest) { snoozedPullRequests[pr.id] = nil }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            if launchAtLogin != enabled { lastError = "Nie udało się zmienić ustawienia uruchamiania przy logowaniu." }
+        } catch {
+            lastError = "Nie udało się zmienić uruchamiania przy logowaniu: \(error.localizedDescription)"
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    func watchlistData() throws -> Data {
+        try JSONEncoder().encode(WatchlistDocument(users: config.users))
+    }
+
+    func importWatchlist(_ data: Data) throws {
+        let imported: [String]
+        let text = String(decoding: data, as: UTF8.self)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") {
+            imported = try JSONDecoder().decode(WatchlistDocument.self, from: data).users
+        } else if trimmed.hasPrefix("[") {
+            imported = try JSONDecoder().decode([String].self, from: data)
+        } else {
+            imported = text.split(whereSeparator: { $0 == "," || $0.isNewline })
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !imported.isEmpty else { throw GitHubError.graphQL("Plik listy osób jest pusty lub nieprawidłowy.") }
+        }
+        let combined = SearchQueryBuilder.normalizeLogins(config.users + imported)
+        config.users = combined
+    }
+
+    func importTeam(organization: String, team: String) async throws {
+        guard let token = await currentToken() else {
+            throw GitHubError.graphQL("Brak tokenu GitHub.")
+        }
+        let members = try await GitHubClient(token: token.value).teamMembers(organization: organization, team: team)
+        config.users = SearchQueryBuilder.normalizeLogins(config.users + members)
+    }
 
     func isCollapsed(_ repository: String) -> Bool { collapsedRepositories.contains(repository) }
     func toggleCollapsed(_ repository: String) {
@@ -92,6 +154,12 @@ final class AppModel: ObservableObject {
         self.releaseLoader = releaseLoader
         dismissals = Self.loadDismissals(from: preferences)
         collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
+        if let data = preferences.data(forKey: Self.snoozedKey),
+           let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
+            snoozedPullRequests = decoded
+        } else {
+            snoozedPullRequests = [:]
+        }
         do {
             config = try store.load()
         } catch {
@@ -153,8 +221,23 @@ final class AppModel: ObservableObject {
         do {
             let outcome = try await GitHubClient(token: token.value)
                 .searchPullRequests(config: config)
+            let now = Date()
+            let wokeFromSnooze = outcome.pullRequests.filter {
+                snoozedPullRequests[$0.id].map { $0 <= now } == true
+            }
+            for pr in wokeFromSnooze { snoozedPullRequests[pr.id] = nil }
+            if config.autoDismissReviewed, let viewer = outcome.viewerLogin {
+                for pr in outcome.pullRequests {
+                    if let reviewedAt = pr.viewerReviewAt(viewer), dismissals[pr.id] == nil {
+                        snoozedPullRequests[pr.id] = nil
+                        dismissals[pr.id] = DismissalSnapshot(
+                            dismissedAt: reviewedAt, headCommitOID: pr.headCommitOID
+                        )
+                    }
+                }
+            }
             let reactivated = reactivateDismissed(in: outcome.pullRequests, viewer: outcome.viewerLogin)
-            handleNotifications(for: outcome.pullRequests, reactivated: reactivated)
+            handleNotifications(for: outcome.pullRequests, reactivated: reactivated, wokeFromSnooze: wokeFromSnooze)
             allPullRequests = outcome.pullRequests
             ssoBlockedOrgCount = outcome.ssoBlockedOrgIDs.count
             lastError = nil
@@ -230,15 +313,17 @@ final class AppModel: ObservableObject {
         return reactivated
     }
 
-    private func handleNotifications(for prs: [PullRequest], reactivated: [PullRequest]) {
+    private func handleNotifications(for prs: [PullRequest], reactivated: [PullRequest],
+                                     wokeFromSnooze: [PullRequest]) {
         let ids = Set(prs.map(\.id))
         defer {
             seenIDs = ids
             suppressNextNotifications = false
         }
         guard config.notify, !suppressNextNotifications, let seen = seenIDs else { return }
-        let fresh = prs.filter { !seen.contains($0.id) && dismissals[$0.id] == nil }
-        notifier.notify(about: fresh + reactivated.filter { seen.contains($0.id) })
+        let fresh = prs.filter { !seen.contains($0.id) && dismissals[$0.id] == nil && !isSnoozed($0) }
+        notifier.notify(about: fresh + reactivated.filter { seen.contains($0.id) }
+            + wokeFromSnooze.filter { seen.contains($0.id) && dismissals[$0.id] == nil })
     }
 
     private static func loadDismissals(from preferences: UserDefaults) -> [String: DismissalSnapshot] {
@@ -263,11 +348,33 @@ final class AppModel: ObservableObject {
         }
         if config.notify && !old.notify { notifier.requestAuthorization() }
         if config.users != old.users || config.extraQualifiers != old.extraQualifiers
-            || config.includeMentions != old.includeMentions || config.includeReviewRequests != old.includeReviewRequests {
+            || config.includeMentions != old.includeMentions || config.includeReviewRequests != old.includeReviewRequests
+            || config.excludedRepositories != old.excludedRepositories || config.excludedLabels != old.excludedLabels
+            || config.autoDismissReviewed != old.autoDismissReviewed {
             suppressNextNotifications = true
             Task { await refresh() }
         }
         if config.refreshMinutes != old.refreshMinutes { startRefreshLoop() }
+    }
+
+    private struct WatchlistDocument: Codable {
+        let users: [String]
+        let formatVersion: Int
+
+        init(users: [String]) {
+            self.users = users
+            formatVersion = 1
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            users = try container.decode([String].self, forKey: .users)
+            formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+            guard formatVersion == 1 else {
+                throw DecodingError.dataCorruptedError(forKey: .formatVersion, in: container,
+                    debugDescription: "Nieobsługiwana wersja pliku listy osób.")
+            }
+        }
     }
 
     private func startRefreshLoop() {

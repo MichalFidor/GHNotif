@@ -64,6 +64,8 @@ internal static class Program
                 "Update download button is visible");
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true),
                 "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
+            Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Kliknij: odłóż na 2 godziny") == true),
+                "Snooze action is available on active PRs");
             var done = rendered.Single(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true);
             done.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 0, "Dismiss button removes PR");
@@ -78,6 +80,21 @@ internal static class Program
             Buttons(panel).Single(b => Equals(b.ToolTip, "Przywróć na listę wymagających uwagi"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 1, "Restore button works");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż PR-y wymagające uwagi"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            panel.UpdateLayout();
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Kliknij: odłóż na 2 godziny. Prawy klik: wybierz termin."))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(!app.State.Visible(app.Results.PullRequests).Any(), "Snoozing hides the PR from the active list");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż odłożone PR-y"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(Buttons(panel).Any(b => Equals(b.ToolTip, "Przywróć na listę wymagających uwagi")),
+                "Snoozed view provides a restore action");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Przywróć na listę wymagających uwagi"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż PR-y wymagające uwagi"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -104,6 +121,8 @@ internal static class Program
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Dodaj")), "People tab renders first");
+            Check(Buttons(settings).Any(b => Equals(b.Content, "Importuj członków zespołu")),
+                "Team import is available in settings");
             var nav = Descendants<TabControl>(settings).Single();
             Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 4, "Settings use a left navigation menu");
             settings.SelectTab(3);
