@@ -1,4 +1,4 @@
-# GHNotif 0.1.0
+# GHNotif 0.1.1
 
 Pierwsze publiczne wydanie aplikacji do śledzenia PR-ów wybranych osób.
 

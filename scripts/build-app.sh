@@ -13,8 +13,25 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/GHNotif"
 cp assets/GHNotif.icns "$APP/Contents/Resources/GHNotif.icns"
-# SwiftPM resolves Bundle.module from the app's resource directory.
-cp -R "$(dirname "$BIN")/GHNotif_GHNotif.bundle" "$APP/Contents/Resources/"
+# SwiftPM resolves Bundle.module from the app's resource directory. Older toolchains emit a flat bundle
+# without Info.plist, which codesign rejects, so always repackage it in the standard layout.
+SRC_BUNDLE="$(dirname "$BIN")/GHNotif_GHNotif.bundle"
+RES_BUNDLE="$APP/Contents/Resources/GHNotif_GHNotif.bundle"
+mkdir -p "$RES_BUNDLE/Contents/Resources"
+if [[ -d "$SRC_BUNDLE/Contents/Resources" ]]; then SRC_RES="$SRC_BUNDLE/Contents/Resources"; else SRC_RES="$SRC_BUNDLE"; fi
+find "$SRC_RES" -maxdepth 1 -type f ! -name Info.plist -exec cp {} "$RES_BUNDLE/Contents/Resources/" \;
+cat > "$RES_BUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>com.michalfidor.ghnotif.resources</string>
+    <key>CFBundleName</key><string>GHNotif_GHNotif</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+</dict>
+</plist>
+PLIST
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
