@@ -57,6 +57,7 @@ jobs:
   publish:
     needs: [macos, windows]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:

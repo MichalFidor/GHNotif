@@ -145,6 +145,10 @@ Workflow dołącza też cask `ghnotif.rb` do release'u. Automatyczna synchroniza
 w kolejnych wydaniach wymaga repozytorium variable `HOMEBREW_TAP_ENABLED=true` i secretu
 `HOMEBREW_TAP_TOKEN` z prawem zapisu do `MichalFidor/homebrew-ghnotif`.
 
+Publikacja działa w środowisku `release`, które wymaga akceptacji właściciela repo
+(Actions → oczekujący run → **Review deployments**). Gałąź `main` i tagi `v*` są
+chronione regułami. Ominąć je może tylko administrator repozytorium.
+
 ## Jak to działa
 
 Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…`, wyniki są łączone i deduplikowane. Wzmianki i prośby o review to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
