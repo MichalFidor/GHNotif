@@ -67,7 +67,7 @@ Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
 - **wzmianki** (`mentions:@me`, domyślnie włączone) – otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
 - **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) – tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
 
-Twoje własne PR-y są w tych wyszukiwaniach pomijane, a dodatkowe kwalifikatory zakresu też obowiązują. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
+Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
 Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych/widzianych PR-ów i zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.

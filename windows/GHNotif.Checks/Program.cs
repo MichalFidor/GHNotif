@@ -70,7 +70,7 @@ Check(result.PullRequests.All(pr => pr.Reasons.SetEquals([MatchReason.WatchedAut
 var searches = QueryBuilder.Searches(new Config { Users = ["a"], ExtraQualifiers = "org:x" }).ToList();
 Check(searches.Select(s => s.Reason).SequenceEqual([MatchReason.WatchedAuthor, MatchReason.Mention]),
     "Mentions on, review requests off by default");
-Check(searches[1].Query == "is:pr is:open draft:false mentions:@me -author:@me org:x", "Mention query");
+Check(searches[1].Query == "is:pr is:open draft:false mentions:@me org:x", "Mention query includes every author");
 Check(QueryBuilder.Searches(new Config { IncludeMentions = false, IncludeReviewRequests = true }).Single().Query ==
     "is:pr is:open draft:false user-review-requested:@me -author:@me", "Personal review request query");
 Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSearches, "HasSearches");

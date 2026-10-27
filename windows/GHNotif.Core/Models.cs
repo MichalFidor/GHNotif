@@ -136,10 +136,11 @@ public static class QueryBuilder
     public static IEnumerable<(string Query, MatchReason Reason)> Searches(Config config)
     {
         foreach (var query in Build(config.Users, config.ExtraQualifiers)) yield return (query, MatchReason.WatchedAuthor);
-        string Viewer(string qualifier) =>
-            $"is:pr is:open draft:false {qualifier} -author:@me {config.ExtraQualifiers.Trim()}".Trim();
+        // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
+        string Viewer(string qualifiers) =>
+            $"is:pr is:open draft:false {qualifiers} {config.ExtraQualifiers.Trim()}".Trim();
         if (config.IncludeMentions) yield return (Viewer("mentions:@me"), MatchReason.Mention);
-        if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me"), MatchReason.ReviewRequested);
+        if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me -author:@me"), MatchReason.ReviewRequested);
     }
 
     public static IEnumerable<string> Build(IEnumerable<string> users, string extra) =>

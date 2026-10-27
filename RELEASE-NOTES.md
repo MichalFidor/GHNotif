@@ -1,7 +1,7 @@
 # GHNotif 0.2.0
 
 - Logo w pasku menu macOS jest widoczne obok licznika (wcześniej był tylko licznik).
-- Wzmianki: otwarte PR-y, w których ktoś Cię wspomniał (`@`), także od osób spoza listy. Domyślnie włączone.
+- Wzmianki: otwarte PR-y, w których ktoś Cię wspomniał (`@`), dowolnego autora (także spoza listy i Twoje). Domyślnie włączone.
 - Opcjonalnie prośby o Twoje review (tylko osobiste, nie zespołowe). Domyślnie wyłączone, żeby nie zalewać listy.
 - Ustawienia w zakładkach: Osoby / Wyszukiwanie / Ogólne / Token; lista osób domyślnie zwinięta, z licznikiem i filtrem.
 - Starsze pliki konfiguracji są wczytywane bez zmian, nowe opcje dostają wartości domyślne.

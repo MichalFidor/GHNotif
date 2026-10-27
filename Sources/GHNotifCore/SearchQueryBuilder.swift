@@ -24,11 +24,14 @@ public enum SearchQueryBuilder {
         var result = queries(authors: config.users, extraQualifiers: config.extraQualifiers, batchSize: batchSize)
             .map { (query: $0, reason: MatchReason.watchedAuthor) }
         let extra = config.extraQualifiers.trimmingCharacters(in: .whitespacesAndNewlines)
-        func viewerQuery(_ qualifier: String) -> String {
-            ([baseQualifiers, qualifier, "-author:@me"] + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+        func viewerQuery(_ qualifiers: String...) -> String {
+            ([baseQualifiers] + qualifiers + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
         }
+        // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
         if config.includeMentions { result.append((viewerQuery("mentions:@me"), .mention)) }
-        if config.includeReviewRequests { result.append((viewerQuery("user-review-requested:@me"), .reviewRequested)) }
+        if config.includeReviewRequests {
+            result.append((viewerQuery("user-review-requested:@me", "-author:@me"), .reviewRequested))
+        }
         return result
     }
 

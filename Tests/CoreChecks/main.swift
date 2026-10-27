@@ -30,8 +30,8 @@ do {
 do {
     let base = AppConfig(users: ["alice"], extraQualifiers: "org:acme")
     check(SearchQueryBuilder.searches(for: base).map(\.reason) == [.watchedAuthor, .mention], "mentions on, review requests off by default")
-    check(SearchQueryBuilder.searches(for: base).last?.query == "is:pr is:open draft:false mentions:@me -author:@me org:acme",
-          "mention query keeps scope and skips own PRs")
+    check(SearchQueryBuilder.searches(for: base).last?.query == "is:pr is:open draft:false mentions:@me org:acme",
+          "mention query keeps scope and includes every author")
     var all = base
     all.includeReviewRequests = true
     check(SearchQueryBuilder.searches(for: all).last?.query == "is:pr is:open draft:false user-review-requested:@me -author:@me org:acme",
