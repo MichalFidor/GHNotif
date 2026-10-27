@@ -122,7 +122,7 @@ struct MenuContentView: View {
     }
 
     private var emptyStateText: String {
-        if model.config.users.isEmpty { return "Nikogo nie obserwujesz – dodaj osoby w Ustawieniach." }
+        if !model.config.hasSearches { return "Nikogo nie obserwujesz – dodaj osoby w Ustawieniach." }
         if model.isLoading && model.lastRefresh == nil { return "Ładowanie…" }
         if layout.showDismissed { return "Brak załatwionych PR-ów." }
         if !model.dismissedPullRequests.isEmpty { return "Wszystko załatwione 🎉" }
@@ -235,6 +235,7 @@ private struct PullRequestRow: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
+                    ReasonBadges(reasons: pr.reasons)
                     ReviewBadge(decision: pr.reviewDecision)
                     ChecksIndicator(state: pr.checks)
                 }
@@ -259,6 +260,26 @@ private struct PullRequestRow: View {
 
 private final class HoverState: ObservableObject {
     @Published var isHovered = false
+}
+
+private struct ReasonBadges: View {
+    let reasons: Set<MatchReason>
+
+    var body: some View {
+        if reasons.contains(.mention) {
+            Text("@")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(Color.purple))
+                .help("Ktoś wspomniał Cię w tym PR-ze")
+        }
+        if reasons.contains(.reviewRequested) {
+            Image(systemName: "person.crop.circle.badge.questionmark")
+                .foregroundStyle(.purple)
+                .help("Poproszono Cię o review")
+        }
+    }
 }
 
 private struct ReviewBadge: View {

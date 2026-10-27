@@ -31,7 +31,7 @@ public sealed class GitHubClient(HttpClient http)
         var prs = new Dictionary<string, PullRequest>();
         var blocked = new HashSet<string>();
         string? viewer = null;
-        foreach (var query in QueryBuilder.Build(config.Users, config.ExtraQualifiers))
+        foreach (var (query, reason) in QueryBuilder.Searches(config))
         {
             string? cursor = null;
             for (var page = 0; ; page++)
@@ -51,7 +51,9 @@ public sealed class GitHubClient(HttpClient http)
                 {
                     if (node.ValueKind == JsonValueKind.Null || !node.TryGetProperty("id", out _)) continue;
                     var pr = ParsePullRequest(node);
-                    prs[pr.Id] = pr;
+                    var reasons = prs.TryGetValue(pr.Id, out var existing) ? existing.Reasons.ToHashSet() : [];
+                    reasons.Add(reason);
+                    prs[pr.Id] = pr with { Reasons = reasons };
                 }
                 var info = search.GetProperty("pageInfo");
                 if (!info.GetProperty("hasNextPage").GetBoolean()) break;

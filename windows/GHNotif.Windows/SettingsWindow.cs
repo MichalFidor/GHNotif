@@ -14,7 +14,12 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox login = new() { MinWidth = 240, Margin = new Thickness(3) };
     private readonly TextBox extra = new() { Margin = new Thickness(8) };
     private readonly TextBox minutes = new() { Width = 60, Margin = new Thickness(8), HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly CheckBox notify = new() { Content = "Powiadomienia o nowych PR-ach", Margin = new Thickness(8) };
+    private readonly CheckBox notify = new() { Content = "Powiadamiaj o nowych PR-ach i nowej aktywności", Margin = new Thickness(8) };
+    private readonly CheckBox mentions = new() { Content = "PR-y, w których ktoś mnie wspomniał (@)", Margin = new Thickness(8) };
+    private readonly CheckBox reviewRequests = new() { Content = "PR-y z prośbą o moje review", Margin = new Thickness(8) };
+    private readonly TextBox filter = new() { Margin = new Thickness(3, 6, 3, 6) };
+    private readonly Expander peopleExpander = new() { Margin = new Thickness(0, 12, 0, 0), IsExpanded = false };
+    private readonly TabControl tabs = new();
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
     private readonly TextBlock source = Ui.Text("");
     private readonly TextBlock updateStatus = Ui.Text("");
@@ -24,40 +29,61 @@ internal sealed class SettingsWindow : Window
     {
         this.app = app;
         Title = "GHNotif — ustawienia";
-        Width = 500;
-        Height = 700;
+        Width = 520;
+        Height = 560;
         MinWidth = 420;
         MinHeight = 400;
-        var content = new StackPanel { Margin = new Thickness(12) };
-        content.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
-        content.Children.Add(Ui.Button("Sprawdź aktualizacje", "Sprawdź najnowszy release na GitHubie",
-            () => _ = app.CheckForUpdatesAsync()));
-        content.Children.Add(updateStatus);
-        content.Children.Add(Heading("Obserwowane osoby"));
+
+        var people = Page();
+        people.Children.Add(Heading("Dodaj osobę"));
         var add = new DockPanel();
         var addButton = Ui.Button("Dodaj", "Dodaj osobę po sprawdzeniu loginu na GitHubie", () => _ = app.RunAsync(AddUserAsync));
         DockPanel.SetDock(addButton, Dock.Right);
         add.Children.Add(addButton);
         add.Children.Add(login);
-        content.Children.Add(add);
-        content.Children.Add(users);
-        content.Children.Add(Heading("Zakres wyszukiwania"));
+        people.Children.Add(add);
+        people.Children.Add(Ui.Text("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu."));
+        filter.ToolTip = "Filtruj listę obserwowanych osób";
+        filter.TextChanged += (_, _) => RenderUsers();
+        var list = new StackPanel();
+        list.Children.Add(filter);
+        list.Children.Add(new ScrollViewer { Content = users, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        peopleExpander.Content = list;
+        people.Children.Add(peopleExpander);
+
+        var search = Page();
+        search.Children.Add(Heading("Dodatkowo pokazuj"));
+        mentions.IsChecked = app.Config.IncludeMentions;
+        reviewRequests.IsChecked = app.Config.IncludeReviewRequests;
+        search.Children.Add(mentions);
+        search.Children.Add(reviewRequests);
+        search.Children.Add(Ui.Text("Niezależnie od autora. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu — mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone. Twoje własne PR-y są pomijane."));
+        search.Children.Add(Heading("Zakres"));
         extra.Text = app.Config.ExtraQualifiers;
         extra.ToolTip = "Dodatkowe kwalifikatory GitHub, np. org:my-org. Puste = wszystkie dostępne repozytoria.";
-        content.Children.Add(extra);
-        content.Children.Add(Heading("Odświeżanie co ile minut (1–60)"));
+        search.Children.Add(extra);
+        search.Children.Add(Ui.Button("Zapisz", "Zapisz ustawienia wyszukiwania", () => _ = app.RunAsync(SaveAsync)));
+
+        var general = Page();
+        general.Children.Add(Heading("Odświeżanie co ile minut (1–60)"));
         minutes.Text = app.Config.RefreshMinutes.ToString();
-        content.Children.Add(minutes);
+        general.Children.Add(minutes);
         notify.IsChecked = app.Config.Notify;
-        content.Children.Add(notify);
-        content.Children.Add(Ui.Button("Zapisz ustawienia", "Zapisz zakres, interwał i powiadomienia",
-            () => _ = app.RunAsync(SaveAsync)));
-        content.Children.Add(Heading("Token GitHub"));
-        content.Children.Add(source);
-        content.Children.Add(Ui.Text("Domyślnie: gh auth login. PAT ma pierwszeństwo i jest szyfrowany przez Windows DPAPI dla bieżącego użytkownika. Classic PAT: scope repo; organizacje SSO wymagają autoryzacji."));
+        general.Children.Add(notify);
+        general.Children.Add(Ui.Button("Zapisz", "Zapisz interwał i powiadomienia", () => _ = app.RunAsync(SaveAsync)));
+        general.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
+        general.Children.Add(Ui.Button("Sprawdź aktualizacje", "Sprawdź najnowszy release na GitHubie",
+            () => _ = app.CheckForUpdatesAsync()));
+        general.Children.Add(updateStatus);
+        general.Children.Add(Ui.Text("Zamknięcie panelu PR-ów ukrywa go w zasobniku. Zakończenie aplikacji: prawy przycisk na ikonie → Zakończ."));
+
+        var token = Page();
+        token.Children.Add(Heading("Token GitHub"));
+        token.Children.Add(source);
+        token.Children.Add(Ui.Text("Domyślnie: gh auth login. PAT ma pierwszeństwo i jest szyfrowany przez Windows DPAPI dla bieżącego użytkownika. Classic PAT: scope repo; organizacje SSO wymagają autoryzacji."));
         pat.ToolTip = "Personal access token — nigdy nie jest zapisywany w config.json";
-        content.Children.Add(pat);
-        content.Children.Add(Ui.Button("Zapisz PAT", "Zapisz zaszyfrowany token",
+        token.Children.Add(pat);
+        token.Children.Add(Ui.Button("Zapisz PAT", "Zapisz zaszyfrowany token",
             () => _ = app.RunAsync(async () =>
             {
                 if (string.IsNullOrWhiteSpace(pat.Password))
@@ -67,20 +93,34 @@ internal sealed class SettingsWindow : Window
                 app.CredentialsChanged();
                 await app.RefreshAsync();
             })));
-        content.Children.Add(Ui.Button("Usuń PAT i użyj gh CLI", "Usuń zapisany token i użyj konta GitHub CLI",
+        token.Children.Add(Ui.Button("Usuń PAT i użyj gh CLI", "Usuń zapisany token i użyj konta GitHub CLI",
             () => _ = app.RunAsync(async () =>
             {
                 app.Tokens.Delete();
                 app.CredentialsChanged();
                 await app.RefreshAsync();
             })));
-        content.Children.Add(Ui.Text("Zamknięcie panelu PR-ów ukrywa go w zasobniku. Zakończenie aplikacji: prawy przycisk na ikonie → Zakończ."));
-        Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        tabs.Items.Add(Tab("Osoby", people));
+        tabs.Items.Add(Tab("Wyszukiwanie", search));
+        tabs.Items.Add(Tab("Ogólne", general));
+        tabs.Items.Add(Tab("Token", token));
+        Content = tabs;
         app.Changed += UpdateSource;
         Closed += (_, _) => app.Changed -= UpdateSource;
         RenderUsers();
         UpdateSource();
     }
+
+    internal void SelectTab(int index) => tabs.SelectedIndex = index;
+
+    private static StackPanel Page() => new() { Margin = new Thickness(12) };
+
+    private static TabItem Tab(string header, UIElement content) => new()
+    {
+        Header = header,
+        Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+    };
 
     private void UpdateSource()
     {
@@ -88,11 +128,7 @@ internal sealed class SettingsWindow : Window
         updateStatus.Text = app.UpdateStatus;
     }
 
-    private Config Copy() => new()
-    {
-        Users = app.Config.Users.ToList(), ExtraQualifiers = app.Config.ExtraQualifiers,
-        Notify = app.Config.Notify, RefreshMinutes = app.Config.RefreshMinutes
-    };
+    private Config Copy() => app.Config.Copy();
 
     private async Task SaveAsync()
     {
@@ -102,6 +138,8 @@ internal sealed class SettingsWindow : Window
         config.ExtraQualifiers = extra.Text.Trim();
         config.RefreshMinutes = value;
         config.Notify = notify.IsChecked == true;
+        config.IncludeMentions = mentions.IsChecked == true;
+        config.IncludeReviewRequests = reviewRequests.IsChecked == true;
         await app.SaveConfigAsync(config);
     }
 
@@ -127,7 +165,10 @@ internal sealed class SettingsWindow : Window
     private void RenderUsers()
     {
         users.Children.Clear();
-        foreach (var user in app.Config.Users.Order(StringComparer.OrdinalIgnoreCase))
+        peopleExpander.Header = $"Obserwowane osoby ({app.Config.Users.Count})";
+        var query = filter.Text.Trim();
+        foreach (var user in app.Config.Users.Order(StringComparer.OrdinalIgnoreCase)
+            .Where(u => query.Length == 0 || u.Contains(query, StringComparison.OrdinalIgnoreCase)))
         {
             var row = new DockPanel();
             var remove = Ui.Button("−", $"Przestań obserwować {user}", () => _ = app.RunAsync(async () =>

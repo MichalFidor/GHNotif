@@ -168,12 +168,8 @@ public partial class App : Application
             {
                 refreshQueued = false;
                 var version = revision;
-                var config = new Config
-                {
-                    Users = Config.Users.ToList(), ExtraQualifiers = Config.ExtraQualifiers,
-                    Notify = Config.Notify, RefreshMinutes = Config.RefreshMinutes
-                };
-                var result = config.Users.Count == 0 ? new SearchResult([], [])
+                var config = Config.Copy();
+                var result = !config.HasSearches ? new SearchResult([], [])
                     : await Client.SearchAsync(await Tokens.ResolveAsync(), config);
                 if (version != revision) { refreshQueued = true; continue; }
                 // Save seen IDs before publishing or notifying; a write failure must not look like success.
@@ -218,7 +214,8 @@ public partial class App : Application
     internal async Task SaveConfigAsync(Config config)
     {
         config.Validate();
-        var changedSearch = !config.Users.SequenceEqual(Config.Users) || config.ExtraQualifiers != Config.ExtraQualifiers;
+        var changedSearch = !config.Users.SequenceEqual(Config.Users) || config.ExtraQualifiers != Config.ExtraQualifiers
+            || config.IncludeMentions != Config.IncludeMentions || config.IncludeReviewRequests != Config.IncludeReviewRequests;
         configStore.Save(config);
         Config = config;
         baseline |= changedSearch;

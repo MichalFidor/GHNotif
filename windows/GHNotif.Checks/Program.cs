@@ -60,11 +60,32 @@ using var http = new HttpClient(new FakeHandler(async request =>
     return response;
 }));
 var client = new GitHubClient(http);
-var result = await client.SearchAsync("test-token", new Config { Users = ["example"] });
+var result = await client.SearchAsync("test-token", new Config { Users = ["example"], IncludeMentions = false });
 Check(requests.Count == 2 && requests[1].Contains("cursor"), "Pagination passes cursor");
 Check(result.PullRequests.Count == 2, "Deduplicate across pages");
 Check(result.BlockedOrganizations.SetEquals(["123"]), "SSO surfaced with search results");
 Check(result.ViewerLogin == "me", "Viewer login parsed");
+Check(result.PullRequests.All(pr => pr.Reasons.SetEquals([MatchReason.WatchedAuthor])), "Author search reason");
+
+var searches = QueryBuilder.Searches(new Config { Users = ["a"], ExtraQualifiers = "org:x" }).ToList();
+Check(searches.Select(s => s.Reason).SequenceEqual([MatchReason.WatchedAuthor, MatchReason.Mention]),
+    "Mentions on, review requests off by default");
+Check(searches[1].Query == "is:pr is:open draft:false mentions:@me -author:@me org:x", "Mention query");
+Check(QueryBuilder.Searches(new Config { IncludeMentions = false, IncludeReviewRequests = true }).Single().Query ==
+    "is:pr is:open draft:false user-review-requested:@me -author:@me", "Personal review request query");
+Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSearches, "HasSearches");
+var legacyConfig = JsonSerializer.Deserialize<Config>("{\"users\":[\"a\"],\"notify\":false}",
+    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
+Check(legacyConfig.IncludeMentions && !legacyConfig.IncludeReviewRequests, "Old config gets new defaults");
+
+var merging = 0;
+using var mergeHttp = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+{
+    Content = new StringContent(++merging == 1 ? Page(Node("one"), false) : Page(Node("one") + "," + Node("three"), false))
+})));
+var merged = await new GitHubClient(mergeHttp).SearchAsync("t", new Config { Users = ["example"] });
+Check(merged.PullRequests.Single(pr => pr.Id == "one").Reasons.SetEquals([MatchReason.WatchedAuthor, MatchReason.Mention])
+    && merged.PullRequests.Single(pr => pr.Id == "three").Reasons.SetEquals([MatchReason.Mention]), "Reasons merged across searches");
 
 using var unauthorized = new HttpClient(new FakeHandler(_ =>
     Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))));

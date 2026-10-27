@@ -96,7 +96,11 @@ internal static class Program
             settings.Show();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
-            Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Settings render");
+            Check(Buttons(settings).Any(b => Equals(b.Content, "Dodaj")), "People tab renders first");
+            settings.SelectTab(3);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Token tab renders");
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");

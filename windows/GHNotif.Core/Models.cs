@@ -8,12 +8,17 @@ public sealed record PullRequest(
     string? ReviewDecision, string? Checks,
     string? HeadCommitOid = null, IReadOnlyList<PrActivity>? Activity = null)
 {
+    /// Why the PR is listed; a PR can match several searches.
+    public IReadOnlySet<MatchReason> Reasons { get; init; } = new HashSet<MatchReason> { MatchReason.WatchedAuthor };
+
     /// True when, since the dismissal, someone pushed commits or someone other than the viewer commented/reviewed.
     public bool HasNewActivity(DismissalSnapshot snapshot, string? viewer) =>
         (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
         || (Activity ?? []).Any(item => item.Date > snapshot.DismissedAt
             && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase));
 }
+
+public enum MatchReason { WatchedAuthor, Mention, ReviewRequested }
 
 /// A comment or submitted review by a human (bots are skipped while parsing).
 public sealed record PrActivity(string Login, DateTimeOffset Date);
@@ -31,6 +36,18 @@ public sealed class Config
     public string ExtraQualifiers { get; set; } = "";
     public int RefreshMinutes { get; set; } = 5;
     public bool Notify { get; set; } = true;
+    /// Also show open PRs (by anyone) that @mention the signed-in user.
+    public bool IncludeMentions { get; set; } = true;
+    /// Also show PRs where a review is requested from the signed-in user personally (not via a team).
+    public bool IncludeReviewRequests { get; set; }
+
+    public bool HasSearches => Users.Count > 0 || IncludeMentions || IncludeReviewRequests;
+
+    public Config Copy() => new()
+    {
+        Users = Users.ToList(), ExtraQualifiers = ExtraQualifiers, RefreshMinutes = RefreshMinutes, Notify = Notify,
+        IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests
+    };
 
     public void Validate()
     {
@@ -115,6 +132,15 @@ public static class QueryBuilder
     public static IEnumerable<string> Normalize(IEnumerable<string> logins) =>
         logins.Select(login => login.Trim().TrimStart('@'))
             .Where(login => login.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public static IEnumerable<(string Query, MatchReason Reason)> Searches(Config config)
+    {
+        foreach (var query in Build(config.Users, config.ExtraQualifiers)) yield return (query, MatchReason.WatchedAuthor);
+        string Viewer(string qualifier) =>
+            $"is:pr is:open draft:false {qualifier} -author:@me {config.ExtraQualifiers.Trim()}".Trim();
+        if (config.IncludeMentions) yield return (Viewer("mentions:@me"), MatchReason.Mention);
+        if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me"), MatchReason.ReviewRequested);
+    }
 
     public static IEnumerable<string> Build(IEnumerable<string> users, string extra) =>
         Normalize(users).Chunk(10).Select(batch =>

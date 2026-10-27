@@ -9,14 +9,31 @@ struct SettingsView: View {
     @StateObject private var form = FormState()
 
     private var sortedUsers: [String] {
-        model.config.users.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        model.config.users.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private var filteredUsers: [String] {
+        let query = form.filter.trimmingCharacters(in: .whitespaces)
+        return query.isEmpty ? sortedUsers : sortedUsers.filter { $0.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
+        TabView {
+            peopleTab.tabItem { Label("Osoby", systemImage: "person.2") }
+            searchTab.tabItem { Label("Wyszukiwanie", systemImage: "magnifyingglass") }
+            generalTab.tabItem { Label("Ogólne", systemImage: "gearshape") }
+            tokenTab.tabItem { Label("Token", systemImage: "key") }
+        }
+        .frame(width: 480, height: 460)
+        .onAppear { form.extraQualifiers = model.config.extraQualifiers }
+    }
+
+    private var peopleTab: some View {
         Form {
-            Section("Obserwowane osoby (\(model.config.users.count))") {
+            Section {
                 HStack {
-                    TextField("Login GitHub", text: $form.newLogin)
+                    TextField("Login GitHub", text: $form.newLogin, prompt: Text("Login GitHub, np. octocat"))
+                        .labelsHidden()
                         .onSubmit(addUser)
                     if form.isAdding { ProgressView().controlSize(.small) }
                     Button("Dodaj", action: addUser)
@@ -25,56 +42,133 @@ struct SettingsView: View {
                 if let addError = form.addError {
                     Text(addError).font(.caption).foregroundStyle(.red)
                 }
-                ForEach(sortedUsers, id: \.self) { login in
-                    HStack {
-                        Link(login, destination: URL(string: "https://github.com/\(login)")!)
-                        Spacer()
-                        Button(role: .destructive) {
-                            model.removeUser(login)
-                        } label: {
-                            Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+            } header: {
+                Text("Dodaj osobę")
+            } footer: {
+                Text("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                DisclosureGroup(isExpanded: $form.showPeople) {
+                    if model.config.users.count > 6 {
+                        TextField("Filtruj", text: $form.filter, prompt: Text("Szukaj na liście"))
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(filteredUsers, id: \.self) { login in
+                                personRow(login)
+                                Divider()
+                            }
+                            if filteredUsers.isEmpty {
+                                Text(model.config.users.isEmpty ? "Nikogo jeszcze nie obserwujesz." : "Brak wyników.")
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 6)
+                            }
                         }
-                        .buttonStyle(.borderless)
-                        .help("Przestań obserwować \(login)")
+                    }
+                    .frame(height: min(CGFloat(max(filteredUsers.count, 1)) * 29, 190))
+                } label: {
+                    HStack {
+                        Text("Obserwowane osoby")
+                        Spacer()
+                        Text(String(model.config.users.count)).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section("Zakres wyszukiwania") {
-                TextField("Dodatkowe kwalifikatory", text: $form.extraQualifiers, prompt: Text("np. org:my-org"))
-                    .onSubmit { model.config.extraQualifiers = form.extraQualifiers }
-                Text("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private func personRow(_ login: String) -> some View {
+        HStack {
+            Link(login, destination: URL(string: "https://github.com/\(login)")!)
+            Spacer()
+            Button(role: .destructive) {
+                model.removeUser(login)
+            } label: {
+                Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("Przestań obserwować \(login)")
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 2)
+    }
+
+    private var searchTab: some View {
+        Form {
+            Section {
+                Toggle("PR-y, w których ktoś mnie wspomniał (@)", isOn: $model.config.includeMentions)
+                Toggle("PR-y z prośbą o moje review", isOn: $model.config.includeReviewRequests)
+            } header: {
+                Text("Dodatkowo pokazuj")
+            } footer: {
+                Text("Niezależnie od autora. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone. Twoje własne PR-y są tu pomijane.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Odświeżanie i powiadomienia") {
+            Section {
+                TextField("Dodatkowe kwalifikatory", text: $form.extraQualifiers, prompt: Text("Kwalifikatory, np. org:my-org"))
+                    .labelsHidden()
+                    .onSubmit { model.config.extraQualifiers = form.extraQualifiers }
+            } header: {
+                Text("Zakres")
+            } footer: {
+                Text("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var generalTab: some View {
+        Form {
+            Section("Odświeżanie") {
                 Stepper("Co \(model.config.refreshMinutes) min", value: $model.config.refreshMinutes, in: 1...60)
-                Toggle("Powiadomienia o nowych PR-ach", isOn: $model.config.notify)
-                Button("Wyślij testowe powiadomienie") {
-                    Task { await model.testNotification() }
+            }
+
+            Section("Powiadomienia") {
+                Toggle("Powiadamiaj o nowych PR-ach i nowej aktywności", isOn: $model.config.notify)
+                HStack {
+                    Button("Wyślij testowe") {
+                        Task { await model.testNotification() }
+                    }
+                    Spacer()
+                    Link("Ustawienia systemowe",
+                         destination: URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
                 }
-                Link("Otwórz systemowe ustawienia powiadomień",
-                     destination: URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
                 if !model.notificationStatus.isEmpty {
                     Text(model.notificationStatus).font(.caption)
                 }
             }
 
             Section("GHNotif \(model.installedVersion)") {
-                Button("Sprawdź aktualizacje") {
-                    Task { await model.checkForUpdates() }
+                HStack {
+                    Button("Sprawdź aktualizacje") {
+                        Task { await model.checkForUpdates() }
+                    }
+                    .disabled(model.checkingUpdates)
+                    Spacer()
+                    if let release = model.availableRelease {
+                        Link("Pobierz \(release.tagName)", destination: release.htmlURL)
+                    }
                 }
-                .disabled(model.checkingUpdates)
                 if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption) }
-                if let release = model.availableRelease {
-                    Link("Pobierz \(release.tagName)", destination: release.htmlURL)
-                }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section("Token GitHub") {
+    private var tokenTab: some View {
+        Form {
+            Section {
                 LabeledContent("Aktualne źródło", value: model.tokenSource?.rawValue ?? "brak")
-                SecureField("Personal access token (opcjonalnie)", text: $form.pat)
+            }
+            Section {
+                SecureField("Personal access token", text: $form.pat, prompt: Text("ghp_… (opcjonalnie)"))
                 HStack {
                     Button("Zapisz PAT") {
                         model.setPersonalAccessToken(form.pat)
@@ -83,14 +177,12 @@ struct SettingsView: View {
                     .disabled(form.pat.trimmingCharacters(in: .whitespaces).isEmpty)
                     Button("Usuń PAT i użyj gh CLI") { model.setPersonalAccessToken(nil) }
                 }
+            } footer: {
                 Text("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests – read) ma pierwszeństwo i jest przechowywany w Keychain.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 620)
-        .onAppear { form.extraQualifiers = model.config.extraQualifiers }
     }
 
     private func addUser() {
@@ -113,4 +205,6 @@ private final class FormState: ObservableObject {
     @Published var addError: String?
     @Published var extraQualifiers = ""
     @Published var pat = ""
+    @Published var filter = ""
+    @Published var showPeople = false
 }

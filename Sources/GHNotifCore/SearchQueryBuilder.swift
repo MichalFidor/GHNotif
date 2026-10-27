@@ -19,6 +19,19 @@ public enum SearchQueryBuilder {
         }
     }
 
+    /// All searches for a config, tagged with why a matching PR is shown.
+    public static func searches(for config: AppConfig, batchSize: Int = 10) -> [(query: String, reason: MatchReason)] {
+        var result = queries(authors: config.users, extraQualifiers: config.extraQualifiers, batchSize: batchSize)
+            .map { (query: $0, reason: MatchReason.watchedAuthor) }
+        let extra = config.extraQualifiers.trimmingCharacters(in: .whitespacesAndNewlines)
+        func viewerQuery(_ qualifier: String) -> String {
+            ([baseQualifiers, qualifier, "-author:@me"] + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+        }
+        if config.includeMentions { result.append((viewerQuery("mentions:@me"), .mention)) }
+        if config.includeReviewRequests { result.append((viewerQuery("user-review-requested:@me"), .reviewRequested)) }
+        return result
+    }
+
     /// Trims, strips a leading `@`, and removes case-insensitive duplicates while preserving order.
     public static func normalize(_ logins: [String]) -> [String] {
         var seen = Set<String>()

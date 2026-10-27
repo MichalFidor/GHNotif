@@ -51,7 +51,23 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Konfiguracja
 
-Ustawienia (pasek menu → „Ustawienia…”): dodawanie/usuwanie obserwowanych osób (login jest weryfikowany w GitHub), dodatkowe kwalifikatory wyszukiwania (np. `org:my-org`), interwał odświeżania, powiadomienia. Nowa instalacja zaczyna z pustą listą osób.
+Ustawienia (pasek menu → „Ustawienia…”) są podzielone na zakładki:
+
+- **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem.
+- **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`).
+- **Ogólne** – interwał odświeżania, powiadomienia, wersja i aktualizacje.
+- **Token** – źródło tokenu i opcjonalny PAT.
+
+Nowa instalacja zaczyna z pustą listą osób.
+
+## Wzmianki i prośby o review
+
+Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
+
+- **wzmianki** (`mentions:@me`, domyślnie włączone) – otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
+- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) – tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
+
+Twoje własne PR-y są w tych wyszukiwaniach pomijane, a dodatkowe kwalifikatory zakresu też obowiązują. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
 Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych/widzianych PR-ów i zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
@@ -74,7 +90,7 @@ Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawe
 
 ## Ikony i tooltipy
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik — prośbę o zmiany, oko — wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania – prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik — prośbę o zmiany, oko — wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
 Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
@@ -109,7 +125,9 @@ release z sumami `SHA256SUMS`. Sam build macOS ma podpis ad-hoc, bez notaryzacji
 
 ## Jak to działa
 
-Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…`, wyniki są łączone i deduplikowane.
+Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…`, wyniki są łączone i deduplikowane. Wzmianki i prośby o review to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
+
+Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `MenuBarExtra` złożona z kilku widoków pokazuje tylko ich część.
 
 ## Testy
 

@@ -9,19 +9,8 @@ struct GHNotifApp: App {
             MenuContentView()
                 .environmentObject(model)
         } label: {
-            HStack(spacing: 2) {
-                Image("TrayLogo", bundle: .module).renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
-                if model.lastError != nil {
-                    Image(systemName: "exclamationmark.triangle")
-                }
-                if !model.pullRequests.isEmpty {
-                    Text("\(model.pullRequests.count)")
-                }
-            }
-            .help(model.lastError == nil ? "GHNotif — PR-y wymagające uwagi" : "GHNotif — błąd pobierania PR-ów")
+            Image(nsImage: MenuBarIcon.image(count: model.pullRequests.count, hasError: model.lastError != nil))
+                .help(model.lastError == nil ? "GHNotif — PR-y wymagające uwagi" : "GHNotif — błąd pobierania PR-ów")
         }
         .menuBarExtraStyle(.window)
 

@@ -27,6 +27,21 @@ do {
     check(SearchQueryBuilder.queries(authors: ["  "]).isEmpty, "no queries without authors")
 }
 
+do {
+    let base = AppConfig(users: ["alice"], extraQualifiers: "org:acme")
+    check(SearchQueryBuilder.searches(for: base).map(\.reason) == [.watchedAuthor, .mention], "mentions on, review requests off by default")
+    check(SearchQueryBuilder.searches(for: base).last?.query == "is:pr is:open draft:false mentions:@me -author:@me org:acme",
+          "mention query keeps scope and skips own PRs")
+    var all = base
+    all.includeReviewRequests = true
+    check(SearchQueryBuilder.searches(for: all).last?.query == "is:pr is:open draft:false user-review-requested:@me -author:@me org:acme",
+          "review requests are personal only")
+    var none = AppConfig(users: [])
+    none.includeMentions = false
+    check(!none.hasSearches && SearchQueryBuilder.searches(for: none).isEmpty, "nothing to search")
+    check(AppConfig(users: []).hasSearches, "mentions alone still search")
+}
+
 // MARK: GitHubClient parsing
 
 do {
@@ -78,6 +93,22 @@ check(GitHubClient.ssoBlockedOrgIDs(from: "partial-results; organizations=219558
 check(GitHubClient.ssoBlockedOrgIDs(from: "required; url=https://github.com/orgs/x/sso").isEmpty, "non-partial SSO header ignored")
 check(GitHubClient.ssoBlockedOrgIDs(from: nil).isEmpty, "missing SSO header")
 
+// MARK: Merging search reasons
+
+do {
+    func pr(_ id: String) -> PullRequest {
+        PullRequest(id: id, number: 1, title: "t", url: URL(string: "https://github.com/o/r/pull/1")!, repository: "o/r",
+                    author: "a", authorAvatarURL: nil, createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil)
+    }
+    let merged = GitHubClient.merge([
+        (SearchOutcome(pullRequests: [pr("A"), pr("B")], ssoBlockedOrgIDs: ["1"], viewerLogin: "me"), .watchedAuthor),
+        (SearchOutcome(pullRequests: [pr("B"), pr("C")], ssoBlockedOrgIDs: ["2"]), .mention),
+    ])
+    let reasons = Dictionary(uniqueKeysWithValues: merged.pullRequests.map { ($0.id, $0.reasons) })
+    check(reasons == ["A": [.watchedAuthor], "B": [.watchedAuthor, .mention], "C": [.mention]], "reasons merged per PR")
+    check(merged.ssoBlockedOrgIDs == ["1", "2"] && merged.viewerLogin == "me", "SSO and viewer merged")
+}
+
 // MARK: Dismissal reactivation
 
 do {
@@ -124,6 +155,13 @@ do {
 }
 
 check(AppConfig.default.users.isEmpty, "default watch list is empty")
+do {
+    let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":["a"],"extraQualifiers":"","refreshMinutes":7,"notify":false}"#.utf8))
+    check(legacy.refreshMinutes == 7 && !legacy.notify && legacy.includeMentions && !legacy.includeReviewRequests,
+          "config from an older version gets new defaults")
+} catch {
+    check(false, "legacy config threw \(error)")
+}
 
 do {
     func release(_ tag: String, draft: Bool = false, prerelease: Bool = false,

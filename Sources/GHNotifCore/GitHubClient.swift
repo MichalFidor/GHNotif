@@ -24,19 +24,27 @@ public struct GitHubClient: Sendable {
         self.session = session
     }
 
-    public func searchPullRequests(authors: [String], extraQualifiers: String) async throws -> SearchOutcome {
-        let queries = SearchQueryBuilder.queries(authors: authors, extraQualifiers: extraQualifiers)
-        let outcomes = try await withThrowingTaskGroup(of: SearchOutcome.self) { group in
-            for query in queries {
-                group.addTask { try await search(query: query) }
+    public func searchPullRequests(config: AppConfig) async throws -> SearchOutcome {
+        let searches = SearchQueryBuilder.searches(for: config)
+        let outcomes = try await withThrowingTaskGroup(of: (SearchOutcome, MatchReason).self) { group in
+            for item in searches {
+                group.addTask { (try await search(query: item.query), item.reason) }
             }
             return try await group.reduce(into: []) { $0.append($1) }
         }
+        return Self.merge(outcomes)
+    }
+
+    /// Combines search results, merging the match reasons of PRs found by several searches.
+    public static func merge(_ outcomes: [(SearchOutcome, MatchReason)]) -> SearchOutcome {
         var byID: [String: PullRequest] = [:]
         var blocked = Set<String>()
         var viewer: String?
-        for outcome in outcomes {
-            outcome.pullRequests.forEach { byID[$0.id] = $0 }
+        for (outcome, reason) in outcomes {
+            for var pr in outcome.pullRequests {
+                pr.reasons = (byID[pr.id]?.reasons ?? []).union([reason])
+                byID[pr.id] = pr
+            }
             blocked.formUnion(outcome.ssoBlockedOrgIDs)
             viewer = viewer ?? outcome.viewerLogin
         }

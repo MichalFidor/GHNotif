@@ -120,7 +120,7 @@ internal sealed class TrayWindow : Window
         if (prs.Count == 0)
             rows.Children.Add(Ui.Text(app.IsRefreshing ? "Ładowanie…" : app.Error is not null
                 ? "Nie udało się pobrać PR-ów — sprawdź komunikat powyżej."
-                : app.Config.Users.Count == 0 ? "Dodaj obserwowane osoby w ustawieniach."
+                : !app.Config.HasSearches ? "Dodaj obserwowane osoby w ustawieniach."
                 : showDismissed ? "Brak załatwionych PR-ów." : "Brak PR-ów wymagających uwagi."));
         foreach (var group in prs.GroupBy(pr => pr.Repository).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -182,6 +182,19 @@ internal sealed class TrayWindow : Window
             "REVIEW_REQUIRED" => ("◉", "Review: wymagane zatwierdzenie"),
             _ => ("–", "Review: brak decyzji")
         };
+        if (pr.Reasons.Contains(MatchReason.ReviewRequested))
+        {
+            var requested = Badge("👁", "Poproszono Cię o review", Brushes.Purple);
+            DockPanel.SetDock(requested, Dock.Right);
+            row.Children.Add(requested);
+        }
+        if (pr.Reasons.Contains(MatchReason.Mention))
+        {
+            var mention = Badge("@", "Ktoś wspomniał Cię w tym PR-ze", Brushes.Purple);
+            mention.FontWeight = FontWeights.Bold;
+            DockPanel.SetDock(mention, Dock.Right);
+            row.Children.Add(mention);
+        }
         var reviewBadge = Badge(review, reviewTip, pr.ReviewDecision == "APPROVED" ? Brushes.ForestGreen : Brushes.DimGray);
         DockPanel.SetDock(reviewBadge, Dock.Right);
         row.Children.Add(reviewBadge);

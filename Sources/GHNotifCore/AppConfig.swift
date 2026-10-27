@@ -6,13 +6,38 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var extraQualifiers: String
     public var refreshMinutes: Int
     public var notify: Bool
+    /// Also show open PRs (by anyone) that @mention the signed-in user.
+    public var includeMentions: Bool
+    /// Also show open PRs where a review is requested from the signed-in user personally (not via a team).
+    public var includeReviewRequests: Bool
 
-    public init(users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true) {
+    public init(
+        users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true,
+        includeMentions: Bool = true, includeReviewRequests: Bool = false
+    ) {
         self.users = users
         self.extraQualifiers = extraQualifiers
         self.refreshMinutes = refreshMinutes
         self.notify = notify
+        self.includeMentions = includeMentions
+        self.includeReviewRequests = includeReviewRequests
     }
+
+    /// Missing keys (config files from older versions) fall back to defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = AppConfig.default
+        users = try container.decode([String].self, forKey: .users)
+        extraQualifiers = try container.decodeIfPresent(String.self, forKey: .extraQualifiers) ?? fallback.extraQualifiers
+        refreshMinutes = try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? fallback.refreshMinutes
+        notify = try container.decodeIfPresent(Bool.self, forKey: .notify) ?? fallback.notify
+        includeMentions = try container.decodeIfPresent(Bool.self, forKey: .includeMentions) ?? fallback.includeMentions
+        includeReviewRequests = try container.decodeIfPresent(Bool.self, forKey: .includeReviewRequests)
+            ?? fallback.includeReviewRequests
+    }
+
+    /// True when at least one search would run.
+    public var hasSearches: Bool { !users.isEmpty || includeMentions || includeReviewRequests }
 
     public static let `default` = AppConfig(users: [])
 }

@@ -26,7 +26,7 @@ struct Outcome {
 struct GitHubClient {
     let token: String
     static var results: [PullRequest] = []
-    func searchPullRequests(authors: [String], extraQualifiers: String) async throws -> Outcome {
+    func searchPullRequests(config: AppConfig) async throws -> Outcome {
         Outcome(pullRequests: Self.results)
     }
     func canonicalLogin(for login: String) async throws -> String? { login }
@@ -139,6 +139,7 @@ func runChecks() async throws {
     await migrated.refresh()
     precondition(migrated.pullRequests.isEmpty && migrated.dismissals[pr.id]?.headCommitOID == "c9", "Migrated dismissal gets baseline")
     model.config.users = []
+    model.config.includeMentions = false
     await model.refresh()
     precondition(model.allPullRequests.isEmpty, "An empty watch list clears results")
     print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications)")

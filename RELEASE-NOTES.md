@@ -1,13 +1,10 @@
-# GHNotif 0.1.1
+# GHNotif 0.2.0
 
-Pierwsze publiczne wydanie aplikacji do śledzenia PR-ów wybranych osób.
-
-- Natywna aplikacja na pasku macOS i w zasobniku Windows.
-- Edytowalna lista obserwowanych osób, repozytoria z różnych organizacji, obsługa SSO.
-- Lokalne odhaczanie PR-ów; powrót po nowych commitach, komentarzach i review.
-- Zwijane grupy repozytoriów z licznikami.
-- Logo na pasku, tooltipy, test powiadomień macOS.
-- Informacja w aplikacji o nowych wydaniach z linkiem do pobrania (bez automatycznej instalacji).
+- Logo w pasku menu macOS jest widoczne obok licznika (wcześniej był tylko licznik).
+- Wzmianki: otwarte PR-y, w których ktoś Cię wspomniał (`@`), także od osób spoza listy. Domyślnie włączone.
+- Opcjonalnie prośby o Twoje review (tylko osobiste, nie zespołowe). Domyślnie wyłączone, żeby nie zalewać listy.
+- Ustawienia w zakładkach: Osoby / Wyszukiwanie / Ogólne / Token; lista osób domyślnie zwinięta, z licznikiem i filtrem.
+- Starsze pliki konfiguracji są wczytywane bez zmian, nowe opcje dostają wartości domyślne.
 
 ## Instalacja
 

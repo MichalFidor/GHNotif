@@ -141,7 +141,7 @@ final class AppModel: ObservableObject {
             }
         }
 
-        guard !config.users.isEmpty else {
+        guard config.hasSearches else {
             allPullRequests = []
             lastError = nil
             return
@@ -152,7 +152,7 @@ final class AppModel: ObservableObject {
         }
         do {
             let outcome = try await GitHubClient(token: token.value)
-                .searchPullRequests(authors: config.users, extraQualifiers: config.extraQualifiers)
+                .searchPullRequests(config: config)
             let reactivated = reactivateDismissed(in: outcome.pullRequests, viewer: outcome.viewerLogin)
             handleNotifications(for: outcome.pullRequests, reactivated: reactivated)
             allPullRequests = outcome.pullRequests
@@ -262,7 +262,8 @@ final class AppModel: ObservableObject {
             lastError = "Nie udało się zapisać konfiguracji: \(error.localizedDescription)"
         }
         if config.notify && !old.notify { notifier.requestAuthorization() }
-        if config.users != old.users || config.extraQualifiers != old.extraQualifiers {
+        if config.users != old.users || config.extraQualifiers != old.extraQualifiers
+            || config.includeMentions != old.includeMentions || config.includeReviewRequests != old.includeReviewRequests {
             suppressNextNotifications = true
             Task { await refresh() }
         }

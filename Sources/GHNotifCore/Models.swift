@@ -14,6 +14,12 @@ public enum CheckState: String, Decodable, Sendable {
     case expected = "EXPECTED"
 }
 
+public enum MatchReason: String, Hashable, Sendable, CaseIterable {
+    case watchedAuthor
+    case mention
+    case reviewRequested
+}
+
 public struct PullRequest: Identifiable, Hashable, Sendable {
     public let id: String
     public let number: Int
@@ -29,12 +35,14 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public let headCommitOID: String?
     /// Recent comments and reviews by humans (bots excluded).
     public let activity: [Activity]
+    /// Why the PR is listed; a PR can match several searches.
+    public var reasons: Set<MatchReason>
 
     public init(
         id: String, number: Int, title: String, url: URL, repository: String, author: String,
         authorAvatarURL: URL?, createdAt: Date, updatedAt: Date,
         reviewDecision: ReviewDecision?, checks: CheckState?,
-        headCommitOID: String? = nil, activity: [Activity] = []
+        headCommitOID: String? = nil, activity: [Activity] = [], reasons: Set<MatchReason> = [.watchedAuthor]
     ) {
         self.id = id
         self.number = number
@@ -49,6 +57,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         self.checks = checks
         self.headCommitOID = headCommitOID
         self.activity = activity
+        self.reasons = reasons
     }
 
     /// True when, since the dismissal, someone pushed commits or someone other than `viewer` commented/reviewed.
