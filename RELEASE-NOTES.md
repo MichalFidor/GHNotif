@@ -3,7 +3,8 @@
 - Logo w pasku menu macOS jest widoczne obok licznika (wcześniej był tylko licznik).
 - Wzmianki: otwarte PR-y, w których ktoś Cię wspomniał (`@`), dowolnego autora (także spoza listy i Twoje). Domyślnie włączone.
 - Opcjonalnie prośby o Twoje review (tylko osobiste, nie zespołowe). Domyślnie wyłączone, żeby nie zalewać listy.
-- Ustawienia w zakładkach: Osoby / Wyszukiwanie / Ogólne / Token; lista osób domyślnie zwinięta, z licznikiem i filtrem.
+- Ustawienia w stylu Apple: menu po lewej (Osoby / Wyszukiwanie / Ogólne / Token), treść po prawej; lista osób domyślnie zwinięta, z licznikiem i filtrem. Na Windows analogiczna nawigacja po lewej.
+- Poprawka: po zwinięciu wszystkich repozytoriów lista nie „ucieka” już na środek okna — panel zmniejsza się i zostaje przy pasku menu / zasobniku.
 - Starsze pliki konfiguracji są wczytywane bez zmian, nowe opcje dostają wartości domyślne.
 
 ## Instalacja

@@ -23,6 +23,7 @@ internal sealed class TrayWindow : Window
     private readonly Button toggle;
     private readonly Button refresh;
     private bool showDismissed;
+    private double? anchorBottom;
 
     internal TrayWindow(App app)
     {
@@ -63,6 +64,11 @@ internal sealed class TrayWindow : Window
         Content = root;
         app.Changed += Render;
         Closing += HideOnClose;
+        // Collapsing groups shrinks the window from the bottom; keep it docked above the taskbar.
+        SizeChanged += (_, args) =>
+        {
+            if (IsVisible && args.HeightChanged && anchorBottom is { } bottom) Top = Math.Max(0, bottom - ActualHeight);
+        };
         Render();
     }
 
@@ -74,6 +80,7 @@ internal sealed class TrayWindow : Window
 
     internal void ShowPanel()
     {
+        anchorBottom = null;
         Show();
         UpdateLayout();
         var area = Forms.Screen.FromPoint(Forms.Cursor.Position).WorkingArea;
@@ -82,6 +89,7 @@ internal sealed class TrayWindow : Window
         UpdateLayout();
         Left = Math.Max(area.Left / dpi.DpiScaleX, area.Right / dpi.DpiScaleX - ActualWidth - 12);
         Top = Math.Max(area.Top / dpi.DpiScaleY, area.Bottom / dpi.DpiScaleY - ActualHeight - 12);
+        anchorBottom = Top + ActualHeight;
         Activate();
     }
 

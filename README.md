@@ -51,7 +51,7 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Konfiguracja
 
-Ustawienia (pasek menu → „Ustawienia…”) są podzielone na zakładki:
+Ustawienia (pasek menu → „Ustawienia…”) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
 
 - **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem.
 - **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`).
@@ -86,7 +86,7 @@ Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otw
 
 ## Grupy repozytoriów
 
-Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawej to liczba PR-ów w tej grupie (na głównej liście: wymagających uwagi). Stan zwinięcia jest zapamiętywany między uruchomieniami.
+Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawej to liczba PR-ów w tej grupie (na głównej liście: wymagających uwagi). Stan zwinięcia jest zapamiętywany między uruchomieniami. Po zwinięciu panel się zmniejsza: na macOS zostaje przyklejony do paska menu, na Windows do zasobnika.
 
 ## Ikony i tooltipy
 

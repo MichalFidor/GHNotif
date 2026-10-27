@@ -18,14 +18,29 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        TabView {
-            peopleTab.tabItem { Label("Osoby", systemImage: "person.2") }
-            searchTab.tabItem { Label("Wyszukiwanie", systemImage: "magnifyingglass") }
-            generalTab.tabItem { Label("Ogólne", systemImage: "gearshape") }
-            tokenTab.tabItem { Label("Token", systemImage: "key") }
+        NavigationSplitView {
+            List(SettingsPane.allCases, selection: $form.pane) { pane in
+                SidebarLabel(pane: pane).tag(pane)
+            }
+            .frame(minWidth: 190)
+            .navigationSplitViewColumnWidth(190)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            detail(for: form.pane ?? .people)
+                .navigationTitle((form.pane ?? .people).title)
         }
-        .frame(width: 480, height: 460)
+        .frame(width: 680, height: 480)
         .onAppear { form.extraQualifiers = model.config.extraQualifiers }
+    }
+
+    @ViewBuilder
+    private func detail(for pane: SettingsPane) -> some View {
+        switch pane {
+        case .people: peopleTab
+        case .search: searchTab
+        case .general: generalTab
+        case .token: tokenTab
+        }
     }
 
     private var peopleTab: some View {
@@ -106,7 +121,7 @@ struct SettingsView: View {
             } header: {
                 Text("Dodatkowo pokazuj")
             } footer: {
-                Text("Niezależnie od autora. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone. Twoje własne PR-y są tu pomijane.")
+                Text("Niezależnie od autora – wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -199,7 +214,58 @@ struct SettingsView: View {
     }
 }
 
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case people, search, general, token
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .people: "Osoby"
+        case .search: "Wyszukiwanie"
+        case .general: "Ogólne"
+        case .token: "Token"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .people: "person.2.fill"
+        case .search: "magnifyingglass"
+        case .general: "gearshape.fill"
+        case .token: "key.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .people: .blue
+        case .search: .purple
+        case .general: .gray
+        case .token: .orange
+        }
+    }
+}
+
+/// System Settings-style row: white symbol on a coloured rounded square.
+struct SidebarLabel: View {
+    let pane: SettingsPane
+
+    var body: some View {
+        Label {
+            Text(pane.title)
+        } icon: {
+            Image(systemName: pane.systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(pane.tint.gradient))
+        }
+    }
+}
+
 private final class FormState: ObservableObject {
+    @Published var pane: SettingsPane? = .people
     @Published var newLogin = ""
     @Published var isAdding = false
     @Published var addError: String?

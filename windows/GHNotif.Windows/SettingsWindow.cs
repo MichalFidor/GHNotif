@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using GHNotif.Core;
 
 namespace GHNotif.Windows;
@@ -19,7 +20,7 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox reviewRequests = new() { Content = "PR-y z prośbą o moje review", Margin = new Thickness(8) };
     private readonly TextBox filter = new() { Margin = new Thickness(3, 6, 3, 6) };
     private readonly Expander peopleExpander = new() { Margin = new Thickness(0, 12, 0, 0), IsExpanded = false };
-    private readonly TabControl tabs = new();
+    private readonly TabControl tabs = new() { TabStripPlacement = Dock.Left, Padding = new Thickness(8, 0, 0, 0) };
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
     private readonly TextBlock source = Ui.Text("");
     private readonly TextBlock updateStatus = Ui.Text("");
@@ -29,9 +30,9 @@ internal sealed class SettingsWindow : Window
     {
         this.app = app;
         Title = "GHNotif — ustawienia";
-        Width = 520;
+        Width = 680;
         Height = 560;
-        MinWidth = 420;
+        MinWidth = 560;
         MinHeight = 400;
 
         var people = Page();
@@ -57,7 +58,7 @@ internal sealed class SettingsWindow : Window
         reviewRequests.IsChecked = app.Config.IncludeReviewRequests;
         search.Children.Add(mentions);
         search.Children.Add(reviewRequests);
-        search.Children.Add(Ui.Text("Niezależnie od autora. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu — mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone. Twoje własne PR-y są pomijane."));
+        search.Children.Add(Ui.Text("Niezależnie od autora — wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu — mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone."));
         search.Children.Add(Heading("Zakres"));
         extra.Text = app.Config.ExtraQualifiers;
         extra.ToolTip = "Dodatkowe kwalifikatory GitHub, np. org:my-org. Puste = wszystkie dostępne repozytoria.";
@@ -101,10 +102,10 @@ internal sealed class SettingsWindow : Window
                 await app.RefreshAsync();
             })));
 
-        tabs.Items.Add(Tab("Osoby", people));
-        tabs.Items.Add(Tab("Wyszukiwanie", search));
-        tabs.Items.Add(Tab("Ogólne", general));
-        tabs.Items.Add(Tab("Token", token));
+        tabs.Items.Add(Tab("\uE716", "Osoby", people));
+        tabs.Items.Add(Tab("\uE721", "Wyszukiwanie", search));
+        tabs.Items.Add(Tab("\uE713", "Ogólne", general));
+        tabs.Items.Add(Tab("\uE8D7", "Token", token));
         Content = tabs;
         app.Changed += UpdateSource;
         Closed += (_, _) => app.Changed -= UpdateSource;
@@ -116,11 +117,24 @@ internal sealed class SettingsWindow : Window
 
     private static StackPanel Page() => new() { Margin = new Thickness(12) };
 
-    private static TabItem Tab(string header, UIElement content) => new()
+    /// Left navigation entry (Windows Settings style): Segoe MDL2 glyph + label.
+    private static TabItem Tab(string glyph, string header, UIElement content)
     {
-        Header = header,
-        Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
-    };
+        var label = new StackPanel { Orientation = Orientation.Horizontal, MinWidth = 150, Margin = new Thickness(4, 6, 4, 6) };
+        label.Children.Add(new TextBlock
+        {
+            Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15,
+            Width = 22, VerticalAlignment = VerticalAlignment.Center
+        });
+        label.Children.Add(new TextBlock { Text = header, FontSize = 14, Margin = new Thickness(6, 0, 0, 0) });
+        return new()
+        {
+            Header = label,
+            ToolTip = header,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+        };
+    }
 
     private void UpdateSource()
     {

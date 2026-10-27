@@ -30,6 +30,12 @@ struct MenuContentView: View {
             footer
         }
         .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { layout.panelHeight = $0 }
+        // The MenuBarExtra window doesn't always shrink when groups collapse; keep content at the top
+        // and resize the window ourselves so nothing floats in the middle.
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(WindowHeightSync(height: layout.panelHeight))
     }
 
     private var header: some View {
@@ -150,7 +156,30 @@ struct MenuContentView: View {
 
 private final class ListLayout: ObservableObject {
     @Published var contentHeight: CGFloat = 0
+    @Published var panelHeight: CGFloat = 0
     @Published var showDismissed = false
+}
+
+/// Shrinks or grows the hosting window to `height`, keeping its top edge fixed under the menu bar.
+struct WindowHeightSync: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let target = height
+        DispatchQueue.main.async { Self.apply(target, to: view.window) }
+    }
+
+    static func apply(_ height: CGFloat, to window: NSWindow?) {
+        guard height > 0, let window, let content = window.contentView else { return }
+        let delta = content.frame.height - height.rounded(.up)
+        guard abs(delta) >= 1 else { return }
+        var frame = window.frame
+        frame.origin.y += delta
+        frame.size.height -= delta
+        window.setFrame(frame, display: true, animate: false)
+    }
 }
 
 private struct RepositoryHeader: View {

@@ -82,10 +82,17 @@ internal static class Program
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             panel.UpdateLayout();
+            panel.ShowPanel();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var expandedBottom = panel.Top + panel.ActualHeight;
+            var expandedHeight = panel.ActualHeight;
             Buttons(panel).Single(b => Equals(b.ToolTip, "Zwiń example/demo"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             panel.UpdateLayout();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(panel.ActualHeight < expandedHeight && Math.Abs(panel.Top + panel.ActualHeight - expandedBottom) < 1,
+                "Collapsed panel shrinks and stays docked above the taskbar");
             Check(!Buttons(panel).Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako") == true)
                 && app.State.Collapsed.Contains("example/demo"), "Collapsing a repo hides its rows");
             Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().Collapsed.Contains("example/demo"),
@@ -97,6 +104,8 @@ internal static class Program
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Dodaj")), "People tab renders first");
+            var nav = Descendants<TabControl>(settings).Single();
+            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 4, "Settings use a left navigation menu");
             settings.SelectTab(3);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
@@ -118,6 +127,13 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        if (root is T match) yield return match;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            foreach (var child in Descendants<T>(VisualTreeHelper.GetChild(root, i))) yield return child;
     }
 
     private static IEnumerable<Button> Buttons(DependencyObject root)
