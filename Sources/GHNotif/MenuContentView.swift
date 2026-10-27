@@ -315,6 +315,7 @@ private struct PullRequestRow: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: 250, alignment: .leading)
                     ReasonBadges(reasons: pr.reasons)
                     ReviewBadge(decision: pr.reviewDecision)
                     ChecksIndicator(state: pr.checks)
@@ -322,6 +323,7 @@ private struct PullRequestRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
             .help("Otwórz PR w przeglądarce\n" + pr.url.absoluteString)
             if list == .active {
                 Menu {

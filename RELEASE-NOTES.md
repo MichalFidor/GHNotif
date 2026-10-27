@@ -1,3 +1,7 @@
+# GHNotif 0.3.1
+
+- Poprawiono układ wierszy PR: akcje odłożenia i oznaczenia są teraz bliżej PR-a, zamiast być rozciągnięte do prawej krawędzi okna.
+
 # GHNotif 0.3.0
 
 - Automatycznie oznaczaj PR jako załatwiony po własnym review aktualnego commita; nowy commit przywraca go na listę.
