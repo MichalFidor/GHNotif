@@ -21,8 +21,10 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(SettingsPane.allCases, selection: $form.pane) { pane in
-                SidebarLabel(pane: pane).tag(pane)
+                SidebarLabel(pane: pane, language: Localization.language).tag(pane)
             }
+            // Rows only take `pane` otherwise, so SwiftUI would keep the old titles after a language switch.
+            .id(Localization.language)
 
             .frame(minWidth: 190)
             .navigationSplitViewColumnWidth(190)
@@ -442,6 +444,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 /// System Settings-style row: white symbol on a coloured rounded square.
 struct SidebarLabel: View {
     let pane: SettingsPane
+    let language: AppLanguage
 
     var body: some View {
         Label {

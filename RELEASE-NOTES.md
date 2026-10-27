@@ -1,3 +1,7 @@
+# GHNotif 0.5.1
+
+- macOS: nazwy kategorii w ustawieniach zmieniają się od razu po przełączeniu języka.
+
 # GHNotif 0.5.0
 
 - Przypomnienia o review: okno na środku ekranu z listą PR-ów o wybranych godzinach i w wybrane dni (macOS i Windows).
