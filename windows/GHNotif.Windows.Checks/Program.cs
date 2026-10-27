@@ -175,24 +175,30 @@ internal static class Program
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");
+            app.OpenSettings();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var polishSettings = app.Settings;
             var english = app.Config.Copy();
             english.Language = AppLanguage.English;
             await app.SaveConfigAsync(english);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var englishPanel = (TrayWindow)Application.Current.MainWindow;
-            englishPanel.ShowPanel();
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            Check(englishPanel != panel && Buttons(englishPanel).Any(b => Equals(b.ToolTip, "Settings")),
-                "Switching to English rebuilds the panel in English");
+            app.Settings!.UpdateLayout();
+            Check(app.Settings != polishSettings && Buttons(app.Settings).Any(b => Equals(b.Content, "Add")),
+                "Switching to English reopens settings in English");
             Check(new JsonStore<Config>(Path.Combine(folder, "config.json")).Load().Language == AppLanguage.English,
                 "Language choice saved to disk");
+            var englishPanel = new TrayWindow(app);
+            englishPanel.ShowPanel();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(Buttons(englishPanel).Any(b => Equals(b.ToolTip, "Settings")), "Panel renders in English");
+            englishPanel.Retire();
             var polish = app.Config.Copy();
             polish.Language = AppLanguage.Polish;
             await app.SaveConfigAsync(polish);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            Check(Buttons(Application.Current.MainWindow).Any(b => Equals(b.ToolTip, "Ustawienia")),
-                "Switching back to Polish restores Polish texts");
-            Application.Current.MainWindow.Hide();
+            app.Settings!.UpdateLayout();
+            Check(Buttons(app.Settings).Any(b => Equals(b.Content, "Dodaj")), "Switching back to Polish restores Polish texts");
+            app.Settings.Close();
             app.Tokens.Delete();
             Check(!File.Exists(Path.Combine(folder, "token.dat")), "PAT deletion");
             Console.WriteLine("All Windows UI checks passed (layout, buttons, persistence, settings, reminder, language, DPAPI).");
