@@ -5,7 +5,10 @@ import ServiceManagement
 @MainActor
 final class AppModel: ObservableObject {
     @Published var config: AppConfig {
-        didSet { configDidChange(from: oldValue) }
+        didSet {
+            Localization.language = config.language
+            configDidChange(from: oldValue)
+        }
     }
 
     /// Every PR returned by the last search, including ones the user dismissed.
@@ -30,6 +33,9 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    private var reminderState: ReviewReminderState {
+        didSet { preferences.set(try? JSONEncoder().encode(reminderState), forKey: Self.reminderStateKey) }
+    }
     @Published private(set) var isLoading = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastRefresh: Date?
@@ -52,9 +58,10 @@ final class AppModel: ObservableObject {
         do {
             let release = try await releaseLoader()
             availableRelease = try release.flatMap { try $0.isNewer(than: installedVersion) ? $0 : nil }
-            updateStatus = availableRelease.map { "Dostępna wersja \($0.tagName)" } ?? "Masz najnowszą wersję."
+            updateStatus = availableRelease.map { L("Dostępna wersja \($0.tagName)", "Version \($0.tagName) is available") }
+                ?? L("Masz najnowszą wersję.", "You have the latest version.")
         } catch {
-            updateStatus = "Nie udało się sprawdzić aktualizacji: \(error.localizedDescription)"
+            updateStatus = L("Nie udało się sprawdzić aktualizacji: \(error.localizedDescription)", "Could not check for updates: \(error.localizedDescription)")
         }
     }
 
@@ -62,7 +69,7 @@ final class AppModel: ObservableObject {
         do {
             notificationStatus = try await notifier.sendTest()
         } catch {
-            notificationStatus = "Błąd powiadomienia: \(error.localizedDescription)"
+            notificationStatus = L("Błąd powiadomienia: \(error.localizedDescription)", "Notification error: \(error.localizedDescription)")
         }
     }
 
@@ -70,9 +77,11 @@ final class AppModel: ObservableObject {
     private let preferences: UserDefaults
     private let releaseLoader: () async throws -> GitHubRelease?
     private let notifier = Notifier()
+    private let reminderPresenter = ReviewReminderPresenter()
     private var token: ResolvedToken?
     private var refreshLoop: Task<Void, Never>?
     private var updateLoop: Task<Void, Never>?
+    private var reminderLoop: Task<Void, Never>?
     private var refreshPending = false
     /// After the watched set changes, the next result is treated as a baseline so existing PRs don't trigger alerts.
     private var suppressNextNotifications = false
@@ -83,6 +92,7 @@ final class AppModel: ObservableObject {
     private static let seenIDsKey = "seenPullRequestIDs"
     private static let snoozedKey = "snoozedPullRequests"
     private static let notificationSnapshotsKey = "notificationActivitySnapshots"
+    private static let reminderStateKey = "reviewReminderState"
 
     var pullRequests: [PullRequest] {
         allPullRequests.filter { dismissals[$0.id] == nil && !isSnoozed($0) }
@@ -111,9 +121,9 @@ final class AppModel: ObservableObject {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            if launchAtLogin != enabled { lastError = "Nie udało się zmienić ustawienia uruchamiania przy logowaniu." }
+            if launchAtLogin != enabled { lastError = L("Nie udało się zmienić ustawienia uruchamiania przy logowaniu.", "Could not change the launch at login setting.") }
         } catch {
-            lastError = "Nie udało się zmienić uruchamiania przy logowaniu: \(error.localizedDescription)"
+            lastError = L("Nie udało się zmienić uruchamiania przy logowaniu: \(error.localizedDescription)", "Could not change launch at login: \(error.localizedDescription)")
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
@@ -134,7 +144,7 @@ final class AppModel: ObservableObject {
             imported = text.split(whereSeparator: { $0 == "," || $0.isNewline })
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-            guard !imported.isEmpty else { throw GitHubError.graphQL("Plik listy osób jest pusty lub nieprawidłowy.") }
+            guard !imported.isEmpty else { throw GitHubError.graphQL(L("Plik listy osób jest pusty lub nieprawidłowy.", "The people list file is empty or invalid.")) }
         }
         let combined = SearchQueryBuilder.normalizeLogins(config.users + imported)
         config.users = combined
@@ -142,7 +152,7 @@ final class AppModel: ObservableObject {
 
     func importTeam(organization: String, team: String) async throws {
         guard let token = await currentToken() else {
-            throw GitHubError.graphQL("Brak tokenu GitHub.")
+            throw GitHubError.graphQL(L("Brak tokenu GitHub.", "No GitHub token."))
         }
         let members = try await GitHubClient(token: token.value).teamMembers(organization: organization, team: team)
         config.users = SearchQueryBuilder.normalizeLogins(config.users + members)
@@ -165,6 +175,8 @@ final class AppModel: ObservableObject {
         dismissals = Self.loadDismissals(from: preferences)
         notificationSnapshots = Self.loadNotificationSnapshots(from: preferences)
         collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
+        reminderState = preferences.data(forKey: Self.reminderStateKey)
+            .flatMap { try? JSONDecoder().decode(ReviewReminderState.self, from: $0) } ?? ReviewReminderState()
         if let data = preferences.data(forKey: Self.snoozedKey),
            let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
             snoozedPullRequests = decoded
@@ -175,8 +187,10 @@ final class AppModel: ObservableObject {
             config = try store.load()
         } catch {
             config = .default
-            lastError = "Nie udało się wczytać \(store.fileURL.path): \(error.localizedDescription). Używam domyślnej listy (plik nie zostanie nadpisany do pierwszej zmiany)."
+            lastError = L("Nie udało się wczytać \(store.fileURL.path): \(error.localizedDescription). Używam domyślnej listy (plik nie zostanie nadpisany do pierwszej zmiany).",
+                          "Could not load \(store.fileURL.path): \(error.localizedDescription). Using the default list (the file won't be overwritten until the first change).")
         }
+        Localization.language = config.language
         if config.notify { notifier.requestAuthorization() }
         if ProcessInfo.processInfo.arguments.contains("--test-notification") {
             Task {
@@ -189,6 +203,13 @@ final class AppModel: ObservableObject {
             }
         }
         startRefreshLoop()
+        reminderLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.checkReviewReminder()
+                do { try await Task.sleep(for: .seconds(30)) }
+                catch { return }
+            }
+        }
         if Bundle.main.bundleIdentifier == "com.michalfidor.ghnotif" {
             updateLoop = Task { [weak self] in
                 while !Task.isCancelled {
@@ -198,6 +219,27 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    var nextReviewReminder: Date? { config.reviewReminder.nextOccurrence(after: Date()) }
+    var reviewReminderSnoozedUntil: Date? { reminderState.snoozedUntil }
+
+    /// Called periodically; a reminder missed during sleep is caught up on the first check after wake.
+    func checkReviewReminder(now: Date = Date()) {
+        var state = reminderState
+        let show = state.shouldShow(settings: config.reviewReminder, now: now)
+        if state != reminderState { reminderState = state }
+        if show { showReviewReminder() }
+    }
+
+    func showReviewReminder() {
+        reminderPresenter.show(model: self)
+        Task { await refresh() }
+    }
+
+    func snoozeReviewReminder(minutes: Int, now: Date = Date()) {
+        reminderState.snoozedUntil = now.addingTimeInterval(TimeInterval(minutes * 60))
+        objectWillChange.send()
     }
 
     var ssoSettingsURL: URL {
@@ -226,7 +268,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard let token = await currentToken() else {
-            lastError = "Brak tokenu GitHub. Zaloguj się przez `gh auth login` albo dodaj PAT w ustawieniach."
+            lastError = L("Brak tokenu GitHub. Zaloguj się przez `gh auth login` albo dodaj PAT w ustawieniach.", "No GitHub token. Sign in with `gh auth login` or add a PAT in settings.")
             return
         }
         do {
@@ -265,14 +307,14 @@ final class AppModel: ObservableObject {
     /// Returns an error message, or `nil` when the user was added.
     func addUser(_ raw: String) async -> String? {
         let login = SearchQueryBuilder.normalizeLogin(raw)
-        guard !login.isEmpty else { return "Podaj login." }
+        guard !login.isEmpty else { return L("Podaj login.", "Enter a login.") }
         if config.users.contains(where: { $0.caseInsensitiveCompare(login) == .orderedSame }) {
-            return "\(login) jest już obserwowany."
+            return L("\(login) jest już obserwowany.", "\(login) is already watched.")
         }
-        guard let token = await currentToken() else { return "Brak tokenu GitHub." }
+        guard let token = await currentToken() else { return L("Brak tokenu GitHub.", "No GitHub token.") }
         do {
             guard let canonical = try await GitHubClient(token: token.value).canonicalLogin(for: login) else {
-                return "Nie znaleziono użytkownika \(login)."
+                return L("Nie znaleziono użytkownika \(login).", "User \(login) not found.")
             }
             if !config.users.contains(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
                 config.users.append(canonical)
@@ -316,7 +358,7 @@ final class AppModel: ObservableObject {
             if pr.hasNewActivity(since: snapshot, viewer: viewer) {
                 updated[pr.id] = nil
                 let changes = pr.changes(since: snapshot, viewer: viewer)
-                reactivated.append(PullRequestAlert(pullRequest: pr, details: changes.isEmpty ? ["Nowa aktywność"] : changes))
+                reactivated.append(PullRequestAlert(pullRequest: pr, details: changes.isEmpty ? [L("Nowa aktywność", "New activity")] : changes))
             } else if snapshot.headCommitOID == nil, let oid = pr.headCommitOID {
                 // Dismissals migrated from the ID-only format get their commit baseline on the first refresh.
                 updated[pr.id]?.headCommitOID = oid
@@ -336,7 +378,7 @@ final class AppModel: ObservableObject {
             let returned = reactivated.filter { seen.contains($0.pullRequest.id) }
             let woke = wokeFromSnooze.filter { seen.contains($0.id) && dismissals[$0.id] == nil }
             alerts = fresh.map(PullRequestAlert.new) + returned
-                + woke.map { PullRequestAlert(pullRequest: $0, details: ["Koniec odłożenia"]) }
+                + woke.map { PullRequestAlert(pullRequest: $0, details: [L("Koniec odłożenia", "Snooze ended")]) }
             let handledIDs = Set(alerts.map { $0.pullRequest.id })
             for pr in prs where seen.contains(pr.id) && !handledIDs.contains(pr.id)
                 && dismissals[pr.id] == nil && !isSnoozed(pr) {
@@ -381,7 +423,7 @@ final class AppModel: ObservableObject {
         do {
             try store.save(config)
         } catch {
-            lastError = "Nie udało się zapisać konfiguracji: \(error.localizedDescription)"
+            lastError = L("Nie udało się zapisać konfiguracji: \(error.localizedDescription)", "Could not save the configuration: \(error.localizedDescription)")
         }
         if config.notify && !old.notify { notifier.requestAuthorization() }
         if config.users != old.users || config.extraQualifiers != old.extraQualifiers
@@ -392,6 +434,10 @@ final class AppModel: ObservableObject {
             Task { await refresh() }
         }
         if config.refreshMinutes != old.refreshMinutes { startRefreshLoop() }
+        if config.reviewReminder != old.reviewReminder {
+            // Changed schedules apply from now on; times already past today don't fire immediately.
+            reminderState = ReviewReminderState(lastHandled: Date())
+        }
     }
 
     private struct WatchlistDocument: Codable {
@@ -409,7 +455,7 @@ final class AppModel: ObservableObject {
             formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
             guard formatVersion == 1 else {
                 throw DecodingError.dataCorruptedError(forKey: .formatVersion, in: container,
-                    debugDescription: "Nieobsługiwana wersja pliku listy osób.")
+                    debugDescription: L("Nieobsługiwana wersja pliku listy osób.", "Unsupported people list file version."))
             }
         }
     }

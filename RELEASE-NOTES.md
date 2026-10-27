@@ -1,3 +1,10 @@
+# GHNotif 0.5.0
+
+- Przypomnienia o review: okno na środku ekranu z listą PR-ów o wybranych godzinach i w wybrane dni (macOS i Windows).
+- Możliwość odłożenia przypomnienia o 15 minut; pominięte przypomnienie pokazuje się po wybudzeniu lub uruchomieniu aplikacji.
+- Wybór języka interfejsu: polski, angielski lub systemowy (Ustawienia → Ogólne). Dotychczasowe instalacje pozostają po polsku.
+- Ustawienia otwiera ikona zębatki w nagłówku panelu; otwarcie ustawień zamyka listę PR-ów.
+
 # GHNotif 0.4.1
 
 - Naprawiono powtarzające się powiadomienia o tej samej aktywności, gdy włączone jest automatyczne oznaczanie PR-ów po własnym review.

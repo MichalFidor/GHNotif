@@ -48,7 +48,7 @@ public sealed class GitHubClient(HttpClient http)
                 if (data.TryGetProperty("viewer", out var viewerNode)) viewer ??= Text(viewerNode, "login");
                 var search = data.GetProperty("search");
                 if (search.GetProperty("issueCount").GetInt32() > 1000)
-                    throw new InvalidOperationException("GitHub ogranicza wyszukiwanie do 1000 wyników. Zawęź zakres w ustawieniach.");
+                    throw new InvalidOperationException(L("GitHub ogranicza wyszukiwanie do 1000 wyników. Zawęź zakres w ustawieniach.", "GitHub limits search to 1000 results. Narrow the scope in settings."));
                 foreach (var node in search.GetProperty("nodes").EnumerateArray())
                 {
                     if (node.ValueKind == JsonValueKind.Null || !node.TryGetProperty("id", out _)) continue;
@@ -60,8 +60,8 @@ public sealed class GitHubClient(HttpClient http)
                 var info = search.GetProperty("pageInfo");
                 if (!info.GetProperty("hasNextPage").GetBoolean()) break;
                 cursor = Text(info, "endCursor")
-                    ?? throw new InvalidDataException("GitHub nie zwrócił kursora następnej strony.");
-                if (page >= 9) throw new InvalidDataException("Przekroczono limit stron GitHub.");
+                    ?? throw new InvalidDataException(L("GitHub nie zwrócił kursora następnej strony.", "GitHub did not return the next page cursor."));
+                if (page >= 9) throw new InvalidDataException(L("Przekroczono limit stron GitHub.", "GitHub page limit exceeded."));
             }
         }
         var filtered = prs.Values.Where(config.Includes).ToList();
@@ -76,7 +76,7 @@ public sealed class GitHubClient(HttpClient http)
             cancellationToken: ct);
         ThrowErrors(json.RootElement);
         var user = json.RootElement.GetProperty("data").GetProperty("user");
-        return Text(user, "login") ?? throw new InvalidOperationException("Nie znaleziono użytkownika.");
+        return Text(user, "login") ?? throw new InvalidOperationException(L("Nie znaleziono użytkownika.", "User not found."));
     }
 
     public async Task<List<string>> TeamMembersAsync(string token, string organization, string team,
@@ -85,7 +85,7 @@ public sealed class GitHubClient(HttpClient http)
         static bool SafeSlug(string value) => value.Length > 0
             && value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
         if (!SafeSlug(organization) || !SafeSlug(team))
-            throw new InvalidOperationException("Podaj poprawną nazwę organizacji i slug zespołu.");
+            throw new InvalidOperationException(L("Podaj poprawną nazwę organizacji i slug zespołu.", "Enter a valid organization name and team slug."));
         var members = new List<string>();
         for (var page = 1; page <= 10; page++)
         {
@@ -96,11 +96,11 @@ public sealed class GitHubClient(HttpClient http)
             request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
             using var response = await http.SendAsync(request, ct);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
-                throw new HttpRequestException("Token GitHub jest nieprawidłowy lub wygasł.");
+                throw new HttpRequestException(L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired."));
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException(response.StatusCode == HttpStatusCode.Forbidden
-                    ? "Brak dostępu do członkostwa organizacji (read:org lub Members: read)."
-                    : $"GitHub API: HTTP {(int)response.StatusCode}. Sprawdź nazwę zespołu i dostęp tokenu.");
+                    ? L("Brak dostępu do członkostwa organizacji (read:org lub Members: read).", "No access to organization membership (read:org or Members: read).")
+                    : L($"GitHub API: HTTP {(int)response.StatusCode}. Sprawdź nazwę zespołu i dostęp tokenu.", $"GitHub API: HTTP {(int)response.StatusCode}. Check the team name and token access."));
             using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
                 cancellationToken: ct);
             var logins = document.RootElement.EnumerateArray().Select(user => Text(user, "login"))
@@ -108,7 +108,7 @@ public sealed class GitHubClient(HttpClient http)
             members.AddRange(logins);
             if (logins.Count < 100) return members;
         }
-        throw new InvalidOperationException("Zespół ma ponad 1000 członków; ogranicz import.");
+        throw new InvalidOperationException(L("Zespół ma ponad 1000 członków; ogranicz import.", "The team has over 1000 members; narrow the import."));
     }
 
     private async Task<HttpResponseMessage> PostAsync(string token, string query, object variables, CancellationToken ct)
@@ -121,8 +121,8 @@ public sealed class GitHubClient(HttpClient http)
         if (!response.IsSuccessStatusCode)
         {
             var message = response.StatusCode == HttpStatusCode.Unauthorized
-                ? "Token GitHub jest nieprawidłowy lub wygasł."
-                : $"GitHub API: HTTP {(int)response.StatusCode}. Sprawdź dostęp, SSO lub limit zapytań.";
+                ? L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired.")
+                : L($"GitHub API: HTTP {(int)response.StatusCode}. Sprawdź dostęp, SSO lub limit zapytań.", $"GitHub API: HTTP {(int)response.StatusCode}. Check access, SSO or the rate limit.");
             response.Dispose();
             throw new HttpRequestException(message);
         }

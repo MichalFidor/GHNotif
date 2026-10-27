@@ -30,7 +30,10 @@ public partial class App : Application
     private Forms.NotifyIcon? tray;
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly DispatcherTimer timer = new();
+    private readonly DispatcherTimer reminderTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private TrayWindow? panel;
+    internal ReviewReminderWindow? ReminderWindow => reminderWindow;
+    private ReviewReminderWindow? reminderWindow;
     private SettingsWindow? settings;
     private JsonStore<Config> configStore = null!;
     private JsonStore<LocalState> stateStore = null!;
@@ -53,11 +56,11 @@ public partial class App : Application
         {
             var release = await GitHubRelease.LatestAsync(updateHttp ?? http);
             AvailableRelease = release?.IsNewer(InstalledVersion) == true ? release : null;
-            UpdateStatus = AvailableRelease is { } next ? $"Dostępna wersja {next.TagName}" : "Masz najnowszą wersję.";
+            UpdateStatus = AvailableRelease is { } next ? L($"Dostępna wersja {next.TagName}", $"Version {next.TagName} is available") : L("Masz najnowszą wersję.", "You have the latest version.");
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or OperationCanceledException)
         {
-            UpdateStatus = $"Nie udało się sprawdzić aktualizacji: {ex.Message}";
+            UpdateStatus = L($"Nie udało się sprawdzić aktualizacji: {ex.Message}", $"Could not check for updates: {ex.Message}");
         }
         finally
         {
@@ -92,7 +95,7 @@ public partial class App : Application
         instance = new Mutex(true, @"Local\GHNotif.Windows", out ownsMutex);
         if (!ownsMutex)
         {
-            MessageBox.Show("GHNotif już działa. Kliknij ikonę przy zegarku.", "GHNotif");
+            MessageBox.Show(L("GHNotif już działa. Kliknij ikonę przy zegarku.", "GHNotif is already running. Click the icon next to the clock."), "GHNotif");
             Shutdown();
             return;
         }
@@ -108,19 +111,14 @@ public partial class App : Application
         tray = new Forms.NotifyIcon
         {
             Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "GHNotif.ico")),
-            Text = "GHNotif — PR-y do review", Visible = true
+            Text = L("GHNotif — PR-y do review", "GHNotif — PRs to review"), Visible = true
         };
         tray.MouseClick += (_, args) =>
         {
-            if (args.Button == Forms.MouseButtons.Left) Dispatcher.Invoke(() => panel.Toggle());
+            if (args.Button == Forms.MouseButtons.Left) Dispatcher.Invoke(() => panel?.Toggle());
         };
-        tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => panel.ShowPanel());
-        var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Otwórz PR-y", null, (_, _) => Dispatcher.Invoke(() => panel.ShowPanel()));
-        menu.Items.Add("Ustawienia", null, (_, _) => Dispatcher.Invoke(OpenSettings));
-        menu.Items.Add("Odśwież", null, (_, _) => Dispatcher.Invoke(() => _ = RunAsync(RefreshAsync)));
-        menu.Items.Add("Zakończ", null, (_, _) => Dispatcher.Invoke(() => Shutdown()));
-        tray.ContextMenuStrip = menu;
+        tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => panel?.ShowPanel());
+        tray.ContextMenuStrip = CreateTrayMenu();
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
         timer.Tick += (_, _) =>
         {
@@ -129,18 +127,34 @@ public partial class App : Application
                 _ = CheckForUpdatesAsync();
         };
         timer.Start();
+        reminderTimer.Tick += (_, _) => _ = RunAsync(() => { CheckReviewReminder(DateTimeOffset.Now); return Task.CompletedTask; });
+        reminderTimer.Start();
+        CheckReviewReminder(DateTimeOffset.Now);
         if (Config.Users.Count == 0) OpenSettings();
         _ = CheckForUpdatesAsync();
         await RefreshAsync();
+    }
+
+    private Forms.ContextMenuStrip CreateTrayMenu()
+    {
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add(L("Otwórz PR-y", "Open PRs"), null, (_, _) => Dispatcher.Invoke(() => panel?.ShowPanel()));
+        menu.Items.Add(L("Ustawienia", "Settings"), null, (_, _) => Dispatcher.Invoke(OpenSettings));
+        menu.Items.Add(L("Odśwież", "Refresh"), null, (_, _) => Dispatcher.Invoke(() => _ = RunAsync(RefreshAsync)));
+        menu.Items.Add(L("Zakończ", "Quit"), null, (_, _) => Dispatcher.Invoke(() => Shutdown()));
+        return menu;
     }
 
     internal void InitializeStores(string folder, HttpClient? client = null)
     {
         configStore = new(Path.Combine(folder, "config.json"));
         stateStore = new(Path.Combine(folder, "state.json"));
+        var newInstallation = !configStore.Exists;
         // Invalid files are reported without overwriting the user's configuration.
         Config = configStore.Load();
+        if (newInstallation) Config.Language = AppLanguage.System;
         Config.Validate();
+        GHNotif.Core.Localization.Language = Config.Language;
         State = stateStore.Load();
         State.Migrate(DateTimeOffset.UtcNow);
         Tokens = new(folder);
@@ -156,12 +170,12 @@ public partial class App : Application
             or CryptographicException or OperationCanceledException)
         {
             Error = ex is Win32Exception
-                ? "Nie można uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT w ustawieniach."
+                ? L("Nie można uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT w ustawieniach.", "Cannot run gh. Install GitHub CLI or add a PAT in settings.")
                 : ex.Message;
-            if (tray is not null) tray.Text = "GHNotif — błąd; otwórz panel";
+            if (tray is not null) tray.Text = L("GHNotif — błąd; otwórz panel", "GHNotif — error; open the panel");
             Changed?.Invoke();
             if (panel is null || settings?.IsVisible == true)
-                MessageBox.Show(Error, "GHNotif — błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Error, L("GHNotif — błąd", "GHNotif — error"), MessageBoxButton.OK, MessageBoxImage.Warning);
             if (panel is null) Shutdown(1);
         }
     }
@@ -199,7 +213,7 @@ public partial class App : Application
                 if (fresh.Count > 0 && tray is not null)
                 {
                     var single = fresh.Count == 1 ? fresh[0] : null;
-                    tray.BalloonTipTitle = Clip(single is null ? $"{fresh.Count} PR-ów wymaga uwagi"
+                    tray.BalloonTipTitle = Clip(single is null ? L($"{fresh.Count} PR-ów wymaga uwagi", $"{fresh.Count} PRs need attention")
                         : $"{single.PullRequest.Repository} #{single.PullRequest.Number}", 63);
                     tray.BalloonTipText = Clip(single is null
                         ? ActivityText.Summarize(fresh.Select(alert =>
@@ -211,6 +225,37 @@ public partial class App : Application
         }
         finally { refreshing = false; Changed?.Invoke(); }
     }
+
+    internal DateTimeOffset? NextReviewReminder => Config.ReviewReminder.NextOccurrence(DateTimeOffset.Now, TimeZoneInfo.Local);
+    internal DateTimeOffset? ReviewReminderSnoozedUntil => State.ReviewReminder.SnoozedUntil;
+    internal int ReviewRemindersShown { get; private set; }
+
+    /// Called every 30 s; a reminder missed during sleep is caught up on the first tick after wake.
+    internal void CheckReviewReminder(DateTimeOffset now)
+    {
+        var reminder = State.ReviewReminder.Copy();
+        var show = reminder.ShouldShow(Config.ReviewReminder, now, TimeZoneInfo.Local);
+        if (reminder.LastHandled != State.ReviewReminder.LastHandled || reminder.SnoozedUntil != State.ReviewReminder.SnoozedUntil)
+            UpdateState(next => next.ReviewReminder = reminder);
+        if (show) ShowReviewReminder();
+    }
+
+    internal void ShowReviewReminder()
+    {
+        ReviewRemindersShown++;
+        if (reminderWindow is null)
+        {
+            reminderWindow = new(this);
+            reminderWindow.Closed += (_, _) => reminderWindow = null;
+        }
+        reminderWindow.Present();
+        _ = RunAsync(RefreshAsync);
+    }
+
+    internal void SnoozeReviewReminder(TimeSpan delay) =>
+        UpdateState(next => next.ReviewReminder.SnoozedUntil = DateTimeOffset.Now + delay);
+
+    internal void ShowPanel() => panel?.ShowPanel();
 
     internal void ToggleDismissed(PullRequest pr) => UpdateState(next =>
     {
@@ -242,8 +287,14 @@ public partial class App : Application
             || config.ExcludedRepositories.SequenceEqual(Config.ExcludedRepositories) == false
             || config.ExcludedLabels.SequenceEqual(Config.ExcludedLabels) == false
             || config.AutoDismissReviewed != Config.AutoDismissReviewed;
+        var reminderChanged = !config.ReviewReminder.SameAs(Config.ReviewReminder);
+        var languageChanged = config.Language != Config.Language;
         configStore.Save(config);
         Config = config;
+        if (languageChanged) ApplyLanguage();
+        // Changed schedules apply from now on; times already past today don't fire immediately.
+        if (reminderChanged)
+            UpdateState(next => next.ReviewReminder = new ReviewReminderState { LastHandled = DateTimeOffset.Now });
         baseline |= changedSearch;
         revision++;
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
@@ -261,12 +312,12 @@ public partial class App : Application
     internal void SetLaunchAtLogin(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")
-            ?? throw new InvalidOperationException("Nie można otworzyć klucza autostartu Windows.");
+            ?? throw new InvalidOperationException(L("Nie można otworzyć klucza autostartu Windows.", "Cannot open the Windows startup registry key."));
         if (enabled)
         {
             var executable = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
             if (string.IsNullOrWhiteSpace(executable))
-                throw new InvalidOperationException("Nie można ustalić ścieżki aplikacji dla autostartu.");
+                throw new InvalidOperationException(L("Nie można ustalić ścieżki aplikacji dla autostartu.", "Cannot determine the app path for startup."));
             key.SetValue("GHNotif", $"\"{executable}\"");
         }
         else key.DeleteValue("GHNotif", false);
@@ -281,8 +332,47 @@ public partial class App : Application
 
     private void UpdateTray()
     {
-        if (tray is not null) tray.Text = $"GHNotif — {State.Visible(Results.PullRequests).Count()} PR-ów do review";
+        if (tray is not null) tray.Text = L($"GHNotif — {State.Visible(Results.PullRequests).Count()} PR-ów do review", $"GHNotif — {State.Visible(Results.PullRequests).Count()} PRs to review");
     }
+
+    /// Windows build their texts once, so a language switch recreates the visible UI.
+    private void ApplyLanguage()
+    {
+        GHNotif.Core.Localization.Language = Config.Language;
+        if (tray is not null)
+        {
+            var old = tray.ContextMenuStrip;
+            tray.ContextMenuStrip = CreateTrayMenu();
+            old?.Dispose();
+            UpdateTray();
+        }
+        if (panel is not null)
+        {
+            var visible = panel.IsVisible;
+            panel.Retire();
+            panel = new(this);
+            MainWindow = panel;
+            if (visible) panel.ShowPanel();
+        }
+        if (reminderWindow is { } reminder)
+        {
+            reminder.Close();
+            reminderWindow = new(this);
+            reminderWindow.Closed += (_, _) => reminderWindow = null;
+            reminderWindow.Show();
+        }
+        if (settings is { } open)
+        {
+            var (tab, left, top) = (open.SelectedTab, open.Left, open.Top);
+            open.Close();
+            OpenSettings();
+            settings!.Left = left;
+            settings.Top = top;
+            settings.SelectTab(tab);
+        }
+    }
+
+    internal SettingsWindow? Settings => settings;
 
     internal void OpenSettings()
     {
@@ -301,13 +391,14 @@ public partial class App : Application
     internal static void OpenGitHub(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com")
-            throw new InvalidOperationException("Nieprawidłowy adres GitHub.");
+            throw new InvalidOperationException(L("Nieprawidłowy adres GitHub.", "Invalid GitHub URL."));
         Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         timer.Stop();
+        reminderTimer.Stop();
         tray?.Dispose();
         http.Dispose();
         if (ownsMutex) instance?.ReleaseMutex();

@@ -116,6 +116,13 @@ internal static class Program
                 "Collapsed repo saved to disk");
             Buttons(panel).Single(b => Equals(b.ToolTip, "Rozwiń example/demo"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            panel.ShowPanel();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Ustawienia")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var openedSettings = Application.Current.Windows.OfType<SettingsWindow>().SingleOrDefault();
+            Check(!panel.IsVisible && openedSettings is { IsVisible: true }, "Header settings button hides the panel and opens settings");
+            openedSettings?.Close();
             var settings = new SettingsWindow(app);
             settings.Show();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -124,17 +131,71 @@ internal static class Program
             Check(Buttons(settings).Any(b => Equals(b.Content, "Importuj członków zespołu")),
                 "Team import is available in settings");
             var nav = Descendants<TabControl>(settings).Single();
-            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 4, "Settings use a left navigation menu");
-            settings.SelectTab(3);
+            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 5, "Settings use a left navigation menu");
+            settings.SelectTab(2);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            var reminderBoxes = Descendants<CheckBox>(settings).ToList();
+            reminderBoxes.Single(box => Equals(box.Content, "Pokazuj okno z listą PR-ów o stałych porach")).IsChecked = true;
+            reminderBoxes.Single(box => Equals(box.Content, "So")).IsChecked = true;
+            Descendants<TextBox>(settings).Single(box => Equals(box.ToolTip, "Np. 09:00, 14:00")).Text = "14:00, 9:00";
+            Buttons(settings).Single(b => Equals(b.ToolTip, "Zapisz ustawienia przypomnienia"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            for (var i = 0; i < 100 && !app.Config.ReviewReminder.Enabled; i++) await Task.Delay(10);
+            Check(app.Config.ReviewReminder.Enabled && app.Config.ReviewReminder.Times.SequenceEqual(["09:00", "14:00"])
+                && app.Config.ReviewReminder.Weekdays.SequenceEqual([1, 2, 3, 4, 5, 6]), "Reminder settings saved from the tab");
+            Check(app.State.ReviewReminder.LastHandled is not null, "Saving the schedule records a baseline");
+            var tomorrowNine = new DateTimeOffset(DateTime.Today.AddDays(1).AddHours(9));
+            var remindersBefore = app.ReviewRemindersShown;
+            var savedWeekdays = app.Config.ReviewReminder.Weekdays.ToList();
+            var allDays = app.Config.Copy();
+            allDays.ReviewReminder.Weekdays = [1, 2, 3, 4, 5, 6, 7];
+            await app.SaveConfigAsync(allDays);
+            app.CheckReviewReminder(tomorrowNine.AddMinutes(-1));
+            Check(app.ReviewRemindersShown == remindersBefore, "Reminder waits for its time");
+            app.CheckReviewReminder(tomorrowNine);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(app.ReviewRemindersShown == remindersBefore + 1 && app.ReminderWindow is { IsVisible: true, Topmost: true },
+                "Reminder window opens on top at the scheduled time");
+            Check(app.ReminderWindow!.WindowStartupLocation == WindowStartupLocation.CenterScreen, "Reminder is centered");
+            app.CheckReviewReminder(tomorrowNine.AddMinutes(1));
+            Check(app.ReviewRemindersShown == remindersBefore + 1, "Reminder opens once");
+            Buttons(app.ReminderWindow).Single(b => Equals(b.Content, "Przypomnij za 15 min"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(app.ReminderWindow is null && app.State.ReviewReminder.SnoozedUntil is not null,
+                "Snoozing closes the reminder");
+            Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().ReviewReminder.SnoozedUntil is not null,
+                "Reminder snooze saved to disk");
+            Check(savedWeekdays.Count == 6, "Weekday selection round trip");
+            settings.SelectTab(4);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Token tab renders");
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");
+            var english = app.Config.Copy();
+            english.Language = AppLanguage.English;
+            await app.SaveConfigAsync(english);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var englishPanel = (TrayWindow)Application.Current.MainWindow;
+            englishPanel.ShowPanel();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(englishPanel != panel && Buttons(englishPanel).Any(b => Equals(b.ToolTip, "Settings")),
+                "Switching to English rebuilds the panel in English");
+            Check(new JsonStore<Config>(Path.Combine(folder, "config.json")).Load().Language == AppLanguage.English,
+                "Language choice saved to disk");
+            var polish = app.Config.Copy();
+            polish.Language = AppLanguage.Polish;
+            await app.SaveConfigAsync(polish);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(Buttons(Application.Current.MainWindow).Any(b => Equals(b.ToolTip, "Ustawienia")),
+                "Switching back to Polish restores Polish texts");
+            Application.Current.MainWindow.Hide();
             app.Tokens.Delete();
             Check(!File.Exists(Path.Combine(folder, "token.dat")), "PAT deletion");
-            Console.WriteLine("All Windows UI checks passed (layout, buttons, persistence, settings, DPAPI).");
+            Console.WriteLine("All Windows UI checks passed (layout, buttons, persistence, settings, reminder, language, DPAPI).");
         }
         finally
         {

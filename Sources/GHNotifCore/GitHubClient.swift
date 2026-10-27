@@ -7,8 +7,8 @@ public enum GitHubError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unauthorized: return "Token GitHub jest nieprawidłowy lub wygasł."
-        case let .http(code, body): return "GitHub API zwróciło HTTP \(code): \(body.prefix(200))"
+        case .unauthorized: return L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired.")
+        case let .http(code, body): return L("GitHub API zwróciło HTTP \(code): \(body.prefix(200))", "GitHub API returned HTTP \(code): \(body.prefix(200))")
         case let .graphQL(message): return "GitHub API: \(message)"
         }
 
@@ -96,7 +96,7 @@ public struct GitHubClient: Sendable {
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         guard organization.unicodeScalars.allSatisfy(safe.contains),
               team.unicodeScalars.allSatisfy(safe.contains), !organization.isEmpty, !team.isEmpty else {
-            throw GitHubError.graphQL("Podaj poprawną nazwę organizacji i slug zespołu.")
+            throw GitHubError.graphQL(L("Podaj poprawną nazwę organizacji i slug zespołu.", "Enter a valid organization name and team slug."))
         }
         var members: [String] = []
         for page in 1...10 {
@@ -109,7 +109,7 @@ public struct GitHubClient: Sendable {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, "Brak odpowiedzi HTTP") }
+            guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
             if http.statusCode == 401 { throw GitHubError.unauthorized }
             guard (200..<300).contains(http.statusCode) else {
                 throw GitHubError.http(http.statusCode, String(decoding: data, as: UTF8.self))
@@ -118,7 +118,7 @@ public struct GitHubClient: Sendable {
             members.append(contentsOf: users.map(\.login))
             if users.count < 100 { return members }
         }
-        throw GitHubError.graphQL("Zespół ma ponad 1000 członków; ogranicz import.")
+        throw GitHubError.graphQL(L("Zespół ma ponad 1000 członków; ogranicz import.", "The team has over 1000 members; narrow the import."))
     }
 
     private func post(query: String, variables: [String: String]) async throws -> (Data, HTTPURLResponse) {
@@ -129,7 +129,7 @@ public struct GitHubClient: Sendable {
         request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, "Brak odpowiedzi HTTP") }
+        guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
         if http.statusCode == 401 { throw GitHubError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
             throw GitHubError.http(http.statusCode, String(decoding: data, as: UTF8.self))
@@ -151,7 +151,7 @@ public struct GitHubClient: Sendable {
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(GraphQLResponse<SearchData>.self, from: data)
         guard let search = decoded.data?.search else {
-            throw GitHubError.graphQL(decoded.errors?.map(\.message).joined(separator: "; ") ?? "Pusta odpowiedź")
+            throw GitHubError.graphQL(decoded.errors?.map(\.message).joined(separator: "; ") ?? L("Pusta odpowiedź", "Empty response"))
         }
         let prs = search.nodes.compactMap { $0.value?.pullRequest }
         return SearchPage(

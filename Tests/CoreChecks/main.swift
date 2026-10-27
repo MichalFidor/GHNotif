@@ -2,6 +2,7 @@ import Foundation
 import GHNotifCore
 
 var failures = 0
+Localization.language = .polish
 
 func check(_ condition: @autoclosure () throws -> Bool, _ message: String, line: UInt = #line) {
     do {
@@ -227,6 +228,83 @@ do {
         _ = try release("v0.2.0", url: "https://example.com/").isNewer(than: "0.1.0")
         check(false, "foreign update URL must fail")
     } catch {}
+}
+
+// MARK: Review reminder
+
+do {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Europe/Warsaw")!
+    func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        // October 2026: the 26th is a Monday.
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!
+    }
+    let settings = ReviewReminderSettings(
+        enabled: true,
+        times: [ReminderTime(hour: 14, minute: 0)!, ReminderTime(hour: 9, minute: 0)!],
+        weekdays: [1, 2, 3, 4, 5]
+    )
+    check(ReviewReminderSettings.isoWeekday(of: at(26, 12), calendar: calendar) == 1, "ISO weekday: Monday is 1")
+    check(ReviewReminderSettings.isoWeekday(of: at(25, 12), calendar: calendar) == 7, "ISO weekday: Sunday is 7")
+    check(ReminderTime(parsing: "9:05")?.description == "09:05" && ReminderTime(parsing: "24:00") == nil
+          && ReminderTime(parsing: "ab") == nil, "reminder time parsing")
+    check(settings.nextOccurrence(after: at(26, 9, 30), calendar: calendar) == at(26, 14), "next occurrence same day")
+    check(settings.nextOccurrence(after: at(30, 15), calendar: calendar)
+            == calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 9)),
+          "Friday afternoon -> Monday 9:00")
+
+    var state = ReviewReminderState()
+    check(!state.shouldShow(settings: settings, now: at(26, 10), calendar: calendar) && state.lastHandled == at(26, 10),
+          "first run records a baseline without replaying today's 9:00")
+    check(!state.shouldShow(settings: settings, now: at(26, 13, 59), calendar: calendar), "nothing before 14:00")
+    check(state.shouldShow(settings: settings, now: at(26, 14), calendar: calendar), "fires at 14:00")
+    check(!state.shouldShow(settings: settings, now: at(26, 14, 1), calendar: calendar), "fires only once")
+    check(!state.shouldShow(settings: settings, now: at(27, 8, 59), calendar: calendar), "not before next day's time")
+    check(state.shouldShow(settings: settings, now: at(27, 16), calendar: calendar),
+          "missed 9:00 and 14:00 (sleep) collapse into one catch-up reminder")
+    check(!state.shouldShow(settings: settings, now: at(27, 16, 1), calendar: calendar), "catch-up shown once")
+    check(!state.shouldShow(settings: settings, now: at(31, 10), calendar: calendar), "Saturday is skipped")
+
+    state = ReviewReminderState(lastHandled: at(26, 9, 1))
+    state.snoozedUntil = at(26, 9, 16)
+    check(!state.shouldShow(settings: settings, now: at(26, 9, 15), calendar: calendar), "snooze not yet over")
+    check(state.shouldShow(settings: settings, now: at(26, 9, 16), calendar: calendar) && state.snoozedUntil == nil,
+          "snooze ends -> reminder shown again")
+
+    var disabled = settings
+    disabled.enabled = false
+    state = ReviewReminderState(lastHandled: at(26, 8), snoozedUntil: at(26, 8, 30))
+    check(!state.shouldShow(settings: disabled, now: at(26, 9), calendar: calendar) && state.snoozedUntil == nil,
+          "disabled reminder never fires and drops its snooze")
+    check(disabled.nextOccurrence(after: at(26, 8), calendar: calendar) == nil, "disabled has no next occurrence")
+
+    let encoded = try JSONEncoder().encode(settings)
+    let json = String(decoding: encoded, as: UTF8.self)
+    check(json.contains("\"14:00\"") && json.contains("[1,2,3,4,5]"), "reminder encodes readable times and sorted days")
+    check(try JSONDecoder().decode(ReviewReminderSettings.self, from: encoded) == settings, "reminder round trip")
+    let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":["a"]}"#.utf8))
+    check(legacy.reviewReminder == ReviewReminderSettings() && !legacy.reviewReminder.enabled,
+          "old configs get a disabled reminder")
+}
+
+do { // Localization
+    check(AppLanguage.system.resolved(preferredLanguages: ["pl-PL", "en-GB"]) == .polish, "system Polish resolves to Polish")
+    check(AppLanguage.system.resolved(preferredLanguages: ["en-GB", "pl-PL"]) == .english, "other system language -> English")
+    check(AppLanguage.english.resolved(preferredLanguages: ["pl-PL"]) == .english, "explicit choice wins")
+    let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":["a"]}"#.utf8))
+    check(legacy.language == .polish, "configs from before the option stay Polish")
+    check(AppConfig.default.language == .system, "new installs follow the system language")
+    var english = AppConfig.default
+    english.language = .english
+    check(try JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(english)).language == .english, "language round trip")
+    check([1, 2, 5, 12, 22, 25].map { Localization.polishPlural($0, one: "o", few: "f", many: "m") }.joined() == "ofmmfm",
+          "Polish plural forms")
+    Localization.language = .english
+    check(ActivityKind.approved.label == "approved ✅" && summarizeChanges(["a", "b", "c", "d"]).hasSuffix("+1 more"),
+          "English texts")
+    check(GitHubError.unauthorized.errorDescription == "The GitHub token is invalid or expired.", "English errors")
+    Localization.language = .polish
+    check(ActivityKind.approved.label == "zatwierdzenie ✅", "switching back to Polish")
 }
 
 if failures > 0 {

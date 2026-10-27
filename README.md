@@ -60,7 +60,7 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Konfiguracja
 
-Ustawienia (pasek menu → „Ustawienia…”) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
+Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
 
 - **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
 - **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
@@ -106,6 +106,19 @@ Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otw
 ## Grupy repozytoriów
 
 Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawej to liczba PR-ów w tej grupie (na głównej liście: wymagających uwagi). Stan zwinięcia jest zapamiętywany między uruchomieniami. Po zwinięciu panel się zmniejsza: na macOS zostaje przyklejony do paska menu, na Windows do zasobnika.
+
+## Przypomnienia o review
+
+W ustawieniach, w zakładce **Przypomnienia**, można włączyć okno pokazywane na środku ekranu o stałych porach, np. codziennie o 9:00 w dni robocze. Okno zawiera aktualną listę PR-ów czekających na uwagę (pogrupowaną po repozytoriach) i pojawia się także wtedy, gdy lista jest pusta.
+
+- Wybór dni tygodnia i dowolnej liczby godzin w ciągu dnia.
+- **Przypomnij za 15 min** odkłada okno; **Gotowe** zamyka je do następnej pory.
+- Jeśli komputer spał lub aplikacja była wyłączona, pominięte przypomnienie z tego samego dnia pokaże się po wybudzeniu lub uruchomieniu (kilka pominiętych scala się w jedno).
+- Zmiana harmonogramu nie wywołuje od razu przypomnień z godzin, które już minęły.
+
+## Język
+
+Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → Język** wybierz *Systemowy* (polski, gdy pierwszym preferowanym językiem systemu jest polski; w przeciwnym razie angielski), *Polski* lub *English*. Nowe instalacje używają języka systemu, a istniejące konfiguracje bez tego ustawienia pozostają po polsku.
 
 ## Ikony i tooltipy
 

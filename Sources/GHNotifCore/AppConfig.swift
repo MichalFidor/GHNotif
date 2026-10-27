@@ -20,11 +20,14 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var excludedRepositories: [String]
     public var excludedLabels: [String]
     public var sortOrder: SortOrder
+    public var reviewReminder: ReviewReminderSettings
+    public var language: AppLanguage
 
     public init(
         users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true,
         includeMentions: Bool = true, includeReviewRequests: Bool = false, autoDismissReviewed: Bool = true,
-        excludedRepositories: [String] = [], excludedLabels: [String] = [], sortOrder: SortOrder = .recentlyUpdated
+        excludedRepositories: [String] = [], excludedLabels: [String] = [], sortOrder: SortOrder = .recentlyUpdated,
+        reviewReminder: ReviewReminderSettings = ReviewReminderSettings(), language: AppLanguage = .system
     ) {
         self.users = users
         self.extraQualifiers = extraQualifiers
@@ -36,6 +39,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.excludedRepositories = excludedRepositories
         self.excludedLabels = excludedLabels
         self.sortOrder = sortOrder
+        self.reviewReminder = reviewReminder
+        self.language = language
     }
 
     /// Missing keys (config files from older versions) fall back to defaults.
@@ -54,6 +59,10 @@ public struct AppConfig: Codable, Equatable, Sendable {
         excludedRepositories = try container.decodeIfPresent([String].self, forKey: .excludedRepositories) ?? []
         excludedLabels = try container.decodeIfPresent([String].self, forKey: .excludedLabels) ?? []
         sortOrder = try container.decodeIfPresent(SortOrder.self, forKey: .sortOrder) ?? fallback.sortOrder
+        reviewReminder = try container.decodeIfPresent(ReviewReminderSettings.self, forKey: .reviewReminder)
+            ?? fallback.reviewReminder
+        // Configs from before the language option were always Polish; keep them that way.
+        language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .polish
     }
 
     /// True when at least one search would run.

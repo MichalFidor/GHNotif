@@ -12,11 +12,11 @@ public sealed record GitHubRelease(
 {
     public static Version ParseVersion(string value)
     {
-        if (string.IsNullOrEmpty(value)) throw new InvalidDataException("Brak wersji GHNotif.");
+        if (string.IsNullOrEmpty(value)) throw new InvalidDataException(L("Brak wersji GHNotif.", "Missing GHNotif version."));
         var text = value.StartsWith('v') ? value[1..] : value;
         if (text.Split('.').Length != 3 || text.Any(c => c != '.' && !char.IsAsciiDigit(c))
             || !Version.TryParse(text, out var version))
-            throw new InvalidDataException("Nieprawidłowa wersja GHNotif.");
+            throw new InvalidDataException(L("Nieprawidłowa wersja GHNotif.", "Invalid GHNotif version."));
         return version;
     }
 
@@ -24,7 +24,7 @@ public sealed record GitHubRelease(
     {
         if (!Uri.TryCreate(HtmlUrl, UriKind.Absolute, out var url) || url.Scheme != "https"
             || url.Host != "github.com" || !url.AbsolutePath.StartsWith("/MichalFidor/GHNotif/releases/", StringComparison.Ordinal))
-            throw new InvalidDataException("Nieprawidłowy adres wydania GHNotif.");
+            throw new InvalidDataException(L("Nieprawidłowy adres wydania GHNotif.", "Invalid GHNotif release URL."));
         return !Draft && !Prerelease && ParseVersion(TagName) > ParseVersion(installed);
     }
 
@@ -37,6 +37,6 @@ public sealed record GitHubRelease(
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<GitHubRelease>()
-            ?? throw new InvalidDataException("Pusta odpowiedź aktualizacji GHNotif.");
+            ?? throw new InvalidDataException(L("Pusta odpowiedź aktualizacji GHNotif.", "Empty GHNotif update response."));
     }
 }

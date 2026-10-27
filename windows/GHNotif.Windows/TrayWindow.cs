@@ -40,12 +40,20 @@ internal sealed class TrayWindow : Window
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/GHNotif.Windows;component/GHNotif.png"));
         var root = new StackPanel();
         var header = new DockPanel { Margin = new Thickness(12) };
-        refresh = Ui.Button("↻", "Odśwież listę PR-ów", () => _ = app.RunAsync(app.RefreshAsync));
-        toggle = Ui.Button("✓", "Pokaż załatwione PR-y", ToggleDone);
-        snoozedToggle = Ui.Button("◷", "Pokaż odłożone PR-y", ToggleSnoozed);
+        refresh = Ui.Button("↻", L("Odśwież listę PR-ów", "Refresh the PR list"), () => _ = app.RunAsync(app.RefreshAsync));
+        toggle = Ui.Button("✓", L("Pokaż załatwione PR-y", "Show done PRs"), ToggleDone);
+        snoozedToggle = Ui.Button("◷", L("Pokaż odłożone PR-y", "Show snoozed PRs"), ToggleSnoozed);
+        var settings = Ui.Button("\uE713", L("Ustawienia", "Settings"), () =>
+        {
+            Hide();
+            app.OpenSettings();
+        });
+        settings.FontFamily = new FontFamily("Segoe MDL2 Assets");
+        DockPanel.SetDock(settings, Dock.Right);
         DockPanel.SetDock(refresh, Dock.Right);
         DockPanel.SetDock(snoozedToggle, Dock.Right);
         DockPanel.SetDock(toggle, Dock.Right);
+        header.Children.Add(settings);
         header.Children.Add(refresh);
         header.Children.Add(snoozedToggle);
         header.Children.Add(toggle);
@@ -62,9 +70,6 @@ internal sealed class TrayWindow : Window
         root.Children.Add(list);
         root.Children.Add(new Separator());
         var footer = new DockPanel { Margin = new Thickness(8) };
-        var settings = Ui.Button("Ustawienia…", "Osoby, token i odświeżanie", app.OpenSettings);
-        DockPanel.SetDock(settings, Dock.Right);
-        footer.Children.Add(settings);
         footer.Children.Add(updated);
         root.Children.Add(footer);
         Content = root;
@@ -99,6 +104,14 @@ internal sealed class TrayWindow : Window
         Activate();
     }
 
+    /// Closes the window for good (normally closing only hides it); used when the UI is rebuilt.
+    internal void Retire()
+    {
+        app.Changed -= Render;
+        Closing -= HideOnClose;
+        Close();
+    }
+
     private void HideOnClose(object? sender, CancelEventArgs args)
     {
         args.Cancel = true;
@@ -113,23 +126,23 @@ internal sealed class TrayWindow : Window
             ListMode.Snoozed => app.State.SnoozedPullRequests(app.Results.PullRequests).ToList(),
             _ => app.State.Visible(app.Results.PullRequests).ToList()
         };
-        heading.Text = $"{listMode switch { ListMode.Done => "Załatwione PR-y", ListMode.Snoozed => "Odłożone PR-y", _ => "PR-y do review" }}  {prs.Count}";
+        heading.Text = $"{listMode switch { ListMode.Done => L("Załatwione PR-y", "Done PRs"), ListMode.Snoozed => L("Odłożone PR-y", "Snoozed PRs"), _ => L("PR-y do review", "PRs to review") }}  {prs.Count}";
         toggle.Content = listMode == ListMode.Done ? "☰" : "✓";
-        toggle.ToolTip = listMode == ListMode.Done ? "Pokaż PR-y wymagające uwagi" : "Pokaż załatwione PR-y";
+        toggle.ToolTip = listMode == ListMode.Done ? L("Pokaż PR-y wymagające uwagi", "Show PRs needing attention") : L("Pokaż załatwione PR-y", "Show done PRs");
         snoozedToggle.Content = listMode == ListMode.Snoozed ? "↶" : "◷";
-        snoozedToggle.ToolTip = listMode == ListMode.Snoozed ? "Pokaż PR-y wymagające uwagi" : "Pokaż odłożone PR-y";
+        snoozedToggle.ToolTip = listMode == ListMode.Snoozed ? L("Pokaż PR-y wymagające uwagi", "Show PRs needing attention") : L("Pokaż odłożone PR-y", "Show snoozed PRs");
         refresh.IsEnabled = !app.IsRefreshing;
-        updated.Text = app.IsRefreshing ? "Odświeżanie…" : app.LastRefresh is { } time
-            ? $"Odświeżono {time:HH:mm}" : "Jeszcze nie odświeżono";
+        updated.Text = app.IsRefreshing ? L("Odświeżanie…", "Refreshing…") : app.LastRefresh is { } time
+            ? L($"Odświeżono {time:HH:mm}", $"Refreshed {time:HH:mm}") : L("Jeszcze nie odświeżono", "Not refreshed yet");
         banners.Children.Clear();
         if (app.AvailableRelease is { } release)
-            banners.Children.Add(Ui.Button($"Dostępna wersja {release.TagName} — pobierz",
-                "Otwórz GitHub Releases (aktualizacja ręczna)",
+            banners.Children.Add(Ui.Button(L($"Dostępna wersja {release.TagName} — pobierz", $"Version {release.TagName} is available — download"),
+                L("Otwórz GitHub Releases (aktualizacja ręczna)", "Open GitHub Releases (manual update)"),
                 () => _ = app.RunAsync(() => { App.OpenGitHub(release.HtmlUrl); return Task.CompletedTask; })));
         if (app.Error is not null) banners.Children.Add(Ui.Text(app.Error, Brushes.Firebrick));
         if (app.Results.BlockedOrganizations.Count > 0)
-            banners.Children.Add(Ui.Button("🔒 Brak dostępu SSO — autoryzuj token",
-                "GitHub ukrywa wyniki z części organizacji. Autoryzuj token lub aplikację GitHub CLI dla SSO.",
+            banners.Children.Add(Ui.Button(L("🔒 Brak dostępu SSO — autoryzuj token", "🔒 No SSO access — authorize the token"),
+                L("GitHub ukrywa wyniki z części organizacji. Autoryzuj token lub aplikację GitHub CLI dla SSO.", "GitHub hides results from some organizations. Authorize the token or the GitHub CLI app for SSO."),
                 () => _ = app.RunAsync(() =>
                 {
                     App.OpenGitHub(app.Tokens.Source == "gh CLI"
@@ -139,11 +152,11 @@ internal sealed class TrayWindow : Window
                 })));
         rows.Children.Clear();
         if (prs.Count == 0)
-            rows.Children.Add(Ui.Text(app.IsRefreshing ? "Ładowanie…" : app.Error is not null
-                ? "Nie udało się pobrać PR-ów — sprawdź komunikat powyżej."
-                : !app.Config.HasSearches ? "Dodaj obserwowane osoby w ustawieniach."
-                : listMode == ListMode.Done ? "Brak załatwionych PR-ów."
-                : listMode == ListMode.Snoozed ? "Brak odłożonych PR-ów." : "Brak PR-ów wymagających uwagi."));
+            rows.Children.Add(Ui.Text(app.IsRefreshing ? L("Ładowanie…", "Loading…") : app.Error is not null
+                ? L("Nie udało się pobrać PR-ów — sprawdź komunikat powyżej.", "Could not fetch PRs — see the message above.")
+                : !app.Config.HasSearches ? L("Dodaj obserwowane osoby w ustawieniach.", "Add watched people in settings.")
+                : listMode == ListMode.Done ? L("Brak załatwionych PR-ów.", "No done PRs.")
+                : listMode == ListMode.Snoozed ? L("Brak odłożonych PR-ów.", "No snoozed PRs.") : L("Brak PR-ów wymagających uwagi.", "No PRs need attention.")));
         foreach (var group in prs.GroupBy(pr => pr.Repository).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
             var collapsed = app.State.Collapsed.Contains(group.Key);
@@ -186,7 +199,7 @@ internal sealed class TrayWindow : Window
             Text = $"{(collapsed ? "▸" : "▾")}  {repository}", FontWeight = FontWeights.SemiBold,
             Foreground = Brushes.DimGray, TextTrimming = TextTrimming.CharacterEllipsis
         });
-        var header = Ui.Button("", collapsed ? $"Rozwiń {repository}" : $"Zwiń {repository}",
+        var header = Ui.Button("", collapsed ? L($"Rozwiń {repository}", $"Expand {repository}") : L($"Zwiń {repository}", $"Collapse {repository}"),
             () => _ = app.RunAsync(() => { app.ToggleCollapsed(repository); return Task.CompletedTask; }));
         header.Content = content;
         header.HorizontalContentAlignment = HorizontalAlignment.Stretch;
@@ -207,16 +220,16 @@ internal sealed class TrayWindow : Window
         var inActive = listMode == ListMode.Active;
         if (inActive)
         {
-            var snooze = Ui.Button("◷", "Kliknij: odłóż na 2 godziny. Prawy klik: wybierz termin.",
+            var snooze = Ui.Button("◷", L("Kliknij: odłóż na 2 godziny. Prawy klik: wybierz termin.", "Click: snooze for 2 hours. Right-click: choose when."),
                 () => _ = app.RunAsync(() => { app.Snooze(pr, DateTimeOffset.UtcNow.AddHours(2)); return Task.CompletedTask; }));
             var menu = new ContextMenu();
-            var twoHours = new MenuItem { Header = "Za 2 godziny" };
+            var twoHours = new MenuItem { Header = L("Za 2 godziny", "In 2 hours") };
             twoHours.Click += (_, _) => _ = app.RunAsync(() =>
             {
                 app.Snooze(pr, DateTimeOffset.UtcNow.AddHours(2));
                 return Task.CompletedTask;
             });
-            var tomorrow = new MenuItem { Header = "Jutro rano" };
+            var tomorrow = new MenuItem { Header = L("Jutro rano", "Tomorrow morning") };
             tomorrow.Click += (_, _) => _ = app.RunAsync(() =>
             {
                 app.Snooze(pr, new DateTimeOffset(DateTime.Today.AddDays(1).AddHours(9)));
@@ -229,7 +242,7 @@ internal sealed class TrayWindow : Window
             row.Children.Add(snooze);
         }
         var done = Ui.Button(inActive ? "✓" : "↶",
-            inActive ? "Oznacz jako załatwione — lokalnie, bez zmian na GitHubie" : "Przywróć na listę wymagających uwagi",
+            inActive ? L("Oznacz jako załatwione — lokalnie, bez zmian na GitHubie", "Mark as done — locally, nothing changes on GitHub") : L("Przywróć na listę wymagających uwagi", "Move back to needs attention"),
             () => _ = app.RunAsync(() =>
             {
                 if (listMode == ListMode.Snoozed) app.Unsnooze(pr);
@@ -239,28 +252,28 @@ internal sealed class TrayWindow : Window
         done.Margin = new Thickness(2, 0, 4, 0);
         var (checks, checksTip, checksBrush) = pr.Checks switch
         {
-            "SUCCESS" => ("●", "CI: wszystkie sprawdzenia zakończone powodzeniem", Brushes.ForestGreen),
-            "FAILURE" or "ERROR" => ("●", "CI: błąd lub nieudane sprawdzenia", Brushes.Firebrick),
-            "PENDING" or "EXPECTED" => ("●", "CI: oczekuje lub jest w toku", Brushes.DarkGoldenrod),
-            _ => ("○", "CI: brak informacji o sprawdzeniach", Brushes.Gray)
+            "SUCCESS" => ("●", L("CI: wszystkie sprawdzenia zakończone powodzeniem", "CI: all checks passed"), Brushes.ForestGreen),
+            "FAILURE" or "ERROR" => ("●", L("CI: błąd lub nieudane sprawdzenia", "CI: error or failed checks"), Brushes.Firebrick),
+            "PENDING" or "EXPECTED" => ("●", L("CI: oczekuje lub jest w toku", "CI: pending or in progress"), Brushes.DarkGoldenrod),
+            _ => ("○", L("CI: brak informacji o sprawdzeniach", "CI: no check information"), Brushes.Gray)
         };
         var check = Badge(checks, checksTip, checksBrush);
         row.Children.Add(check);
         var (review, reviewTip) = pr.ReviewDecision switch
         {
-            "APPROVED" => ("✓", "Review: PR zatwierdzony"),
-            "CHANGES_REQUESTED" => ("!", "Review: poproszono o zmiany"),
-            "REVIEW_REQUIRED" => ("◉", "Review: wymagane zatwierdzenie"),
-            _ => ("–", "Review: brak decyzji")
+            "APPROVED" => ("✓", L("Review: PR zatwierdzony", "Review: approved")),
+            "CHANGES_REQUESTED" => ("!", L("Review: poproszono o zmiany", "Review: changes requested")),
+            "REVIEW_REQUIRED" => ("◉", L("Review: wymagane zatwierdzenie", "Review: approval required")),
+            _ => ("–", L("Review: brak decyzji", "Review: no decision"))
         };
         if (pr.Reasons.Contains(MatchReason.ReviewRequested))
         {
-            var requested = Badge("👁", "Poproszono Cię o review", Brushes.Purple);
+            var requested = Badge("👁", L("Poproszono Cię o review", "Your review was requested"), Brushes.Purple);
             row.Children.Add(requested);
         }
         if (pr.Reasons.Contains(MatchReason.Mention))
         {
-            var mention = Badge("@", "Ktoś wspomniał Cię w tym PR-ze", Brushes.Purple);
+            var mention = Badge("@", L("Ktoś wspomniał Cię w tym PR-ze", "Someone mentioned you in this PR"), Brushes.Purple);
             mention.FontWeight = FontWeights.Bold;
             row.Children.Add(mention);
         }
@@ -295,7 +308,7 @@ internal sealed class TrayWindow : Window
         }
         details.MaxWidth = 280;
         body.Children.Add(details);
-        var open = Ui.Button("", $"Otwórz PR w przeglądarce\n{pr.Url}",
+        var open = Ui.Button("", L($"Otwórz PR w przeglądarce\n{pr.Url}", $"Open PR in browser\n{pr.Url}"),
             () => _ = app.RunAsync(() => { App.OpenGitHub(pr.Url); return Task.CompletedTask; }));
         open.Content = body;
         open.MaxWidth = 320;
@@ -318,8 +331,8 @@ internal sealed class TrayWindow : Window
     private static string Age(DateTimeOffset created)
     {
         var age = DateTimeOffset.UtcNow - created;
-        return age.TotalDays >= 1 ? $"{(int)age.TotalDays} dni temu"
-            : age.TotalHours >= 1 ? $"{(int)age.TotalHours} godz. temu" : "przed chwilą";
+        return age.TotalDays >= 1 ? L($"{(int)age.TotalDays} dni temu", $"{(int)age.TotalDays} d ago")
+            : age.TotalHours >= 1 ? L($"{(int)age.TotalHours} godz. temu", $"{(int)age.TotalHours} h ago") : L("przed chwilą", "just now");
     }
 }
 

@@ -34,7 +34,7 @@ public struct GitHubRelease: Decodable, Sendable {
         guard let latest = ReleaseVersion(tagName), let current = ReleaseVersion(installed),
               htmlURL.scheme == "https", htmlURL.host == "github.com",
               htmlURL.path.hasPrefix("/MichalFidor/GHNotif/releases/") else {
-            throw GitHubError.graphQL("Nieprawidłowa wersja lub adres wydania GHNotif.")
+            throw GitHubError.graphQL(L("Nieprawidłowa wersja lub adres wydania GHNotif.", "Invalid GHNotif release version or URL."))
         }
         return !draft && !prerelease && latest > current
     }
@@ -44,9 +44,9 @@ public struct GitHubRelease: Decodable, Sendable {
         request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, "Brak odpowiedzi HTTP") }
+        guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
         if http.statusCode == 404 { return nil }
-        guard http.statusCode == 200 else { throw GitHubError.http(http.statusCode, "Nie udało się sprawdzić aktualizacji.") }
+        guard http.statusCode == 200 else { throw GitHubError.http(http.statusCode, L("Nie udało się sprawdzić aktualizacji.", "Could not check for updates.")) }
         return try JSONDecoder().decode(Self.self, from: data)
     }
 }

@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text.Json;
 using GHNotif.Core;
+using static GHNotif.Core.Localization;
 
 var checks = 0;
+Localization.Language = AppLanguage.Polish;
 void Check(bool condition, string message)
 {
     checks++;
@@ -265,6 +267,78 @@ using var releases = new HttpClient(new FakeHandler(_ => Task.FromResult(new Htt
     Content = new StringContent(JsonSerializer.Serialize(update))
 })));
 Check((await GitHubRelease.LatestAsync(releases))?.IsNewer("0.1.0") == true, "Release response parsed");
+
+var warsaw = TimeZoneInfo.CreateCustomTimeZone("PL", TimeSpan.FromHours(1), "PL", "PL");
+DateTimeOffset At(int day, int hour, int minute = 0) => new(2026, 10, day, hour, minute, 0, TimeSpan.FromHours(1));
+var reminder = new ReviewReminderSettings { Enabled = true, Times = ["14:00", "9:00", "09:00"], Weekdays = [5, 1, 2, 3, 4, 9] };
+reminder.Normalize();
+Check(reminder.Times.SequenceEqual(["09:00", "14:00"]) && reminder.Weekdays.SequenceEqual([1, 2, 3, 4, 5]),
+    "Reminder times and days are normalized");
+Check(!ReviewReminderSettings.TryParseTime("24:00", out _) && !ReviewReminderSettings.TryParseTime("ab", out _),
+    "Invalid reminder time rejected");
+try { new ReviewReminderSettings { Times = ["25:00"] }.Normalize(); Check(false, "Invalid time must fail validation"); }
+catch (InvalidDataException) { checks++; }
+Check(ReviewReminderSettings.IsoWeekday(new DateTime(2026, 10, 26)) == 1
+    && ReviewReminderSettings.IsoWeekday(new DateTime(2026, 10, 25)) == 7, "ISO weekdays");
+Check(reminder.NextOccurrence(At(26, 9, 30), warsaw) == At(26, 14), "Next reminder same day");
+Check(reminder.NextOccurrence(At(30, 15), warsaw) == new DateTimeOffset(2026, 11, 2, 9, 0, 0, TimeSpan.FromHours(1)),
+    "Friday afternoon -> Monday 9:00");
+var reminderState = new ReviewReminderState();
+Check(!reminderState.ShouldShow(reminder, At(26, 10), warsaw) && reminderState.LastHandled == At(26, 10),
+    "First run records a baseline");
+Check(!reminderState.ShouldShow(reminder, At(26, 13, 59), warsaw), "Nothing before 14:00");
+Check(reminderState.ShouldShow(reminder, At(26, 14), warsaw), "Reminder fires at 14:00");
+Check(!reminderState.ShouldShow(reminder, At(26, 14, 1), warsaw), "Reminder fires once");
+Check(reminderState.ShouldShow(reminder, At(27, 16), warsaw) && !reminderState.ShouldShow(reminder, At(27, 16, 1), warsaw),
+    "Missed reminders collapse into one catch-up");
+Check(!reminderState.ShouldShow(reminder, At(31, 10), warsaw), "Saturday skipped");
+reminderState = new ReviewReminderState { LastHandled = At(26, 9, 1), SnoozedUntil = At(26, 9, 16) };
+Check(!reminderState.ShouldShow(reminder, At(26, 9, 15), warsaw), "Snooze not over yet");
+Check(reminderState.ShouldShow(reminder, At(26, 9, 16), warsaw) && reminderState.SnoozedUntil is null, "Snooze returns");
+var disabledReminder = reminder.Copy();
+disabledReminder.Enabled = false;
+reminderState = new ReviewReminderState { LastHandled = At(26, 8), SnoozedUntil = At(26, 8, 30) };
+Check(!reminderState.ShouldShow(disabledReminder, At(26, 9), warsaw) && reminderState.SnoozedUntil is null,
+    "Disabled reminder never fires");
+Check(legacyConfig.ReviewReminder is { Enabled: false } && legacyConfig.ReviewReminder.Times.SequenceEqual(["09:00"]),
+    "Old configs get a disabled reminder");
+var reminderFolder = Path.Combine(Path.GetTempPath(), "ghnotif-reminder-" + Guid.NewGuid());
+try
+{
+    var reminderConfigStore = new JsonStore<Config>(Path.Combine(reminderFolder, "config.json"));
+    reminderConfigStore.Save(new Config { ReviewReminder = reminder.Copy() });
+    var reloadedReminder = reminderConfigStore.Load().ReviewReminder;
+    Check(reloadedReminder.SameAs(reminder), "Reminder settings persist");
+    var reminderStateStore = new JsonStore<LocalState>(Path.Combine(reminderFolder, "state.json"));
+    var savedState = new LocalState { ReviewReminder = new ReviewReminderState { LastHandled = At(26, 9) } };
+    reminderStateStore.Save(savedState.Clone());
+    Check(reminderStateStore.Load().ReviewReminder.LastHandled == At(26, 9), "Reminder state persists and clones");
+}
+finally { if (Directory.Exists(reminderFolder)) Directory.Delete(reminderFolder, true); }
+
+Check(Localization.Resolve(AppLanguage.System, "pl-PL") == AppLanguage.Polish
+    && Localization.Resolve(AppLanguage.System, "en-GB") == AppLanguage.English
+    && Localization.Resolve(AppLanguage.English, "pl-PL") == AppLanguage.English, "Language resolution");
+var languageFolder = Path.Combine(Path.GetTempPath(), "ghnotif-language-" + Guid.NewGuid());
+try
+{
+    var languagePath = Path.Combine(languageFolder, "config.json");
+    Directory.CreateDirectory(languageFolder);
+    File.WriteAllText(languagePath, """{"users":["a"]}""");
+    var languageStore = new JsonStore<Config>(languagePath);
+    Check(languageStore.Load().Language == AppLanguage.Polish, "Configs from before the option stay Polish");
+    languageStore.Save(new Config { Language = AppLanguage.English });
+    Check(languageStore.Load().Language == AppLanguage.English && File.ReadAllText(languagePath).Contains("\"english\""),
+        "Language round trip uses the macOS value names");
+    Check(new Config { Language = AppLanguage.English }.Copy().Language == AppLanguage.English, "Language copied");
+}
+finally { Directory.Delete(languageFolder, true); }
+Check(string.Concat(new[] { 1, 2, 5, 12, 22, 25 }.Select(n => PolishPlural(n, "o", "f", "m"))) == "ofmmfm", "Polish plural forms");
+Localization.Language = AppLanguage.English;
+Check(ActivityKind.Approved.Label() == "approved ✅" && ActivityText.Summarize(["a", "b", "c", "d"]).EndsWith("+1 more"),
+    "English texts");
+Localization.Language = AppLanguage.Polish;
+Check(ActivityKind.Approved.Label() == "zatwierdzenie ✅", "Switching back to Polish");
 
 Console.WriteLine($"All {checks} Windows core checks passed.");
 

@@ -32,6 +32,7 @@ struct SettingsView: View {
                 .navigationTitle((form.pane ?? .people).title)
         }
         .frame(width: 680, height: 480)
+        .environment(\.locale, Localization.language.locale)
         .onAppear {
             form.extraQualifiers = model.config.extraQualifiers
             form.excludedRepositories = model.config.excludedRepositories.joined(separator: ", ")
@@ -44,36 +45,122 @@ struct SettingsView: View {
         switch pane {
         case .people: peopleTab
         case .search: searchTab
+        case .reminders: remindersTab
         case .general: generalTab
         case .token: tokenTab
         }
+    }
+
+    private static var weekdaySymbols: [String] {
+        L("Pn Wt Śr Cz Pt So Nd", "Mo Tu We Th Fr Sa Su").split(separator: " ").map(String.init)
+    }
+
+    private var remindersTab: some View {
+        Form {
+            Section {
+                Toggle(L("Pokazuj okno z listą PR-ów o stałych porach", "Show a window with the PR list at set times"), isOn: $model.config.reviewReminder.enabled)
+            } footer: {
+                Text(L("Okno pojawia się na środku ekranu, nad innymi aplikacjami. Jeśli komputer był uśpiony, przypomnienie pojawi się po wybudzeniu (tego samego dnia).", "The window appears in the center of the screen, above other apps. If the computer was asleep, the reminder appears after wake (same day)."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section(L("Dni", "Days")) {
+                HStack(spacing: 6) {
+                    ForEach(1...7, id: \.self) { day in
+                        Toggle(Self.weekdaySymbols[day - 1], isOn: Binding(
+                            get: { model.config.reviewReminder.weekdays.contains(day) },
+                            set: { on in
+                                if on { model.config.reviewReminder.weekdays.insert(day) }
+                                else { model.config.reviewReminder.weekdays.remove(day) }
+                            }
+                        ))
+                        .toggleStyle(.button)
+                    }
+                }
+            }
+
+            Section(L("Godziny", "Times")) {
+                ForEach(Array(model.config.reviewReminder.times.enumerated()), id: \.offset) { index, time in
+                    HStack {
+                        DatePicker(L("Godzina \(index + 1)", "Time \(index + 1)"), selection: Binding(
+                            get: { Self.date(for: time) },
+                            set: { setReminderTime($0, at: index) }
+                        ), displayedComponents: .hourAndMinute)
+                        Button {
+                            model.config.reviewReminder.times.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L("Usuń godzinę", "Remove time"))
+                    }
+                }
+                Button(L("Dodaj godzinę", "Add time"), systemImage: "plus") {
+                    let last = model.config.reviewReminder.times.max()
+                    let hour = min((last?.hour ?? 8) + 1, 23)
+                    if let time = ReminderTime(hour: hour, minute: last?.minute ?? 0),
+                       !model.config.reviewReminder.times.contains(time) {
+                        model.config.reviewReminder.times.append(time)
+                    }
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Section {
+                LabeledContent(L("Następne przypomnienie", "Next reminder"), value: nextReminderText)
+                if let snoozed = model.reviewReminderSnoozedUntil, snoozed > Date() {
+                    LabeledContent(L("Odłożone do", "Snoozed until"), value: snoozed.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Localization.language.locale)))
+                }
+                Button(L("Pokaż teraz", "Show now")) { model.showReviewReminder() }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var nextReminderText: String {
+        let reminder = model.config.reviewReminder
+        guard reminder.enabled else { return L("wyłączone", "off") }
+        if reminder.times.isEmpty { return L("dodaj godzinę", "add a time") }
+        if reminder.weekdays.isEmpty { return L("wybierz dni", "choose days") }
+        return model.nextReviewReminder?.formatted(.dateTime.weekday(.wide).hour().minute().locale(Localization.language.locale)) ?? "—"
+    }
+
+    private static func date(for time: ReminderTime) -> Date {
+        Calendar.current.date(bySettingHour: time.hour, minute: time.minute, second: 0, of: Date()) ?? Date()
+    }
+
+    private func setReminderTime(_ date: Date, at index: Int) {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        guard let time = ReminderTime(hour: parts.hour ?? 0, minute: parts.minute ?? 0),
+              model.config.reviewReminder.times.indices.contains(index) else { return }
+        model.config.reviewReminder.times[index] = time
     }
 
     private var peopleTab: some View {
         Form {
             Section {
                 HStack {
-                    TextField("Login GitHub", text: $form.newLogin, prompt: Text("Login GitHub, np. octocat"))
+                    TextField(L("Login GitHub", "GitHub login"), text: $form.newLogin, prompt: Text(L("Login GitHub, np. octocat", "GitHub login, e.g. octocat")))
                         .labelsHidden()
                         .onSubmit(addUser)
                     if form.isAdding { ProgressView().controlSize(.small) }
-                    Button("Dodaj", action: addUser)
+                    Button(L("Dodaj", "Add"), action: addUser)
                         .disabled(form.isAdding || form.newLogin.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 if let addError = form.addError {
                     Text(addError).font(.caption).foregroundStyle(.red)
                 }
             } header: {
-                Text("Dodaj osobę")
+                Text(L("Dodaj osobę", "Add person"))
             } footer: {
-                Text("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu.")
+                Text(L("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu.", "Shows open PRs (no drafts) by these people in any repository visible to the token."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
                 DisclosureGroup(isExpanded: $form.showPeople) {
                     if model.config.users.count > 6 {
-                        TextField("Filtruj", text: $form.filter, prompt: Text("Szukaj na liście"))
+                        TextField(L("Filtruj", "Filter"), text: $form.filter, prompt: Text(L("Szukaj na liście", "Search the list")))
                             .labelsHidden()
                             .textFieldStyle(.roundedBorder)
                     }
@@ -84,7 +171,7 @@ struct SettingsView: View {
                                 Divider()
                             }
                             if filteredUsers.isEmpty {
-                                Text(model.config.users.isEmpty ? "Nikogo jeszcze nie obserwujesz." : "Brak wyników.")
+                                Text(model.config.users.isEmpty ? L("Nikogo jeszcze nie obserwujesz.", "You aren't watching anyone yet.") : L("Brak wyników.", "No results."))
                                     .foregroundStyle(.secondary)
                                     .padding(.vertical, 6)
                             }
@@ -93,30 +180,30 @@ struct SettingsView: View {
                     .frame(height: min(CGFloat(max(filteredUsers.count, 1)) * 29, 190))
                 } label: {
                     HStack {
-                        Text("Obserwowane osoby")
+                        Text(L("Obserwowane osoby", "Watched people"))
                         Spacer()
                         Text(String(model.config.users.count)).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
             }
 
-            Section("Lista zespołu") {
-                TextField("Organizacja", text: $form.organization, prompt: Text("np. acme"))
-                TextField("Slug zespołu", text: $form.team, prompt: Text("np. qa"))
-                Button(form.importingTeam ? "Pobieranie…" : "Importuj członków zespołu") {
+            Section(L("Lista zespołu", "Team list")) {
+                TextField(L("Organizacja", "Organization"), text: $form.organization, prompt: Text(L("np. acme", "e.g. acme")))
+                TextField(L("Slug zespołu", "Team slug"), text: $form.team, prompt: Text(L("np. qa", "e.g. qa")))
+                Button(form.importingTeam ? L("Pobieranie…", "Fetching…") : L("Importuj członków zespołu", "Import team members")) {
                     importTeam()
                 }
                 .disabled(form.importingTeam || form.organization.isEmpty || form.team.isEmpty)
-                Text("Wymaga dostępu do członkostwa organizacji: read:org (classic) lub Members: read (fine-grained).")
+                Text(L("Wymaga dostępu do członkostwa organizacji: read:org (classic) lub Members: read (fine-grained).", "Requires organization membership access: read:org (classic) or Members: read (fine-grained)."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Kopia listy") {
+            Section(L("Kopia listy", "List backup")) {
                 HStack {
-                    Button("Eksportuj") { exportWatchlist() }
-                    Button("Importuj") { importWatchlist() }
+                    Button(L("Eksportuj", "Export")) { exportWatchlist() }
+                    Button(L("Importuj", "Import")) { importWatchlist() }
                 }
-                Text("Plik zawiera wyłącznie loginy obserwowanych osób — nie zawiera tokenu ani ustawień.")
+                Text(L("Plik zawiera wyłącznie loginy obserwowanych osób — nie zawiera tokenu ani ustawień.", "The file contains only watched logins — no token or settings."))
                     .font(.caption).foregroundStyle(.secondary)
                 if let listError = form.listError {
                     Text(listError).font(.caption).foregroundStyle(.red)
@@ -136,7 +223,7 @@ struct SettingsView: View {
                 Image(systemName: "minus.circle.fill").foregroundStyle(.red)
             }
             .buttonStyle(.borderless)
-            .help("Przestań obserwować \(login)")
+            .help(L("Przestań obserwować \(login)", "Stop watching \(login)"))
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 2)
@@ -145,32 +232,32 @@ struct SettingsView: View {
     private var searchTab: some View {
         Form {
             Section {
-                Toggle("PR-y, w których ktoś mnie wspomniał (@)", isOn: $model.config.includeMentions)
-                Toggle("PR-y z prośbą o moje review", isOn: $model.config.includeReviewRequests)
+                Toggle(L("PR-y, w których ktoś mnie wspomniał (@)", "PRs where someone mentioned me (@)"), isOn: $model.config.includeMentions)
+                Toggle(L("PR-y z prośbą o moje review", "PRs requesting my review"), isOn: $model.config.includeReviewRequests)
             } header: {
-                Text("Dodatkowo pokazuj")
+                Text(L("Dodatkowo pokazuj", "Also show"))
             } footer: {
-                Text("Niezależnie od autora – wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.")
+                Text(L("Niezależnie od autora – wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author – mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team – they can still make the list much longer, so they're off by default."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
-                TextField("Dodatkowe kwalifikatory", text: $form.extraQualifiers, prompt: Text("Kwalifikatory, np. org:my-org"))
+                TextField(L("Dodatkowe kwalifikatory", "Extra qualifiers"), text: $form.extraQualifiers, prompt: Text(L("Kwalifikatory, np. org:my-org", "Qualifiers, e.g. org:my-org")))
                     .labelsHidden()
                     .onSubmit { model.config.extraQualifiers = form.extraQualifiers }
             } header: {
-                Text("Zakres")
+                Text(L("Zakres", "Scope"))
             } footer: {
-                Text("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.")
+                Text(L("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.", "Empty = every repository visible to the token. Press Enter to apply. SAML SSO organizations require token authorization – the app warns when results are hidden."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Filtry wykluczające") {
-                TextField("Repozytoria (oddziel przecinkami)", text: $form.excludedRepositories,
-                          prompt: Text("np. acme/archive, acme/infra"))
-                TextField("Etykiety (oddziel przecinkami)", text: $form.excludedLabels,
-                          prompt: Text("np. do-not-review, wip"))
-                Button("Zapisz filtry") {
+            Section(L("Filtry wykluczające", "Exclusion filters")) {
+                TextField(L("Repozytoria (oddziel przecinkami)", "Repositories (comma separated)"), text: $form.excludedRepositories,
+                          prompt: Text(L("np. acme/archive, acme/infra", "e.g. acme/archive, acme/infra")))
+                TextField(L("Etykiety (oddziel przecinkami)", "Labels (comma separated)"), text: $form.excludedLabels,
+                          prompt: Text(L("np. do-not-review, wip", "e.g. do-not-review, wip")))
+                Button(L("Zapisz filtry", "Save filters")) {
                     model.config.excludedRepositories = splitValues(form.excludedRepositories)
                     model.config.excludedLabels = splitValues(form.excludedLabels)
                 }
@@ -181,18 +268,26 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         Form {
-            Section("Odświeżanie") {
-                Stepper("Co \(model.config.refreshMinutes) min", value: $model.config.refreshMinutes, in: 1...60)
+            Section(L("Język", "Language")) {
+                Picker(L("Język aplikacji", "App language"), selection: $model.config.language) {
+                    Text(L("Systemowy", "System")).tag(AppLanguage.system)
+                    Text("Polski").tag(AppLanguage.polish)
+                    Text("English").tag(AppLanguage.english)
+                }
             }
 
-            Section("Powiadomienia") {
-                Toggle("Powiadamiaj o nowych PR-ach i nowej aktywności", isOn: $model.config.notify)
+            Section(L("Odświeżanie", "Refresh")) {
+                Stepper(L("Co \(model.config.refreshMinutes) min", "Every \(model.config.refreshMinutes) min"), value: $model.config.refreshMinutes, in: 1...60)
+            }
+
+            Section(L("Powiadomienia", "Notifications")) {
+                Toggle(L("Powiadamiaj o nowych PR-ach i nowej aktywności", "Notify about new PRs and new activity"), isOn: $model.config.notify)
                 HStack {
-                    Button("Wyślij testowe") {
+                    Button(L("Wyślij testowe", "Send test")) {
                         Task { await model.testNotification() }
                     }
                     Spacer()
-                    Link("Ustawienia systemowe",
+                    Link(L("Ustawienia systemowe", "System Settings"),
                          destination: URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
                 }
                 if !model.notificationStatus.isEmpty {
@@ -201,28 +296,28 @@ struct SettingsView: View {
             }
 
             Section("Workflow") {
-                Toggle("Oznaczaj jako załatwione po moim review bieżącego commita",
+                Toggle(L("Oznaczaj jako załatwione po moim review bieżącego commita", "Mark as done after I review the current commit"),
                        isOn: $model.config.autoDismissReviewed)
-                Picker("Sortowanie PR-ów", selection: $model.config.sortOrder) {
-                    Text("Ostatnio aktualizowane").tag(AppConfig.SortOrder.recentlyUpdated)
-                    Text("Najstarsze najpierw").tag(AppConfig.SortOrder.oldestFirst)
-                    Text("Największe zmiany").tag(AppConfig.SortOrder.largestChanges)
+                Picker(L("Sortowanie PR-ów", "PR sorting"), selection: $model.config.sortOrder) {
+                    Text(L("Ostatnio aktualizowane", "Recently updated")).tag(AppConfig.SortOrder.recentlyUpdated)
+                    Text(L("Najstarsze najpierw", "Oldest first")).tag(AppConfig.SortOrder.oldestFirst)
+                    Text(L("Największe zmiany", "Largest changes")).tag(AppConfig.SortOrder.largestChanges)
                 }
-                Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
+                Toggle(L("Uruchamiaj przy logowaniu", "Launch at login"), isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }
                 ))
             }
 
-            Section("GHNotif \(model.installedVersion)") {
+            Section("GHNotif " + model.installedVersion) {
                 HStack {
-                    Button("Sprawdź aktualizacje") {
+                    Button(L("Sprawdź aktualizacje", "Check for updates")) {
                         Task { await model.checkForUpdates() }
                     }
                     .disabled(model.checkingUpdates)
                     Spacer()
                     if let release = model.availableRelease {
-                        Link("Pobierz \(release.tagName)", destination: release.htmlURL)
+                        Link(L("Pobierz \(release.tagName)", "Download \(release.tagName)"), destination: release.htmlURL)
                     }
                 }
                 if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption) }
@@ -234,20 +329,20 @@ struct SettingsView: View {
     private var tokenTab: some View {
         Form {
             Section {
-                LabeledContent("Aktualne źródło", value: model.tokenSource?.rawValue ?? "brak")
+                LabeledContent(L("Aktualne źródło", "Current source"), value: model.tokenSource?.rawValue ?? L("brak", "none"))
             }
             Section {
-                SecureField("Personal access token", text: $form.pat, prompt: Text("ghp_… (opcjonalnie)"))
+                SecureField("Personal access token", text: $form.pat, prompt: Text(L("ghp_… (opcjonalnie)", "ghp_… (optional)")))
                 HStack {
-                    Button("Zapisz PAT") {
+                    Button(L("Zapisz PAT", "Save PAT")) {
                         model.setPersonalAccessToken(form.pat)
                         form.pat = ""
                     }
                     .disabled(form.pat.trimmingCharacters(in: .whitespaces).isEmpty)
-                    Button("Usuń PAT i użyj gh CLI") { model.setPersonalAccessToken(nil) }
+                    Button(L("Usuń PAT i użyj gh CLI", "Remove PAT and use gh CLI")) { model.setPersonalAccessToken(nil) }
                 }
             } footer: {
-                Text("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests – read) ma pierwszeństwo i jest przechowywany w Keychain.")
+                Text(L("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests – read) ma pierwszeństwo i jest przechowywany w Keychain.", "By default the token from `gh auth login` is used. A PAT (classic: `repo` scope; fine-grained: Pull requests – read) takes precedence and is stored in Keychain."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -309,15 +404,16 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case people, search, general, token
+    case people, search, reminders, general, token
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .people: "Osoby"
-        case .search: "Wyszukiwanie"
-        case .general: "Ogólne"
+        case .people: L("Osoby", "People")
+        case .search: L("Wyszukiwanie", "Search")
+        case .reminders: L("Przypomnienia", "Reminders")
+        case .general: L("Ogólne", "General")
         case .token: "Token"
         }
     }
@@ -326,6 +422,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .people: "person.2.fill"
         case .search: "magnifyingglass"
+        case .reminders: "alarm.fill"
         case .general: "gearshape.fill"
         case .token: "key.fill"
         }
@@ -335,6 +432,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .people: .blue
         case .search: .purple
+        case .reminders: .red
         case .general: .gray
         case .token: .orange
         }

@@ -12,9 +12,11 @@ public sealed class JsonStore<T>(string path) where T : new()
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
+    public bool Exists => File.Exists(path);
+
     public T Load() => File.Exists(path)
         ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), Options)
-            ?? throw new InvalidDataException($"Pusty dokument: {path}")
+            ?? throw new InvalidDataException(L($"Pusty dokument: {path}", $"Empty document: {path}"))
         : new T();
 
     public void Save(T value)

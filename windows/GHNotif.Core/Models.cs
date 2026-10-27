@@ -22,7 +22,7 @@ public sealed record PullRequest(
     {
         var lines = new List<string>();
         if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
-            lines.Add(HeadCommitAuthor is null ? "Nowe commity" : $"{HeadCommitAuthor} — nowe commity");
+            lines.Add(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} — nowe commity", $"{HeadCommitAuthor} — new commits"));
         foreach (var item in (Activity ?? []).Where(item => item.Date > snapshot.DismissedAt
                      && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
         {
@@ -36,7 +36,7 @@ public sealed record PullRequest(
     {
         var lines = new List<string>();
         if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
-            lines.Add(HeadCommitAuthor is null ? "Nowe commity" : $"{HeadCommitAuthor} — nowe commity");
+            lines.Add(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} — nowe commity", $"{HeadCommitAuthor} — new commits"));
         foreach (var item in (Activity ?? []).Where(item => !snapshot.ActivityDates.ContainsKey(item.NotificationKey)
                      && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
             lines.Add($"{item.Login} — {item.Kind.Label()}");
@@ -107,21 +107,21 @@ public static class ActivityText
 
     public static string Label(this ActivityKind kind) => kind switch
     {
-        ActivityKind.Approved => "zatwierdzenie ✅",
-        ActivityKind.ChangesRequested => "prośba o zmiany",
-        ActivityKind.ReviewComment => "komentarz w review",
-        ActivityKind.ReviewDismissed => "odrzucone review",
-        _ => "komentarz"
+        ActivityKind.Approved => L("zatwierdzenie ✅", "approved ✅"),
+        ActivityKind.ChangesRequested => L("prośba o zmiany", "changes requested"),
+        ActivityKind.ReviewComment => L("komentarz w review", "review comment"),
+        ActivityKind.ReviewDismissed => L("odrzucone review", "review dismissed"),
+        _ => L("komentarz", "comment")
     };
 
     /// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
     public static string Summarize(IReadOnlyList<string> lines, int limit = 3) => lines.Count <= limit
         ? string.Join("\n", lines)
-        : string.Join("\n", lines.Take(limit).Append($"+{lines.Count - limit} więcej"));
+        : string.Join("\n", lines.Take(limit).Append(L($"+{lines.Count - limit} więcej", $"+{lines.Count - limit} more")));
 
     public static string NewPullRequest(PullRequest pr) =>
-        pr.Reasons.Contains(MatchReason.ReviewRequested) ? "Poproszono Cię o review"
-        : pr.Reasons.Contains(MatchReason.Mention) ? "Wspomniano Cię w PR-ze" : $"Nowy PR od {pr.Author}";
+        pr.Reasons.Contains(MatchReason.ReviewRequested) ? L("Poproszono Cię o review", "Your review was requested")
+        : pr.Reasons.Contains(MatchReason.Mention) ? L("Wspomniano Cię w PR-ze", "You were mentioned") : L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}");
 }
 public sealed record PullRequestReview(string Login, string? CommitOid, DateTimeOffset? SubmittedAt);
 
@@ -146,6 +146,9 @@ public sealed class Config
     public List<string> ExcludedRepositories { get; set; } = [];
     public List<string> ExcludedLabels { get; set; } = [];
     public SortOrder SortOrder { get; set; }
+    public ReviewReminderSettings ReviewReminder { get; set; } = new();
+    /// Configs from before the language option were always Polish; new installations start with System.
+    public AppLanguage Language { get; set; } = AppLanguage.Polish;
 
     public bool HasSearches => Users.Count > 0 || IncludeMentions || IncludeReviewRequests;
     public bool Includes(PullRequest pr) =>
@@ -157,17 +160,20 @@ public sealed class Config
         Users = Users.ToList(), ExtraQualifiers = ExtraQualifiers, RefreshMinutes = RefreshMinutes, Notify = Notify,
         IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests,
         AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
-        ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder
+        ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder, ReviewReminder = ReviewReminder.Copy(),
+        Language = Language
     };
 
     public void Validate()
     {
         if (Users is null || ExtraQualifiers is null || ExcludedRepositories is null || ExcludedLabels is null
-            || RefreshMinutes is < 1 or > 60 || !Enum.IsDefined(SortOrder))
-            throw new InvalidDataException("Nieprawidłowa konfiguracja. Interwał musi wynosić 1–60 minut.");
+            || RefreshMinutes is < 1 or > 60 || !Enum.IsDefined(SortOrder) || !Enum.IsDefined(Language))
+            throw new InvalidDataException(L("Nieprawidłowa konfiguracja. Interwał musi wynosić 1–60 minut.", "Invalid configuration. The interval must be 1–60 minutes."));
         Users = QueryBuilder.Normalize(Users).ToList();
         ExcludedRepositories = NormalizeValues(ExcludedRepositories);
         ExcludedLabels = NormalizeValues(ExcludedLabels);
+        ReviewReminder ??= new();
+        ReviewReminder.Normalize();
     }
 
     private static List<string> NormalizeValues(IEnumerable<string> values) => values
@@ -185,6 +191,7 @@ public sealed class LocalState
     public Dictionary<string, DateTimeOffset> Snoozed { get; set; } = [];
     public HashSet<string>? Seen { get; set; }
     public Dictionary<string, NotificationSnapshot> NotificationSnapshots { get; set; } = new(StringComparer.Ordinal);
+    public ReviewReminderState ReviewReminder { get; set; } = new();
 
     public void Migrate(DateTimeOffset now)
     {
@@ -192,6 +199,7 @@ public sealed class LocalState
         Collapsed ??= [];
         Snoozed ??= [];
         NotificationSnapshots ??= new(StringComparer.Ordinal);
+        ReviewReminder ??= new();
         foreach (var id in Dismissed ?? []) Dismissals.TryAdd(id, new DismissalSnapshot { DismissedAt = now });
         Dismissed = null;
     }
@@ -207,7 +215,8 @@ public sealed class LocalState
         {
             HeadCommitOid = kv.Value.HeadCommitOid,
             ActivityDates = kv.Value.ActivityDates.ToDictionary(item => item.Key, item => item.Value)
-        }, StringComparer.Ordinal)
+        }, StringComparer.Ordinal),
+        ReviewReminder = ReviewReminder.Copy()
     };
 
     public bool IsDismissed(string id) => Dismissals.ContainsKey(id);
@@ -279,7 +288,7 @@ public sealed class LocalState
             if (pr.HasNewActivity(snapshot, viewer))
             {
                 var described = pr.Changes(snapshot, viewer);
-                changes[pr.Id] = described.Count > 0 ? described : ["Nowa aktywność"];
+                changes[pr.Id] = described.Count > 0 ? described : [L("Nowa aktywność", "New activity")];
                 Dismissals.Remove(pr.Id);
                 reactivated.Add(pr);
             }
@@ -310,12 +319,12 @@ public sealed class LocalState
             foreach (var pr in (reactivated ?? []).Where(pr => previousSeen.Contains(pr.Id)))
             {
                 var details = reactivationChanges is not null && reactivationChanges.TryGetValue(pr.Id, out var changes)
-                    ? changes : ["Nowa aktywność"];
+                    ? changes : [L("Nowa aktywność", "New activity")];
                 alerts.Add(new PullRequestAlert(pr, details));
             }
             foreach (var pr in current.Where(pr => wokeFromSnooze?.Contains(pr.Id) == true
                          && previousSeen.Contains(pr.Id) && !IsDismissed(pr.Id)))
-                alerts.Add(new PullRequestAlert(pr, ["Koniec odłożenia"]));
+                alerts.Add(new PullRequestAlert(pr, [L("Koniec odłożenia", "Snooze ended")]));
 
             var handled = alerts.Select(alert => alert.PullRequest.Id).ToHashSet(StringComparer.Ordinal);
             foreach (var pr in current.Where(pr => previousSeen.Contains(pr.Id) && !handled.Contains(pr.Id)

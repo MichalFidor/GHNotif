@@ -29,7 +29,7 @@ internal sealed class TokenStore(string directory)
         foreach (var argument in new[] { "auth", "token", "--hostname", "github.com" })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start)
-            ?? throw new InvalidOperationException("Nie udało się uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT.");
+            ?? throw new InvalidOperationException(L("Nie udało się uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT.", "Could not run gh. Install GitHub CLI or add a PAT."));
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -37,12 +37,12 @@ internal sealed class TokenStore(string directory)
         catch (OperationCanceledException)
         {
             process.Kill(entireProcessTree: true);
-            throw new InvalidOperationException("gh nie odpowiedział w ciągu 15 sekund.");
+            throw new InvalidOperationException(L("gh nie odpowiedział w ciągu 15 sekund.", "gh did not respond within 15 seconds."));
         }
         var token = (await output).Trim();
         await error;
         if (process.ExitCode != 0 || token.Length == 0)
-            throw new InvalidOperationException("Brak tokenu. Wykonaj gh auth login albo dodaj PAT w ustawieniach.");
+            throw new InvalidOperationException(L("Brak tokenu. Wykonaj gh auth login albo dodaj PAT w ustawieniach.", "No token. Run gh auth login or add a PAT in settings."));
         Source = "gh CLI";
         return token;
     }

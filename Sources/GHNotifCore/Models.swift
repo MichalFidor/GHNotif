@@ -98,7 +98,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public func changes(since snapshot: DismissalSnapshot, viewer: String?) -> [String] {
         var lines: [String] = []
         if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
-            lines.append(headCommitAuthor.map { "\($0) — nowe commity" } ?? "Nowe commity")
+            lines.append(headCommitAuthor.map { L("\($0) — nowe commity", "\($0) — new commits") } ?? L("Nowe commity", "New commits"))
         }
         var seen = Set<String>()
         for item in activity.sorted(by: { $0.date < $1.date }) where item.date > snapshot.dismissedAt
@@ -112,7 +112,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public func newActivity(since snapshot: NotificationSnapshot, viewer: String?) -> [String] {
         var lines: [String] = []
         if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
-            lines.append(headCommitAuthor.map { "\($0) — nowe commity" } ?? "Nowe commity")
+            lines.append(headCommitAuthor.map { L("\($0) — nowe commity", "\($0) — new commits") } ?? L("Nowe commity", "New commits"))
         }
         for item in activity.sorted(by: { $0.date < $1.date })
             where snapshot.activityDates[item.notificationKey] == nil
@@ -166,11 +166,11 @@ public enum ActivityKind: Hashable, Sendable {
 
     public var label: String {
         switch self {
-        case .comment: "komentarz"
-        case .approved: "zatwierdzenie ✅"
-        case .changesRequested: "prośba o zmiany"
-        case .reviewComment: "komentarz w review"
-        case .reviewDismissed: "odrzucone review"
+        case .comment: L("komentarz", "comment")
+        case .approved: L("zatwierdzenie ✅", "approved ✅")
+        case .changesRequested: L("prośba o zmiany", "changes requested")
+        case .reviewComment: L("komentarz w review", "review comment")
+        case .reviewDismissed: L("odrzucone review", "review dismissed")
         }
     }
 }
@@ -226,8 +226,8 @@ public struct PullRequestAlert: Sendable {
     }
 
     public static func new(_ pr: PullRequest) -> PullRequestAlert {
-        let detail = pr.reasons.contains(.reviewRequested) ? "Poproszono Cię o review"
-            : pr.reasons.contains(.mention) ? "Wspomniano Cię w PR-ze" : "Nowy PR od \(pr.author)"
+        let detail = pr.reasons.contains(.reviewRequested) ? L("Poproszono Cię o review", "Your review was requested")
+            : pr.reasons.contains(.mention) ? L("Wspomniano Cię w PR-ze", "You were mentioned") : L("Nowy PR od \(pr.author)", "New PR by \(pr.author)")
         return PullRequestAlert(pullRequest: pr, details: [detail])
     }
 }
@@ -235,7 +235,7 @@ public struct PullRequestAlert: Sendable {
 /// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
 public func summarizeChanges(_ lines: [String], limit: Int = 3) -> String {
     guard lines.count > limit else { return lines.joined(separator: "\n") }
-    return (lines.prefix(limit) + ["+\(lines.count - limit) więcej"]).joined(separator: "\n")
+    return (lines.prefix(limit) + [L("+\(lines.count - limit) więcej", "+\(lines.count - limit) more")]).joined(separator: "\n")
 }
 
 /// State of a PR at the moment it was dismissed; newer activity brings the PR back.

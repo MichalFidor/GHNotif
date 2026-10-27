@@ -22,6 +22,10 @@ final class Notifier {
         Self.notifiedDetails += alerts.map(\.details)
     }
 }
+final class ReviewReminderPresenter {
+    static var shownCount = 0
+    func show(model: AppModel) { Self.shownCount += 1 }
+}
 struct Outcome {
     let pullRequests: [PullRequest]
     let ssoBlockedOrgIDs: Set<String> = []
@@ -49,7 +53,7 @@ func runChecks() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
-    try store.save(AppConfig(users: ["test-user"]))
+    try store.save(AppConfig(users: ["test-user"], language: .polish))
     func makePR(oid: String = "c1", activity: [Activity] = [], reviews: [PullRequestReview] = []) -> PullRequest {
         PullRequest(
             id: "PR_TEST", number: 1, title: "Test", url: URL(string: "https://github.com/o/r/pull/1")!,
@@ -226,7 +230,42 @@ func runChecks() async throws {
     model.config.includeMentions = false
     await model.refresh()
     precondition(model.allPullRequests.isEmpty, "An empty watch list clears results")
-    print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications)")
+
+    let calendar = Calendar.current
+    let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+    func tomorrowAt(_ hour: Int, _ minute: Int) -> Date {
+        calendar.date(bySettingHour: hour, minute: minute, second: 0, of: tomorrow)!
+    }
+    ReviewReminderPresenter.shownCount = 0
+    model.config.reviewReminder = ReviewReminderSettings(
+        enabled: true, times: [ReminderTime(hour: 9, minute: 0)!], weekdays: Set(1...7)
+    )
+    precondition(model.nextReviewReminder == tomorrowAt(9, 0) || calendar.isDateInToday(model.nextReviewReminder!),
+                 "Next reminder is exposed for settings")
+    model.checkReviewReminder(now: tomorrowAt(8, 59))
+    precondition(ReviewReminderPresenter.shownCount == 0, "Reminder waits for its time")
+    model.checkReviewReminder(now: tomorrowAt(9, 0))
+    precondition(ReviewReminderPresenter.shownCount == 1, "Reminder window opens at the scheduled time")
+    model.checkReviewReminder(now: tomorrowAt(9, 1))
+    precondition(ReviewReminderPresenter.shownCount == 1, "Reminder opens once per scheduled time")
+    model.snoozeReviewReminder(minutes: 15, now: tomorrowAt(9, 1))
+    model.checkReviewReminder(now: tomorrowAt(9, 15))
+    precondition(ReviewReminderPresenter.shownCount == 1, "Snoozed reminder waits 15 minutes")
+    model.checkReviewReminder(now: tomorrowAt(9, 16))
+    precondition(ReviewReminderPresenter.shownCount == 2, "Snoozed reminder returns")
+    let storedReminder = preferences.data(forKey: "reviewReminderState")
+        .flatMap { try? JSONDecoder().decode(ReviewReminderState.self, from: $0) }
+    precondition(storedReminder?.lastHandled == tomorrowAt(9, 16), "Reminder state is persisted")
+    let reloadedConfig = try store.load()
+    precondition(reloadedConfig.reviewReminder.enabled && reloadedConfig.reviewReminder.times.map(\.description) == ["09:00"],
+                 "Reminder settings are saved in config")
+    model.config.language = .english
+    precondition(L("Odśwież", "Refresh") == "Refresh", "Choosing English switches texts immediately")
+    let savedLanguage = try store.load().language
+    precondition(savedLanguage == .english, "Language choice is saved")
+    model.config.language = .polish
+    precondition(L("Odśwież", "Refresh") == "Odśwież", "Choosing Polish switches texts back")
+    print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications, review reminder, language)")
 }
 
 private struct WatchlistFixture: Decodable {

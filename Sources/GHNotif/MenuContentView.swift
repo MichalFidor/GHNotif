@@ -48,7 +48,7 @@ struct MenuContentView: View {
         // The MenuBarExtra window doesn't always shrink when groups collapse; keep content at the top
         // and resize the window ourselves so nothing floats in the middle.
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(WindowHeightSync(height: layout.panelHeight))
+        .background(WindowHeightSync(height: layout.panelHeight) { layout.window = $0 })
     }
 
     private var header: some View {
@@ -74,7 +74,7 @@ struct MenuContentView: View {
                 Image(systemName: layout.list.icon)
             }
             .buttonStyle(.borderless)
-            .help("Wybierz listę PR-ów")
+            .help(L("Wybierz listę PR-ów", "Choose PR list"))
             if model.isLoading { ProgressView().controlSize(.small) }
             Button {
                 Task { await model.refresh() }
@@ -82,8 +82,15 @@ struct MenuContentView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Odśwież")
+            .help(L("Odśwież", "Refresh"))
             .disabled(model.isLoading)
+            Button {
+                openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help(L("Ustawienia", "Settings"))
         }
         .padding(10)
     }
@@ -92,7 +99,8 @@ struct MenuContentView: View {
     private var banners: some View {
         if let release = model.availableRelease {
             Banner(systemImage: "arrow.down.circle.fill", tint: .blue,
-                   text: "Dostępna nowa wersja \(release.tagName).", actionTitle: "Pobierz") {
+                   text: L("Dostępna nowa wersja \(release.tagName).", "New version \(release.tagName) is available."),
+                   actionTitle: L("Pobierz", "Download")) {
                 NSWorkspace.shared.open(release.htmlURL)
             }
         }
@@ -102,8 +110,9 @@ struct MenuContentView: View {
         if model.ssoBlockedOrgCount > 0 {
             Banner(
                 systemImage: "lock.fill", tint: .orange,
-                text: "Wyniki z \(model.ssoBlockedOrgCount) organizacji są ukryte – token nie jest autoryzowany przez SSO.",
-                actionTitle: "Autoryzuj"
+                text: L("Wyniki z \(model.ssoBlockedOrgCount) organizacji są ukryte – token nie jest autoryzowany przez SSO.",
+                         "Results from \(model.ssoBlockedOrgCount) organizations are hidden – the token is not SSO-authorized."),
+                actionTitle: L("Autoryzuj", "Authorize")
             ) {
                 NSWorkspace.shared.open(model.ssoSettingsURL)
             }
@@ -157,28 +166,31 @@ struct MenuContentView: View {
     }
 
     private var emptyStateText: String {
-        if !model.config.hasSearches { return "Nikogo nie obserwujesz – dodaj osoby w Ustawieniach." }
-        if model.isLoading && model.lastRefresh == nil { return "Ładowanie…" }
-        if layout.list == .done { return "Brak załatwionych PR-ów." }
-        if layout.list == .snoozed { return "Brak odłożonych PR-ów." }
-        if !model.snoozedRequests.isEmpty { return "PR-y odłożone na później ⏰" }
-        if !model.dismissedPullRequests.isEmpty { return "Wszystko załatwione 🎉" }
-        return "Brak otwartych PR-ów 🎉"
+        if !model.config.hasSearches { return L("Nikogo nie obserwujesz – dodaj osoby w Ustawieniach.", "You aren't watching anyone – add people in Settings.") }
+        if model.isLoading && model.lastRefresh == nil { return L("Ładowanie…", "Loading…") }
+        if layout.list == .done { return L("Brak załatwionych PR-ów.", "No done PRs.") }
+        if layout.list == .snoozed { return L("Brak odłożonych PR-ów.", "No snoozed PRs.") }
+        if !model.snoozedRequests.isEmpty { return L("PR-y odłożone na później ⏰", "PRs snoozed for later ⏰") }
+        if !model.dismissedPullRequests.isEmpty { return L("Wszystko załatwione 🎉", "All done 🎉") }
+        return L("Brak otwartych PR-ów 🎉", "No open PRs 🎉")
+    }
+
+    private func openSettings() {
+        // MenuBarExtra has no API to close its panel; closing the hosting window does the same as clicking away.
+        layout.window?.close()
+        NSApp.activate()
+        openWindow(id: SettingsView.windowID)
     }
 
     private var footer: some View {
         HStack {
             if let lastRefresh = model.lastRefresh {
-                Text("Odświeżono \(lastRefresh.formatted(date: .omitted, time: .shortened))")
+                Text(L("Odświeżono", "Refreshed") + " " + lastRefresh.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Localization.language.locale)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Ustawienia…") {
-                NSApp.activate()
-                openWindow(id: SettingsView.windowID)
-            }
-            Button("Zakończ") { NSApp.terminate(nil) }
+            Button(L("Zakończ", "Quit")) { NSApp.terminate(nil) }
         }
         .buttonStyle(.borderless)
         .padding(10)
@@ -189,16 +201,17 @@ private final class ListLayout: ObservableObject {
     @Published var contentHeight: CGFloat = 0
     @Published var panelHeight: CGFloat = 0
     @Published var list: PullRequestList = .active
+    weak var window: NSWindow?
 }
 
-private enum PullRequestList: String, CaseIterable, Identifiable {
+enum PullRequestList: String, CaseIterable, Identifiable {
     case active, done, snoozed
     var id: Self { self }
     var title: String {
         switch self {
-        case .active: "PR-y do review"
-        case .done: "Załatwione"
-        case .snoozed: "Odłożone"
+        case .active: L("PR-y do review", "PRs to review")
+        case .done: L("Załatwione", "Done")
+        case .snoozed: L("Odłożone", "Snoozed")
         }
     }
     var icon: String {
@@ -213,12 +226,17 @@ private enum PullRequestList: String, CaseIterable, Identifiable {
 /// Shrinks or grows the hosting window to `height`, keeping its top edge fixed under the menu bar.
 struct WindowHeightSync: NSViewRepresentable {
     let height: CGFloat
+    var onWindow: (NSWindow?) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ view: NSView, context: Context) {
         let target = height
-        DispatchQueue.main.async { Self.apply(target, to: view.window) }
+        let onWindow = onWindow
+        DispatchQueue.main.async {
+            onWindow(view.window)
+            Self.apply(target, to: view.window)
+        }
     }
 
     static func apply(_ height: CGFloat, to window: NSWindow?) {
@@ -261,7 +279,7 @@ private struct RepositoryHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isCollapsed ? "Rozwiń \(name)" : "Zwiń \(name)")
+        .help(isCollapsed ? L("Rozwiń \(name)", "Expand \(name)") : L("Zwiń \(name)", "Collapse \(name)"))
     }
 }
 
@@ -286,7 +304,7 @@ private struct Banner: View {
     }
 }
 
-private struct PullRequestRow: View {
+struct PullRequestRow: View {
     let pr: PullRequest
     let list: PullRequestList
     let toggleDismissed: () -> Void
@@ -307,11 +325,11 @@ private struct PullRequestRow: View {
                     }
                     .frame(width: 22, height: 22)
                     .clipShape(Circle())
-                    .help("Autor: \(pr.author)")
+                    .help(L("Autor: \(pr.author)", "Author: \(pr.author)"))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(pr.title).lineLimit(2)
-                        Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named))) · +\(pr.additions)/−\(pr.deletions)")
+                        Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named).locale(Localization.language.locale))) · +\(pr.additions)/−\(pr.deletions)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -324,24 +342,24 @@ private struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
             .fixedSize(horizontal: true, vertical: false)
-            .help("Otwórz PR w przeglądarce\n" + pr.url.absoluteString)
+            .help(L("Otwórz PR w przeglądarce", "Open PR in browser") + "\n" + pr.url.absoluteString)
             if list == .active {
                 Menu {
-                    Button("Za 2 godziny", systemImage: "clock") { snooze() }
-                    Button("Jutro rano", systemImage: "sunrise") { snoozeTomorrow() }
+                    Button(L("Za 2 godziny", "In 2 hours"), systemImage: "clock") { snooze() }
+                    Button(L("Jutro rano", "Tomorrow morning"), systemImage: "sunrise") { snoozeTomorrow() }
                 } label: {
                     Image(systemName: "clock").foregroundStyle(.secondary)
                 }
                 .menuStyle(.borderlessButton)
-                .help("Przypomnij później")
+                .help(L("Przypomnij później", "Remind me later"))
             }
             Button(action: toggleDismissed) {
                 Image(systemName: list == .active ? "checkmark.circle" : "arrow.uturn.backward.circle")
                     .foregroundStyle(list == .active ? Color.secondary : Color.accentColor)
             }
             .buttonStyle(.borderless)
-            .help(list == .active ? "Oznacz jako załatwione" : "Przywróć na listę wymagających uwagi")
-            .accessibilityLabel(list == .active ? "Oznacz PR jako załatwiony" : "Przywróć PR")
+            .help(list == .active ? L("Oznacz jako załatwione", "Mark as done") : L("Przywróć na listę wymagających uwagi", "Move back to needs attention"))
+            .accessibilityLabel(list == .active ? L("Oznacz PR jako załatwiony", "Mark PR as done") : L("Przywróć PR", "Restore PR"))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -364,12 +382,12 @@ private struct ReasonBadges: View {
                 .foregroundStyle(.white)
                 .frame(width: 16, height: 16)
                 .background(Circle().fill(Color.purple))
-                .help("Ktoś wspomniał Cię w tym PR-ze")
+                .help(L("Ktoś wspomniał Cię w tym PR-ze", "Someone mentioned you in this PR"))
         }
         if reasons.contains(.reviewRequested) {
             Image(systemName: "person.crop.circle.badge.questionmark")
                 .foregroundStyle(.purple)
-                .help("Poproszono Cię o review")
+                .help(L("Poproszono Cię o review", "Your review was requested"))
         }
     }
 }
@@ -380,11 +398,11 @@ private struct ReviewBadge: View {
     var body: some View {
         switch decision {
         case .approved:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Review: PR zatwierdzony")
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help(L("Review: PR zatwierdzony", "Review: approved"))
         case .changesRequested:
-            Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange).help("Review: poproszono o zmiany")
+            Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange).help(L("Review: poproszono o zmiany", "Review: changes requested"))
         case .reviewRequired:
-            Image(systemName: "eye").foregroundStyle(.secondary).help("Review: wymagane zatwierdzenie")
+            Image(systemName: "eye").foregroundStyle(.secondary).help(L("Review: wymagane zatwierdzenie", "Review: approval required"))
         case nil:
             EmptyView()
         }
@@ -397,11 +415,11 @@ private struct ChecksIndicator: View {
     var body: some View {
         switch state {
         case .success:
-            Circle().fill(.green).frame(width: 8, height: 8).help("CI: wszystkie sprawdzenia zakończone powodzeniem").padding(.top, 5)
+            Circle().fill(.green).frame(width: 8, height: 8).help(L("CI: wszystkie sprawdzenia zakończone powodzeniem", "CI: all checks passed")).padding(.top, 5)
         case .failure, .error:
-            Circle().fill(.red).frame(width: 8, height: 8).help("CI: błąd lub nieudane sprawdzenia").padding(.top, 5)
+            Circle().fill(.red).frame(width: 8, height: 8).help(L("CI: błąd lub nieudane sprawdzenia", "CI: error or failed checks")).padding(.top, 5)
         case .pending, .expected:
-            Circle().fill(.yellow).frame(width: 8, height: 8).help("CI: oczekuje lub jest w toku").padding(.top, 5)
+            Circle().fill(.yellow).frame(width: 8, height: 8).help(L("CI: oczekuje lub jest w toku", "CI: pending or in progress")).padding(.top, 5)
         case nil:
             EmptyView()
         }

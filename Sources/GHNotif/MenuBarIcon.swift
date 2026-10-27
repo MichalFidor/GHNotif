@@ -1,4 +1,5 @@
 import AppKit
+import GHNotifCore
 
 /// MenuBarExtra renders only part of a composite SwiftUI label (an HStack loses its image), so the logo,
 /// error marker, and count are drawn into a single non-template image.
@@ -13,7 +14,7 @@ enum MenuBarIcon {
         let text = count > 0 ? String(count) : nil
         let textWidth = text.map { ($0 as NSString).size(withAttributes: [.font: font]).width.rounded(.up) } ?? 0
         let warning = hasError
-            ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Błąd")?
+            ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: L("Błąd", "Error"))?
                 .withSymbolConfiguration(.init(pointSize: 11, weight: .bold).applying(.init(paletteColors: [.systemOrange])))
             : nil
         var width = logoSize.width
@@ -40,7 +41,7 @@ enum MenuBarIcon {
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = count > 0 ? "GHNotif: \(count) PR-ów wymaga uwagi" : "GHNotif"
+        image.accessibilityDescription = count > 0 ? L("GHNotif: \(count) PR-ów wymaga uwagi", "GHNotif: \(count) PRs need attention") : "GHNotif"
         return image
     }
 }
