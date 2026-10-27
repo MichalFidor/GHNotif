@@ -93,7 +93,7 @@ internal sealed class TrayWindow : Window
 
     private void Render()
     {
-        var prs = app.Results.PullRequests.Where(pr => app.State.Dismissed.Contains(pr.Id) == showDismissed).ToList();
+        var prs = app.Results.PullRequests.Where(pr => app.State.IsDismissed(pr.Id) == showDismissed).ToList();
         heading.Text = $"{(showDismissed ? "Załatwione PR-y" : "PR-y do review")}  {prs.Count}";
         toggle.Content = showDismissed ? "☰" : "✓";
         toggle.ToolTip = showDismissed ? "Pokaż PR-y wymagające uwagi" : "Pokaż załatwione PR-y";
@@ -120,14 +120,37 @@ internal sealed class TrayWindow : Window
                 : showDismissed ? "Brak załatwionych PR-ów." : "Brak PR-ów wymagających uwagi."));
         foreach (var group in prs.GroupBy(pr => pr.Repository).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            rows.Children.Add(new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(235, 237, 242)),
-                Padding = new Thickness(12, 6, 12, 6),
-                Child = new TextBlock { Text = group.Key, FontWeight = FontWeights.SemiBold, Foreground = Brushes.DimGray }
-            });
-            foreach (var pr in group) rows.Children.Add(CreateRow(pr));
+            var collapsed = app.State.Collapsed.Contains(group.Key);
+            rows.Children.Add(CreateGroupHeader(group.Key, group.Count(), collapsed));
+            if (!collapsed)
+                foreach (var pr in group) rows.Children.Add(CreateRow(pr));
         }
+    }
+
+    private UIElement CreateGroupHeader(string repository, int count, bool collapsed)
+    {
+        var content = new DockPanel { LastChildFill = true };
+        var badge = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(214, 218, 226)), CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(7, 0, 7, 1), VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = count.ToString(), FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brushes.DimGray }
+        };
+        DockPanel.SetDock(badge, Dock.Right);
+        content.Children.Add(badge);
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{(collapsed ? "▸" : "▾")}  {repository}", FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.DimGray, TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        var header = Ui.Button("", collapsed ? $"Rozwiń {repository}" : $"Zwiń {repository}",
+            () => _ = app.RunAsync(() => { app.ToggleCollapsed(repository); return Task.CompletedTask; }));
+        header.Content = content;
+        header.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        header.Background = new SolidColorBrush(Color.FromRgb(235, 237, 242));
+        header.BorderThickness = new Thickness(0);
+        header.Padding = new Thickness(12, 6, 12, 6);
+        return header;
     }
 
     private UIElement CreateRow(PullRequest pr)

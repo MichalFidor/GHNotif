@@ -64,7 +64,7 @@ internal static class Program
             Check(app.State.Visible(app.Results.PullRequests).Count() == 0, "Dismiss button removes PR");
             await app.RefreshAsync();
             Check(app.State.Visible(app.Results.PullRequests).Count() == 0, "Refresh must not restore PR");
-            Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().Dismissed.Contains("fixture"),
+            Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().Dismissals.ContainsKey("fixture"),
                 "Dismiss saved to disk");
             Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż załatwione PR-y"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -73,6 +73,20 @@ internal static class Program
             Buttons(panel).Single(b => Equals(b.ToolTip, "Przywróć na listę wymagających uwagi"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 1, "Restore button works");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Pokaż PR-y wymagające uwagi"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            panel.UpdateLayout();
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Zwiń example/demo"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            panel.UpdateLayout();
+            Check(!Buttons(panel).Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako") == true)
+                && app.State.Collapsed.Contains("example/demo"), "Collapsing a repo hides its rows");
+            Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().Collapsed.Contains("example/demo"),
+                "Collapsed repo saved to disk");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Rozwiń example/demo"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var settings = new SettingsWindow(app);
             settings.Show();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -110,11 +124,12 @@ internal static class Program
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""
-                {"data":{"search":{"issueCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
+                {"data":{"viewer":{"login":"me"},"search":{"issueCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
                 "id":"fixture","number":1,"title":"Example PR","url":"https://github.com/example/demo/pull/1",
                 "author":{"login":"example","avatarUrl":null},"repository":{"nameWithOwner":"example/demo"},
                 "createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:00:00Z",
-                "reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}
+                "reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"c1","statusCheckRollup":{"state":"SUCCESS"}}}]},
+                "comments":{"nodes":[]},"reviews":{"nodes":[]}
                 }]}}}
                 """)
             });

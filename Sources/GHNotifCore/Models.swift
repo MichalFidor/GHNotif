@@ -26,11 +26,15 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public let updatedAt: Date
     public let reviewDecision: ReviewDecision?
     public let checks: CheckState?
+    public let headCommitOID: String?
+    /// Recent comments and reviews by humans (bots excluded).
+    public let activity: [Activity]
 
     public init(
         id: String, number: Int, title: String, url: URL, repository: String, author: String,
         authorAvatarURL: URL?, createdAt: Date, updatedAt: Date,
-        reviewDecision: ReviewDecision?, checks: CheckState?
+        reviewDecision: ReviewDecision?, checks: CheckState?,
+        headCommitOID: String? = nil, activity: [Activity] = []
     ) {
         self.id = id
         self.number = number
@@ -43,6 +47,38 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.reviewDecision = reviewDecision
         self.checks = checks
+        self.headCommitOID = headCommitOID
+        self.activity = activity
+    }
+
+    /// True when, since the dismissal, someone pushed commits or someone other than `viewer` commented/reviewed.
+    public func hasNewActivity(since snapshot: DismissalSnapshot, viewer: String?) -> Bool {
+        if let old = snapshot.headCommitOID, let current = headCommitOID, old != current { return true }
+        return activity.contains { item in
+            item.date > snapshot.dismissedAt
+                && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true)
+        }
+    }
+}
+
+public struct Activity: Hashable, Sendable {
+    public let login: String
+    public let date: Date
+
+    public init(login: String, date: Date) {
+        self.login = login
+        self.date = date
+    }
+}
+
+/// State of a PR at the moment it was dismissed; newer activity brings the PR back.
+public struct DismissalSnapshot: Codable, Hashable, Sendable {
+    public var dismissedAt: Date
+    public var headCommitOID: String?
+
+    public init(dismissedAt: Date, headCommitOID: String?) {
+        self.dismissedAt = dismissedAt
+        self.headCommitOID = headCommitOID
     }
 }
 
@@ -50,4 +86,12 @@ public struct SearchOutcome: Sendable {
     public let pullRequests: [PullRequest]
     /// IDs of organizations whose results GitHub hid because the token isn't SAML SSO-authorized for them.
     public let ssoBlockedOrgIDs: Set<String>
+    /// Login of the token owner, used to ignore the user's own comments.
+    public let viewerLogin: String?
+
+    public init(pullRequests: [PullRequest], ssoBlockedOrgIDs: Set<String>, viewerLogin: String? = nil) {
+        self.pullRequests = pullRequests
+        self.ssoBlockedOrgIDs = ssoBlockedOrgIDs
+        self.viewerLogin = viewerLogin
+    }
 }

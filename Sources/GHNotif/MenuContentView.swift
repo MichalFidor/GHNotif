@@ -84,19 +84,18 @@ struct MenuContentView: View {
                 // Eager VStack so the full content height can be measured.
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(groupedByRepository, id: \.repository) { group in
-                        Text(group.repository)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary.opacity(0.5))
-                        ForEach(group.prs) { pr in
-                            PullRequestRow(pr: pr, isDismissed: layout.showDismissed) {
-                                if layout.showDismissed {
-                                    model.restore(pr)
-                                } else {
-                                    model.dismiss(pr)
+                        let collapsed = model.isCollapsed(group.repository)
+                        RepositoryHeader(name: group.repository, count: group.prs.count, isCollapsed: collapsed) {
+                            model.toggleCollapsed(group.repository)
+                        }
+                        if !collapsed {
+                            ForEach(group.prs) { pr in
+                                PullRequestRow(pr: pr, isDismissed: layout.showDismissed) {
+                                    if layout.showDismissed {
+                                        model.restore(pr)
+                                    } else {
+                                        model.dismiss(pr)
+                                    }
                                 }
                             }
                         }
@@ -141,6 +140,39 @@ struct MenuContentView: View {
 private final class ListLayout: ObservableObject {
     @Published var contentHeight: CGFloat = 0
     @Published var showDismissed = false
+}
+
+private struct RepositoryHeader: View {
+    let name: String
+    let count: Int
+    let isCollapsed: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    .frame(width: 10)
+                Text(name).font(.caption.weight(.semibold))
+                Spacer()
+                Text(String(count))
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.secondary.opacity(0.2)))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isCollapsed ? "Rozwiń \(name)" : "Zwiń \(name)")
+    }
 }
 
 private struct Banner: View {

@@ -34,18 +34,21 @@ public struct GitHubClient: Sendable {
         }
         var byID: [String: PullRequest] = [:]
         var blocked = Set<String>()
+        var viewer: String?
         for outcome in outcomes {
             outcome.pullRequests.forEach { byID[$0.id] = $0 }
             blocked.formUnion(outcome.ssoBlockedOrgIDs)
+            viewer = viewer ?? outcome.viewerLogin
         }
         let sorted = byID.values.sorted { $0.updatedAt > $1.updatedAt }
-        return SearchOutcome(pullRequests: sorted, ssoBlockedOrgIDs: blocked)
+        return SearchOutcome(pullRequests: sorted, ssoBlockedOrgIDs: blocked, viewerLogin: viewer)
     }
 
     public func search(query: String, maxPages: Int = 10) async throws -> SearchOutcome {
         var cursor: String?
         var prs: [PullRequest] = []
         var blocked = Set<String>()
+        var viewer: String?
         for _ in 0..<maxPages {
             var variables: [String: String] = ["q": query]
             if let cursor { variables["after"] = cursor }
@@ -53,10 +56,11 @@ public struct GitHubClient: Sendable {
             blocked.formUnion(Self.ssoBlockedOrgIDs(from: response.value(forHTTPHeaderField: "X-GitHub-SSO")))
             let page = try Self.parseSearchResponse(data)
             prs.append(contentsOf: page.pullRequests)
+            viewer = viewer ?? page.viewerLogin
             guard page.hasNextPage, let next = page.endCursor else { break }
             cursor = next
         }
-        return SearchOutcome(pullRequests: prs, ssoBlockedOrgIDs: blocked)
+        return SearchOutcome(pullRequests: prs, ssoBlockedOrgIDs: blocked, viewerLogin: viewer)
     }
 
     /// Returns the canonical login for an existing user, or `nil` when no such user exists.
@@ -95,6 +99,7 @@ public struct GitHubClient: Sendable {
         public let pullRequests: [PullRequest]
         public let hasNextPage: Bool
         public let endCursor: String?
+        public let viewerLogin: String?
     }
 
     public static func parseSearchResponse(_ data: Data) throws -> SearchPage {
@@ -105,7 +110,10 @@ public struct GitHubClient: Sendable {
             throw GitHubError.graphQL(decoded.errors?.map(\.message).joined(separator: "; ") ?? "Pusta odpowiedź")
         }
         let prs = search.nodes.compactMap { $0.value?.pullRequest }
-        return SearchPage(pullRequests: prs, hasNextPage: search.pageInfo.hasNextPage, endCursor: search.pageInfo.endCursor)
+        return SearchPage(
+            pullRequests: prs, hasNextPage: search.pageInfo.hasNextPage, endCursor: search.pageInfo.endCursor,
+            viewerLogin: decoded.data?.viewer?.login
+        )
     }
 
     /// Parses e.g. `partial-results; organizations=21955855,20582480`.
@@ -123,6 +131,7 @@ public struct GitHubClient: Sendable {
 
     static let searchQuery = """
     query($q: String!, $after: String) {
+      viewer { login }
       search(query: $q, type: ISSUE, first: 50, after: $after) {
         pageInfo { hasNextPage endCursor }
         nodes {
@@ -130,7 +139,9 @@ public struct GitHubClient: Sendable {
             id number title url createdAt updatedAt reviewDecision
             author { login avatarUrl }
             repository { nameWithOwner }
-            commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+            commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+            comments(last: 10) { nodes { createdAt author { __typename login } } }
+            reviews(last: 10) { nodes { submittedAt author { __typename login } } }
           }
         }
       }
@@ -166,6 +177,9 @@ private struct SearchData: Decodable {
         let nodes: [Lossy<PRNode>]
     }
 
+    struct Viewer: Decodable { let login: String }
+
+    let viewer: Viewer?
     let search: Search
 }
 
@@ -187,11 +201,33 @@ private struct PRNode: Decodable {
         struct Node: Decodable {
             struct Commit: Decodable {
                 struct Rollup: Decodable { let state: CheckState? }
+                let oid: String?
                 let statusCheckRollup: Rollup?
             }
             let commit: Commit
         }
         let nodes: [Node]
+    }
+
+    struct Actor: Decodable {
+        let __typename: String?
+        let login: String
+    }
+
+    struct Comments: Decodable {
+        struct Node: Decodable {
+            let createdAt: Date
+            let author: Actor?
+        }
+        let nodes: [Lossy<Node>]
+    }
+
+    struct Reviews: Decodable {
+        struct Node: Decodable {
+            let submittedAt: Date?
+            let author: Actor?
+        }
+        let nodes: [Lossy<Node>]
     }
 
     let id: String
@@ -204,16 +240,27 @@ private struct PRNode: Decodable {
     let author: Author?
     let repository: Repository
     let commits: Commits?
+    let comments: Comments?
+    let reviews: Reviews?
+
+    private static func activity(_ author: Actor?, _ date: Date?) -> Activity? {
+        guard let author, author.__typename != "Bot", let date else { return nil }
+        return Activity(login: author.login, date: date)
+    }
 
     var pullRequest: PullRequest {
-        PullRequest(
+        let commentActivity = comments?.nodes.compactMap { $0.value.flatMap { Self.activity($0.author, $0.createdAt) } } ?? []
+        let reviewActivity = reviews?.nodes.compactMap { $0.value.flatMap { Self.activity($0.author, $0.submittedAt) } } ?? []
+        return PullRequest(
             id: id, number: number, title: title, url: url,
             repository: repository.nameWithOwner,
             author: author?.login ?? "ghost",
             authorAvatarURL: author?.avatarUrl,
             createdAt: createdAt, updatedAt: updatedAt,
             reviewDecision: reviewDecision,
-            checks: commits?.nodes.last?.commit.statusCheckRollup?.state
+            checks: commits?.nodes.last?.commit.statusCheckRollup?.state,
+            headCommitOID: commits?.nodes.last?.commit.oid,
+            activity: commentActivity + reviewActivity
         )
     }
 }

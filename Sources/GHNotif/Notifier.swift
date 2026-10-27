@@ -20,7 +20,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard let center, !newPRs.isEmpty else { return }
         if newPRs.count > 3 {
             let content = UNMutableNotificationContent()
-            content.title = "\(newPRs.count) nowych PR-ów do review"
+            content.title = "\(newPRs.count) PR-ów wymaga uwagi"
             content.body = Set(newPRs.map(\.author)).sorted().joined(separator: ", ")
             content.sound = .default
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))

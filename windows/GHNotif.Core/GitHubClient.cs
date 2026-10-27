@@ -5,18 +5,22 @@ using System.Text.Json;
 
 namespace GHNotif.Core;
 
-public sealed record SearchResult(List<PullRequest> PullRequests, HashSet<string> BlockedOrganizations);
+public sealed record SearchResult(List<PullRequest> PullRequests, HashSet<string> BlockedOrganizations,
+    string? ViewerLogin = null);
 
 public sealed class GitHubClient(HttpClient http)
 {
     private const string SearchQuery = """
         query($q: String!, $after: String) {
+          viewer { login }
           search(query: $q, type: ISSUE, first: 100, after: $after) {
             issueCount pageInfo { hasNextPage endCursor }
             nodes { ... on PullRequest {
               id number title url createdAt updatedAt reviewDecision
               author { login avatarUrl } repository { nameWithOwner }
-              commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+              commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+              comments(last: 10) { nodes { createdAt author { __typename login } } }
+              reviews(last: 10) { nodes { submittedAt author { __typename login } } }
             } }
           }
         }
@@ -26,6 +30,7 @@ public sealed class GitHubClient(HttpClient http)
     {
         var prs = new Dictionary<string, PullRequest>();
         var blocked = new HashSet<string>();
+        string? viewer = null;
         foreach (var query in QueryBuilder.Build(config.Users, config.ExtraQualifiers))
         {
             string? cursor = null;
@@ -37,7 +42,9 @@ public sealed class GitHubClient(HttpClient http)
                 using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
                     cancellationToken: ct);
                 ThrowErrors(json.RootElement);
-                var search = json.RootElement.GetProperty("data").GetProperty("search");
+                var data = json.RootElement.GetProperty("data");
+                if (data.TryGetProperty("viewer", out var viewerNode)) viewer ??= Text(viewerNode, "login");
+                var search = data.GetProperty("search");
                 if (search.GetProperty("issueCount").GetInt32() > 1000)
                     throw new InvalidOperationException("GitHub ogranicza wyszukiwanie do 1000 wyników. Zawęź zakres w ustawieniach.");
                 foreach (var node in search.GetProperty("nodes").EnumerateArray())
@@ -53,7 +60,7 @@ public sealed class GitHubClient(HttpClient http)
                 if (page >= 9) throw new InvalidDataException("Przekroczono limit stron GitHub.");
             }
         }
-        return new(prs.Values.OrderByDescending(pr => pr.UpdatedAt).ToList(), blocked);
+        return new(prs.Values.OrderByDescending(pr => pr.UpdatedAt).ToList(), blocked, viewer);
     }
 
     public async Task<string> CanonicalLoginAsync(string token, string login, CancellationToken ct = default)
@@ -105,18 +112,34 @@ public sealed class GitHubClient(HttpClient http)
     {
         var author = node.GetProperty("author");
         string? checks = null;
+        string? oid = null;
         var commits = node.GetProperty("commits").GetProperty("nodes");
         if (commits.GetArrayLength() > 0)
         {
-            var rollup = commits[0].GetProperty("commit").GetProperty("statusCheckRollup");
-            checks = Text(rollup, "state");
+            var commit = commits[0].GetProperty("commit");
+            oid = Text(commit, "oid");
+            if (commit.TryGetProperty("statusCheckRollup", out var rollup)) checks = Text(rollup, "state");
         }
+        var activity = Activity(node, "comments", "createdAt").Concat(Activity(node, "reviews", "submittedAt")).ToList();
         return new(node.GetProperty("id").GetString()!, node.GetProperty("number").GetInt32(),
             node.GetProperty("title").GetString()!, node.GetProperty("url").GetString()!,
             node.GetProperty("repository").GetProperty("nameWithOwner").GetString()!,
             Text(author, "login") ?? "ghost", Text(author, "avatarUrl"),
             node.GetProperty("createdAt").GetDateTimeOffset(), node.GetProperty("updatedAt").GetDateTimeOffset(),
-            Text(node, "reviewDecision"), checks);
+            Text(node, "reviewDecision"), checks, oid, activity);
+    }
+
+    private static IEnumerable<PrActivity> Activity(JsonElement node, string connection, string dateField)
+    {
+        if (!node.TryGetProperty(connection, out var conn) || conn.ValueKind != JsonValueKind.Object) yield break;
+        foreach (var item in conn.GetProperty("nodes").EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("author", out var author)) continue;
+            var login = Text(author, "login");
+            var date = Text(item, dateField);
+            if (login is null || date is null || Text(author, "__typename") == "Bot") continue;
+            yield return new PrActivity(login, DateTimeOffset.Parse(date, System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     private static string? Text(JsonElement element, string property) =>

@@ -19,6 +19,7 @@ final class Notifier {
 struct Outcome {
     let pullRequests: [PullRequest]
     let ssoBlockedOrgIDs: Set<String> = []
+    let viewerLogin: String? = "me"
 }
 struct GitHubClient {
     let token: String
@@ -40,11 +41,15 @@ func runChecks() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
     try store.save(AppConfig(users: ["test-user"]))
-    let pr = PullRequest(
-        id: "PR_TEST", number: 1, title: "Test", url: URL(string: "https://github.com/o/r/pull/1")!,
-        repository: "o/r", author: "test-user", authorAvatarURL: nil,
-        createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil
-    )
+    func makePR(oid: String = "c1", activity: [Activity] = []) -> PullRequest {
+        PullRequest(
+            id: "PR_TEST", number: 1, title: "Test", url: URL(string: "https://github.com/o/r/pull/1")!,
+            repository: "o/r", author: "test-user", authorAvatarURL: nil,
+            createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil,
+            headCommitOID: oid, activity: activity
+        )
+    }
+    let pr = makePR()
     GitHubClient.results = [pr]
     let model = AppModel(store: store, preferences: preferences)
     // Let the initial refresh loop finish before explicitly refreshing.
@@ -57,7 +62,7 @@ func runChecks() async throws {
     precondition(model.pullRequests.isEmpty && model.dismissedPullRequests.map(\.id) == [pr.id])
     await model.refresh()
     precondition(model.pullRequests.isEmpty, "Dismissal survives refresh")
-    precondition(preferences.stringArray(forKey: "dismissedPullRequestIDs") == [pr.id])
+    precondition(preferences.data(forKey: "dismissedPullRequests") != nil, "Dismissal snapshot is persisted")
     precondition(preferences.synchronize(), "Preferences must be written before the restart check")
     let child = Process()
     child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
@@ -75,19 +80,54 @@ func runChecks() async throws {
     precondition(Notifier.notifiedIDs.isEmpty, "Dismissed PR must not notify again")
 
     let restarted = AppModel(store: store, preferences: preferences)
-    precondition(restarted.dismissedIDs.contains(pr.id), "A new model restores persisted dismissal")
+    precondition(restarted.dismissals[pr.id]?.headCommitOID == "c1", "A new model restores persisted dismissal")
+
+    // Own comments don't bring the PR back; comments by others and new commits do.
+    let later = Date().addingTimeInterval(60)
+    GitHubClient.results = [makePR(activity: [Activity(login: "me", date: later)])]
+    await model.refresh()
+    precondition(model.pullRequests.isEmpty, "Own comment keeps the PR dismissed")
+    GitHubClient.results = [makePR(activity: [Activity(login: "reviewer", date: later)])]
+    await model.refresh()
+    precondition(model.pullRequests.map(\.id) == [pr.id], "Comment by someone else brings the PR back")
+    precondition(Notifier.notifiedIDs == [pr.id], "Reactivated PR notifies")
+    model.dismiss(model.pullRequests[0])
+    GitHubClient.results = [makePR(oid: "c2", activity: [Activity(login: "reviewer", date: later)])]
+    await model.refresh()
+    precondition(model.pullRequests.map(\.id) == [pr.id], "New commit brings the PR back")
+
+    model.dismiss(model.pullRequests[0])
     model.restore(pr)
     precondition(model.pullRequests.map(\.id) == [pr.id] && model.dismissedPullRequests.isEmpty)
-    precondition(preferences.stringArray(forKey: "dismissedPullRequestIDs") == [])
+    precondition(model.dismissals.isEmpty)
+
+    // Collapsed repositories persist.
+    model.toggleCollapsed("o/r")
+    precondition(model.isCollapsed("o/r") && AppModel(store: store, preferences: preferences).isCollapsed("o/r"))
+    model.toggleCollapsed("o/r")
+    precondition(!model.isCollapsed("o/r") && preferences.stringArray(forKey: "collapsedRepositories") == [])
+
+    // Legacy ID-only storage is migrated and gets a commit baseline on the next refresh.
+    let legacyDomain = domain + ".legacy"
+    let legacy = UserDefaults(suiteName: legacyDomain)!
+    defer { legacy.removePersistentDomain(forName: legacyDomain) }
+    legacy.set([pr.id], forKey: "dismissedPullRequestIDs")
+    GitHubClient.results = [makePR(oid: "c9")]
+    let migrated = AppModel(store: store, preferences: legacy)
+    precondition(migrated.dismissals[pr.id] != nil && legacy.object(forKey: "dismissedPullRequestIDs") == nil, "Legacy IDs migrated")
+    await migrated.refresh()
+    precondition(migrated.pullRequests.isEmpty && migrated.dismissals[pr.id]?.headCommitOID == "c9", "Migrated dismissal gets baseline")
     model.config.users = []
     await model.refresh()
     precondition(model.allPullRequests.isEmpty, "An empty watch list clears results")
-    print("All app checks passed (dismiss, refresh, reappearance, persistence, restore, notifications)")
+    print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications)")
 }
 
 if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--verify-persistence" {
     let preferences = UserDefaults(suiteName: CommandLine.arguments[2])!
-    exit(preferences.stringArray(forKey: "dismissedPullRequestIDs") == ["PR_TEST"] ? 0 : 1)
+    let data = preferences.data(forKey: "dismissedPullRequests") ?? Data()
+    let dismissals = try? JSONDecoder().decode([String: DismissalSnapshot].self, from: data)
+    exit(dismissals?["PR_TEST"] != nil ? 0 : 1)
 }
 
 Task { @MainActor in

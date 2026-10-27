@@ -99,7 +99,7 @@ public partial class App : Application
         Config = configStore.Load();
         Config.Validate();
         State = stateStore.Load();
-        if (State.Dismissed is null) throw new InvalidDataException("Nieprawidłowy plik state.json.");
+        State.Migrate(DateTimeOffset.UtcNow);
         Tokens = new(folder);
         Client = new(client ?? http);
     }
@@ -142,8 +142,9 @@ public partial class App : Application
                     : await Client.SearchAsync(await Tokens.ResolveAsync(), config);
                 if (version != revision) { refreshQueued = true; continue; }
                 // Save seen IDs before publishing or notifying; a write failure must not look like success.
-                var next = new LocalState { Dismissed = State.Dismissed.ToHashSet(), Seen = State.Seen?.ToHashSet() };
-                var fresh = next.Observe(result.PullRequests, config.Notify, baseline);
+                var next = State.Clone();
+                var reactivated = next.Reactivate(result.PullRequests, result.ViewerLogin);
+                var fresh = next.Observe(result.PullRequests, config.Notify, baseline, reactivated);
                 stateStore.Save(next);
                 State = next;
                 Results = result;
@@ -153,7 +154,7 @@ public partial class App : Application
                 UpdateTray();
                 if (fresh.Count > 0 && tray is not null)
                 {
-                    tray.BalloonTipTitle = $"{fresh.Count} nowych PR-ów do review";
+                    tray.BalloonTipTitle = $"{fresh.Count} PR-ów wymaga uwagi";
                     tray.BalloonTipText = string.Join(", ", fresh.Select(pr => pr.Author).Distinct());
                     tray.ShowBalloonTip(5000);
                 }
@@ -162,10 +163,17 @@ public partial class App : Application
         finally { refreshing = false; Changed?.Invoke(); }
     }
 
-    internal void ToggleDismissed(PullRequest pr)
+    internal void ToggleDismissed(PullRequest pr) => UpdateState(next =>
     {
-        var next = new LocalState { Dismissed = State.Dismissed.ToHashSet(), Seen = State.Seen?.ToHashSet() };
-        if (!next.Dismissed.Remove(pr.Id)) next.Dismissed.Add(pr.Id);
+        if (!next.Restore(pr.Id)) next.Dismiss(pr, DateTimeOffset.UtcNow);
+    });
+
+    internal void ToggleCollapsed(string repository) => UpdateState(next => next.ToggleCollapsed(repository));
+
+    private void UpdateState(Action<LocalState> change)
+    {
+        var next = State.Clone();
+        change(next);
         stateStore.Save(next);
         State = next;
         UpdateTray();

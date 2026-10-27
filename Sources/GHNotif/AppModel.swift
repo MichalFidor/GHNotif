@@ -9,9 +9,13 @@ final class AppModel: ObservableObject {
 
     /// Every PR returned by the last search, including ones the user dismissed.
     @Published private(set) var allPullRequests: [PullRequest] = []
-    /// Dismissed PRs stay hidden across refreshes until the user restores them.
-    @Published private(set) var dismissedIDs: Set<String> {
-        didSet { preferences.set(Array(dismissedIDs), forKey: Self.dismissedIDsKey) }
+    /// Dismissed PRs stay hidden until the user restores them or someone pushes commits / comments / reviews.
+    @Published private(set) var dismissals: [String: DismissalSnapshot] {
+        didSet { preferences.set(try? JSONEncoder().encode(dismissals), forKey: Self.dismissalsKey) }
+    }
+    /// Repositories whose PR group is collapsed in the list.
+    @Published private(set) var collapsedRepositories: Set<String> {
+        didSet { preferences.set(collapsedRepositories.sorted(), forKey: Self.collapsedKey) }
     }
     @Published private(set) var isLoading = false
     @Published private(set) var lastError: String?
@@ -28,14 +32,23 @@ final class AppModel: ObservableObject {
     /// After the watched set changes, the next result is treated as a baseline so existing PRs don't trigger alerts.
     private var suppressNextNotifications = false
 
-    private static let dismissedIDsKey = "dismissedPullRequestIDs"
+    private static let legacyDismissedIDsKey = "dismissedPullRequestIDs"
+    private static let dismissalsKey = "dismissedPullRequests"
+    private static let collapsedKey = "collapsedRepositories"
     private static let seenIDsKey = "seenPullRequestIDs"
 
-    var pullRequests: [PullRequest] { allPullRequests.filter { !dismissedIDs.contains($0.id) } }
-    var dismissedPullRequests: [PullRequest] { allPullRequests.filter { dismissedIDs.contains($0.id) } }
+    var pullRequests: [PullRequest] { allPullRequests.filter { dismissals[$0.id] == nil } }
+    var dismissedPullRequests: [PullRequest] { allPullRequests.filter { dismissals[$0.id] != nil } }
 
-    func dismiss(_ pr: PullRequest) { dismissedIDs.insert(pr.id) }
-    func restore(_ pr: PullRequest) { dismissedIDs.remove(pr.id) }
+    func dismiss(_ pr: PullRequest) {
+        dismissals[pr.id] = DismissalSnapshot(dismissedAt: Date(), headCommitOID: pr.headCommitOID)
+    }
+    func restore(_ pr: PullRequest) { dismissals[pr.id] = nil }
+
+    func isCollapsed(_ repository: String) -> Bool { collapsedRepositories.contains(repository) }
+    func toggleCollapsed(_ repository: String) {
+        if collapsedRepositories.remove(repository) == nil { collapsedRepositories.insert(repository) }
+    }
     private var seenIDs: Set<String>? {
         get { preferences.stringArray(forKey: Self.seenIDsKey).map(Set.init) }
         set { preferences.set(newValue.map(Array.init), forKey: Self.seenIDsKey) }
@@ -44,7 +57,8 @@ final class AppModel: ObservableObject {
     init(store: ConfigStore = ConfigStore(), preferences: UserDefaults = .standard) {
         self.store = store
         self.preferences = preferences
-        dismissedIDs = Set(preferences.stringArray(forKey: Self.dismissedIDsKey) ?? [])
+        dismissals = Self.loadDismissals(from: preferences)
+        collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
         do {
             config = try store.load()
         } catch {
@@ -87,7 +101,8 @@ final class AppModel: ObservableObject {
         do {
             let outcome = try await GitHubClient(token: token.value)
                 .searchPullRequests(authors: config.users, extraQualifiers: config.extraQualifiers)
-            handleNotifications(for: outcome.pullRequests)
+            let reactivated = reactivateDismissed(in: outcome.pullRequests, viewer: outcome.viewerLogin)
+            handleNotifications(for: outcome.pullRequests, reactivated: reactivated)
             allPullRequests = outcome.pullRequests
             ssoBlockedOrgCount = outcome.ssoBlockedOrgIDs.count
             lastError = nil
@@ -145,14 +160,46 @@ final class AppModel: ObservableObject {
         return resolved
     }
 
-    private func handleNotifications(for prs: [PullRequest]) {
+    /// Un-dismisses PRs with new activity and returns them.
+    private func reactivateDismissed(in prs: [PullRequest], viewer: String?) -> [PullRequest] {
+        var updated = dismissals
+        var reactivated: [PullRequest] = []
+        for pr in prs {
+            guard let snapshot = updated[pr.id] else { continue }
+            if pr.hasNewActivity(since: snapshot, viewer: viewer) {
+                updated[pr.id] = nil
+                reactivated.append(pr)
+            } else if snapshot.headCommitOID == nil, let oid = pr.headCommitOID {
+                // Dismissals migrated from the ID-only format get their commit baseline on the first refresh.
+                updated[pr.id]?.headCommitOID = oid
+            }
+        }
+        if updated != dismissals { dismissals = updated }
+        return reactivated
+    }
+
+    private func handleNotifications(for prs: [PullRequest], reactivated: [PullRequest]) {
         let ids = Set(prs.map(\.id))
         defer {
             seenIDs = ids
             suppressNextNotifications = false
         }
         guard config.notify, !suppressNextNotifications, let seen = seenIDs else { return }
-        notifier.notify(about: prs.filter { !seen.contains($0.id) && !dismissedIDs.contains($0.id) })
+        let fresh = prs.filter { !seen.contains($0.id) && dismissals[$0.id] == nil }
+        notifier.notify(about: fresh + reactivated.filter { seen.contains($0.id) })
+    }
+
+    private static func loadDismissals(from preferences: UserDefaults) -> [String: DismissalSnapshot] {
+        if let data = preferences.data(forKey: dismissalsKey),
+           let decoded = try? JSONDecoder().decode([String: DismissalSnapshot].self, from: data) {
+            return decoded
+        }
+        let legacy = preferences.stringArray(forKey: legacyDismissedIDsKey) ?? []
+        preferences.removeObject(forKey: legacyDismissedIDsKey)
+        let now = Date()
+        let migrated = Dictionary(uniqueKeysWithValues: Set(legacy).map { ($0, DismissalSnapshot(dismissedAt: now, headCommitOID: nil)) })
+        if !migrated.isEmpty { preferences.set(try? JSONEncoder().encode(migrated), forKey: dismissalsKey) }
+        return migrated
     }
 
     private func configDidChange(from old: AppConfig) {

@@ -46,14 +46,23 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 Ustawienia (pasek menu → „Ustawienia…”): dodawanie/usuwanie obserwowanych osób (login jest weryfikowany w GitHub), dodatkowe kwalifikatory wyszukiwania (np. `org:my-org`), interwał odświeżania, powiadomienia. Nowa instalacja zaczyna z pustą listą osób.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
-Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych i widzianych PR-ów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
+Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych/widzianych PR-ów i zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
 Ustawienia obu platform są niezależne, bez synchronizacji.
 
 ## Załatwione PR-y
 
-Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znika z listy wymagającej uwagi i licznika. Nie wraca po odświeżeniu, ponownym uruchomieniu ani kolejnych zmianach w PR-ze; nie wywołuje też kolejnych powiadomień.
+Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znika z listy wymagającej uwagi i licznika. Nie wraca po odświeżeniu ani ponownym uruchomieniu, ale **wraca automatycznie (z powiadomieniem), gdy pojawi się nowa aktywność**:
 
-Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otwartych PR-ów. Strzałka przy PR-ze przywraca go na główną listę. To wyłącznie lokalny stan aplikacji, nie review ani zamknięcie PR-a na GitHubie. Identyfikatory są przechowywane w preferencjach macOS lub pliku stanu Windows, poza repozytorium.
+- nowy commit (zmiana HEAD, także po force-pushu),
+- nowy komentarz lub review od kogoś innego niż Ty (komentarze botów są pomijane).
+
+Zmiana tytułu, etykiet czy samego statusu CI nie przywraca PR-a.
+
+Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otwartych PR-ów. Strzałka przy PR-ze przywraca go na główną listę. To wyłącznie lokalny stan aplikacji, nie review ani zamknięcie PR-a na GitHubie. Identyfikatory wraz z momentem odhaczenia i ostatnim commitem są przechowywane w preferencjach macOS lub pliku stanu Windows, poza repozytorium.
+
+## Grupy repozytoriów
+
+Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawej to liczba PR-ów w tej grupie (na głównej liście: wymagających uwagi). Stan zwinięcia jest zapamiętywany między uruchomieniami.
 
 ## Ikony i tooltipy
 
@@ -77,7 +86,7 @@ bash scripts/check-app.sh
 ```
 
 Testy są zwykłym programem wykonywalnym, bo Command Line Tools nie zawierają XCTest ani makr Swift Testing.
-Testy aplikacji sprawdzają ukrywanie, przywracanie i trwałość stanu oraz brak ponownych powiadomień. Działają z izolowaną konfiguracją i atrapami GitHuba oraz powiadomień.
+Testy aplikacji sprawdzają ukrywanie, przywracanie, powrót PR-a po nowej aktywności, migrację starego stanu, zwijanie repozytoriów i trwałość stanu oraz powiadomienia. Działają z izolowaną konfiguracją i atrapami GitHuba oraz powiadomień.
 
 Windows:
 
@@ -86,5 +95,5 @@ dotnet run --project windows/GHNotif.Checks -c Release
 dotnet run --project windows/GHNotif.Windows.Checks -c Release # tylko Windows
 ```
 
-Testy rdzenia działają też na macOS/Linux: zapytania, paginacja, SSO, błędy API, konfiguracja, trwałość odhaczania, przywracanie i powiadomienia. Testy Windows sprawdzają dodatkowo layout WPF, kliknięcia odhaczania/przywracania, ustawienia i szyfrowanie DPAPI, bez prawdziwych tokenów i kont.
+Testy rdzenia działają też na macOS/Linux: zapytania, paginacja, SSO, błędy API, konfiguracja, trwałość odhaczania, powrót po nowej aktywności, migrację stanu, przywracanie i powiadomienia. Testy Windows sprawdzają dodatkowo layout WPF, kliknięcia odhaczania/przywracania/zwijania, ustawienia i szyfrowanie DPAPI, bez prawdziwych tokenów i kont.
 Workflow Windows buduje oba warianty portable i wykonuje te testy na runnerze Windows. Sam cross-build na Macu nie zastępuje testu interfejsu na Windowsie.
