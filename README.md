@@ -1,189 +1,191 @@
 # GHNotif
 
-<img src="assets/GHNotif.png" alt="Logo GHNotif" width="96">
+<img src="assets/GHNotif.png" alt="GHNotif logo" width="96">
 
-Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje otwarte (nie-draft) PR-y wybranych osób ze wszystkich repozytoriów widocznych dla Twojego tokenu GitHub. Obie wersje mają osobny, natywny interfejs.
+**English** | [Polski](README.pl.md)
 
-## Instalacja macOS
+A macOS menu bar / Windows system tray app that shows open (non-draft) pull requests from the people you follow, across every repository your GitHub token can see. Each platform has its own native UI.
 
-**Homebrew (zalecane):**
+## Installing on macOS
+
+**Homebrew (recommended):**
 
 ```bash
 brew tap MichalFidor/ghnotif
 brew install --cask ghnotif
-# aktualizacja:
+# update:
 brew upgrade --cask ghnotif
 ```
 
-Gotowe paczki dla Apple Silicon i Intela są też w [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
-Rozpakuj ZIP i przenieś `GHNotif.app` do Applications. Nie wymaga to instalacji Swifta.
-Paczki Homebrew również nie są notaryzowane ani podpisane certyfikatem wydawcy — macOS może je zablokować
-przy pierwszym uruchomieniu. Po zweryfikowaniu źródła i sumy SHA-256 użyj
-Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to.
+Prebuilt packages for Apple Silicon and Intel are also available in [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
+Unzip and move `GHNotif.app` to Applications. Swift is not required.
+The Homebrew packages are not notarized or signed with a developer certificate either, so macOS may block
+the first launch. After verifying the source and the SHA-256 checksum, use
+System Settings → Privacy & Security → Open Anyway.
 
-Budowanie ze źródeł:
+Building from source:
 
 ```bash
-./scripts/build-app.sh            # buduje build/GHNotif.app
-./scripts/build-app.sh --install  # kopiuje do ~/Applications i uruchamia
+./scripts/build-app.sh            # builds build/GHNotif.app
+./scripts/build-app.sh --install  # copies it to ~/Applications and launches it
 ```
 
-Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można włączyć w GHNotif → Ustawienia → Ogólne.
+Requires macOS 15+ and Swift 6 (Command Line Tools are enough). Launch at login can be enabled in GHNotif → Settings → General.
 
-## Instalacja Windows
+## Installing on Windows
 
-Wymaga Windows 10/11. Wersja portable zawiera .NET — użytkownik nie musi go instalować.
+Requires Windows 10/11. The portable build bundles .NET, so nothing else needs to be installed.
 
-1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
-2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
-3. Kliknij ikonę przy zegarku (może być schowana pod strzałką). Prawy przycisk: ustawienia, odświeżanie lub zakończenie.
-4. Dodaj osoby w ustawieniach i użyj `gh auth login` lub zapisz własny PAT.
+1. Download `GHNotif-win-x64.zip` (typical PC) or `GHNotif-win-arm64.zip` from [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
+2. Extract the whole ZIP to a permanent folder and run `GHNotif.Windows.exe`; keep `GHNotif.ico` next to it.
+3. Click the icon next to the clock (it may be hidden under the arrow). Right-click for settings, refresh or quit.
+4. Add people in the settings and either run `gh auth login` or save your own PAT.
 
-Aplikacja nie jest podpisana certyfikatem wydawcy; Windows SmartScreen może pokazać ostrzeżenie. Uruchamiaj wyłącznie buildy z zaufanego źródła.
-Zamknięcie panelu ukrywa go w zasobniku. Autostart można włączyć w ustawieniach aplikacji.
+The app is not signed with a publisher certificate, so Windows SmartScreen may show a warning. Only run builds from a trusted source.
+Closing the panel hides it to the tray. Launch at login can be enabled in the app settings.
 
-Budowanie na Windowsie (wymagany .NET 10 SDK):
+Building on Windows (requires the .NET 10 SDK):
 
 ```powershell
 ./scripts/build-windows.ps1                    # build/GHNotif-win-x64.zip
 ./scripts/build-windows.ps1 -Runtime win-arm64 # build/GHNotif-win-arm64.zip
 ```
 
-Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i CI, tooltipami, lokalnym odhaczaniem oraz powiadomieniami z zasobnika (ich widoczność zależy od ustawień Windows). Liczbę PR-ów widać w panelu i tooltipie ikony przy zegarku. Interfejs macOS korzysta z motywu systemowego.
+The Windows version has a light panel grouped by repository, with avatars, review and CI state, tooltips, local dismissing and tray notifications (their visibility depends on Windows settings). The PR count is shown in the panel and in the tray icon tooltip. The macOS UI follows the system appearance.
 
-## Autoryzacja
+## Authentication
 
-- Domyślnie używany jest token z `gh auth login` (aplikacja wywołuje `gh auth token`).
-- Opcjonalnie w ustawieniach możesz zapisać PAT (Keychain). Ma pierwszeństwo przed `gh`.
-- Na Windowsie PAT jest szyfrowany przez DPAPI dla bieżącego użytkownika; nie trafia do konfiguracji JSON. `gh` musi być dostępne w `PATH`; po jego instalacji uruchom GHNotif ponownie.
-- Organizacje z SAML SSO: jeśli token nie jest dla nich autoryzowany, GitHub ukrywa ich PR-y. Aplikacja pokazuje wtedy ostrzeżenie z linkiem do autoryzacji.
+- By default the token from `gh auth login` is used (the app runs `gh auth token`).
+- Optionally, save a PAT in the settings (stored in the Keychain). It takes precedence over `gh`.
+- On Windows the PAT is encrypted with DPAPI for the current user and never written to the JSON config. `gh` must be on `PATH`; restart GHNotif after installing it.
+- Organizations with SAML SSO: if the token is not authorized for them, GitHub hides their PRs. The app then shows a warning with a link to authorize the token.
 
-## Konfiguracja
+## Configuration
 
-Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
+Settings (the gear icon in the panel header) have a sidebar on the left (like System Settings) and show the selected section on the right:
 
-- **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
-- **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
-- **Ogólne** – interwał odświeżania, powiadomienia, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
-- **Token** – źródło tokenu i opcjonalny PAT.
+- **People** – add people to follow (logins are verified on GitHub); the list is collapsed by default, with a counter and a filter. You can import/export the list as JSON or import members of a GitHub team (requires organization membership access: `read:org` for classic tokens or `Members: read` for fine-grained ones).
+- **Search** – mentions and review requests (see below), extra qualifiers (e.g. `org:my-org`) and excluded repositories and labels.
+- **Reminders** – days and times of the review reminder window (see below).
+- **General** – language, refresh interval, notifications, sorting, auto-dismiss after your own review, launch at login, version and updates.
+- **Token** – token source and an optional PAT.
 
-Nowa instalacja zaczyna z pustą listą osób.
+A new installation starts with an empty list of people.
 
-## Wzmianki i prośby o review
+## Mentions and review requests
 
-Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
+PRs from the people you follow come first, but the list can also include:
 
-- **wzmianki** (`mentions:@me`, domyślnie włączone) – otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
-- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) – tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
+- **mentions** (`mentions:@me`, on by default) – open PRs by any author where someone mentioned you; marked with a purple `@`,
+- **review requests** (`user-review-requested:@me`, off by default) – only requests addressed to you personally, not to your team; marked with a person icon with a question mark.
 
-Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
+Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications – only new ones do.
 
-Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
-Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych, odłożonych i widzianych PR-ów oraz zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
-Ustawienia obu platform są niezależne, bez synchronizacji.
+The configuration is stored in `~/Library/Application Support/GHNotif/config.json`.
+On Windows: `%LOCALAPPDATA%/GHNotif/config.json`; dismissed, snoozed and seen PRs and collapsed repositories are kept in `state.json`, and the encrypted PAT in `token.dat`. Don't add these files to a repository and don't share your token.
+Settings are independent per platform and are not synchronized.
 
-## Załatwione PR-y
+## Dismissed PRs
 
-Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znika z listy wymagającej uwagi i licznika. Nie wraca po odświeżeniu ani ponownym uruchomieniu, ale **wraca automatycznie (z powiadomieniem), gdy pojawi się nowa aktywność**:
+The check mark button on the right of a PR marks it as done. The PR disappears from the needs-attention list and the counter. It doesn't come back after a refresh or restart, but it **returns automatically (with a notification) when there is new activity**:
 
-- nowy commit (zmiana HEAD, także po force-pushu),
-- nowy komentarz lub review od kogoś innego niż Ty (komentarze botów są pomijane).
+- a new commit (HEAD change, including force-pushes),
+- a new comment or review from someone other than you (bot comments are ignored).
 
-Zmiana tytułu, etykiet czy samego statusu CI nie przywraca PR-a.
+Changes to the title, labels or the CI status alone don't bring a PR back.
 
-Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już jest na liście, i pokazuje, kto co zrobił, np. `anna — zatwierdzenie ✅`, `piotr — prośba o zmiany`, `bob — komentarz` albo `dave — nowe commity`. To samo zdarzenie nie jest ponawiane przy kolejnych odświeżeniach. Przy commitach widać autora ostatniego commita (GitHub API nie podaje, kto wykonał push). Nowy PR jest opisany jako „Nowy PR od …”, „Poproszono Cię o review” lub „Wspomniano Cię w PR-ze”.
+A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `anna — approved ✅`, `piotr — changes requested`, `bob — comment` or `dave — pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
 
-Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez Ciebie review bieżącego commita, o ile po tym review nie było nowej aktywności innych osób. Nowy commit lub komentarz/review innej osoby przywraca go na listę. Kolejne odświeżenia bez zmian nie powtarzają powiadomienia o tym samym komentarzu. Opcję można wyłączyć w ustawieniach.
+Optionally a PR is dismissed automatically after you submit a review of its current commit, as long as nobody else has been active on it since. A new commit or another person's comment/review brings it back. Later refreshes without changes don't repeat the notification about the same comment. This can be turned off in the settings.
 
-## Odkładanie PR-ów i sortowanie
+## Snoozing and sorting
 
-Zegar przy PR-ze odkłada go na 2 godziny albo do jutra rano. Odłożone PR-y są w osobnej liście i wracają po upływie czasu (z powiadomieniem, jeśli powiadomienia są włączone). Repozytoria można wykluczyć wpisując `owner/repo`, a etykiety po nazwie. Sortowanie: ostatnio aktualizowane, najstarsze lub największe zmiany. Przy PR-ze widać też liczbę dodanych/usuniętych linii, status CI i decyzję review.
+The clock next to a PR snoozes it for 2 hours or until tomorrow morning. Snoozed PRs are listed separately and come back when the time is up (with a notification if notifications are enabled). Repositories can be excluded as `owner/repo`, labels by name. Sorting: recently updated, oldest first or largest changes. Each PR also shows added/removed lines, CI status and the review decision.
 
-Import/eksport listy obserwowanych przenosi wyłącznie loginy — nigdy token ani prywatne ustawienia. Import członków zespołu korzysta z endpointu GitHub do odczytu członków organizacji.
+Importing/exporting the watch list transfers logins only — never tokens or private settings. Importing team members uses the GitHub endpoint for reading organization members.
 
-Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otwartych PR-ów. Strzałka przy PR-ze przywraca go na główną listę. To wyłącznie lokalny stan aplikacji, nie review ani zamknięcie PR-a na GitHubie. Identyfikatory wraz z momentem odhaczenia i ostatnim commitem są przechowywane w preferencjach macOS lub pliku stanu Windows, poza repozytorium.
+The check mark button in the header switches to the list of dismissed, still open PRs. The arrow next to a PR restores it to the main list. This is purely local app state, not a review or closing the PR on GitHub. IDs together with the dismissal time and the latest commit are kept in macOS preferences or the Windows state file, outside the repository.
 
-## Grupy repozytoriów
+## Repository groups
 
-Kliknięcie nagłówka repozytorium zwija lub rozwija jego PR-y. Liczba po prawej to liczba PR-ów w tej grupie (na głównej liście: wymagających uwagi). Stan zwinięcia jest zapamiętywany między uruchomieniami. Po zwinięciu panel się zmniejsza: na macOS zostaje przyklejony do paska menu, na Windows do zasobnika.
+Clicking a repository header collapses or expands its PRs. The number on the right is the PR count in that group (on the main list: those needing attention). The collapsed state is remembered across launches. When collapsed, the panel shrinks and stays attached to the menu bar on macOS or to the tray on Windows.
 
-## Przypomnienia o review
+## Review reminders
 
-W ustawieniach, w zakładce **Przypomnienia**, można włączyć okno pokazywane na środku ekranu o stałych porach, np. codziennie o 9:00 w dni robocze. Okno zawiera aktualną listę PR-ów czekających na uwagę (pogrupowaną po repozytoriach) i pojawia się także wtedy, gdy lista jest pusta.
+In the **Reminders** settings section you can schedule a window that appears in the center of the screen at fixed times, e.g. every weekday at 9:00. It shows the current list of PRs needing attention (grouped by repository) and appears even when the list is empty.
 
-- Wybór dni tygodnia i dowolnej liczby godzin w ciągu dnia.
-- **Przypomnij za 15 min** odkłada okno; **Gotowe** zamyka je do następnej pory.
-- Jeśli komputer spał lub aplikacja była wyłączona, pominięte przypomnienie z tego samego dnia pokaże się po wybudzeniu lub uruchomieniu (kilka pominiętych scala się w jedno).
-- Zmiana harmonogramu nie wywołuje od razu przypomnień z godzin, które już minęły.
+- Choose the weekdays and any number of times per day.
+- Each time has its own switch, like an iOS alarm: turn it off without deleting it. A newly added time is switched on.
+- **Remind me in 15 min** snoozes the window; **Done** closes it until the next time.
+- If the computer was asleep or the app wasn't running, a missed reminder from the same day appears after wake or launch (several missed ones are merged into one).
+- Changing the schedule doesn't immediately trigger times that have already passed.
 
-## Język
+## Language
 
-Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → Język** wybierz *Systemowy* (polski, gdy pierwszym preferowanym językiem systemu jest polski; w przeciwnym razie angielski), *Polski* lub *English*. Nowe instalacje używają języka systemu, a istniejące konfiguracje bez tego ustawienia pozostają po polsku.
+The UI is available in English and Polish. In **Settings → General → Language** choose *System* (Polish when Polish is the first preferred system language, English otherwise), *Polski* or *English*. New installations follow the system language; existing configurations without this setting stay in Polish.
 
-## Ikony i tooltipy
+## Icons and tooltips
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania – prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik — prośbę o zmiany, oko — wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Hover over an icon to see what it means. A purple `@` marks a mention, a person icon with a question mark a review request for you. A green check mark means an approved review, a speech bubble/exclamation mark requested changes, an eye a required review. CI dot: green = success, red = failure, yellow = in progress. The separate check mark at the end of a row marks the PR as locally done.
 
-Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
+The logo shows a PR branch with a notification dot. The colored app icons (`.icns`/`.ico`), the menu bar logo and its monochrome variant are generated from a shared source:
 
 ```bash
 swift scripts/generate-icons.swift # macOS
 ```
 
-## Powiadomienia macOS
+## macOS notifications
 
-W ustawieniach aplikacji wybierz **Wyślij testowe powiadomienie**. Aplikacja poprosi
-o zgodę i pokaże wynik wysłania oraz stan alertów. Przyjęcie powiadomienia przez API
-nie gwarantuje wyświetlenia bannera: w Ustawienia systemowe → Powiadomienia → GHNotif
-włącz banery/dźwięk i sprawdź tryb skupienia. Testy automatyczne sprawdzają, że nowy
-PR i powrót odhaczonego PR-a wywołują powiadomienie; wygląd systemowego bannera
-wymaga sprawdzenia na zalogowanym Macu.
+In Settings → General choose **Send test**. The app asks for permission and shows the result and the alert state.
+The API accepting a notification doesn't guarantee a banner: in System Settings → Notifications → GHNotif
+enable banners/sound and check Focus mode. Automated tests verify that a new PR and a returning dismissed PR
+trigger a notification; the look of the system banner has to be checked on a logged-in Mac.
 
-## Wydania i aktualizacje
+## Releases and updates
 
-Numer wersji pochodzi z `VERSION`. Obie aplikacje sprawdzają najnowszy stabilny release
-przy starcie i co 6 godzin; można też użyć **Sprawdź aktualizacje** w ustawieniach.
-Gdy jest nowsza wersja, w panelu pojawia się przycisk otwierający GitHub Releases.
-Sprawdzanie korzysta z publicznego API, bez tokenu i bez wysyłania listy obserwowanych osób.
-Błędy sprawdzania są widoczne w ustawieniach i nie przerywają pobierania PR-ów.
+The version number comes from `VERSION`. Both apps check for the latest stable release
+at launch and every 6 hours; you can also use **Check for updates** in the settings.
+When a newer version exists, a button that opens GitHub Releases appears in the panel.
+The check uses the public API, without a token and without sending your watch list.
+Update check errors are shown in the settings and don't interrupt fetching PRs.
 
-Przy instalacji ZIP aktualizacja pozostaje ręczna. Homebrew: `brew upgrade --cask ghnotif`.
-W obu przypadkach ustawienia, token i lokalny stan pozostają poza paczką.
+ZIP installations are updated manually. Homebrew: `brew upgrade --cask ghnotif`.
+Either way, settings, the token and local state stay outside the package.
 
-Publikacja: zaktualizuj `VERSION` i `RELEASE-NOTES.md`, wypchnij commit i tag `vX.Y.Z`
-zgodny z `VERSION`. Workflow **Release** uruchamia testy macOS/Windows, buduje cztery
-paczki (macOS arm64/x86_64, Windows x64/arm64), a dopiero po powodzeniu publikuje
-release z sumami `SHA256SUMS`. Sam build macOS ma podpis ad-hoc, bez notaryzacji.
-Workflow dołącza też cask `ghnotif.rb` do release'u. Automatyczna synchronizacja tapu
-w kolejnych wydaniach wymaga repozytorium variable `HOMEBREW_TAP_ENABLED=true` i secretu
-`HOMEBREW_TAP_TOKEN` z prawem zapisu do `MichalFidor/homebrew-ghnotif`.
+Publishing: update `VERSION` and `RELEASE-NOTES.md`, push the commit and a `vX.Y.Z` tag
+matching `VERSION`. The **Release** workflow runs the macOS/Windows tests, builds four
+packages (macOS arm64/x86_64, Windows x64/arm64) and only then publishes the release
+with `SHA256SUMS` checksums. The macOS build itself is ad-hoc signed, without notarization.
+The workflow also attaches the `ghnotif.rb` cask to the release. Syncing the tap automatically
+on later releases requires the repository variable `HOMEBREW_TAP_ENABLED=true` and the secret
+`HOMEBREW_TAP_TOKEN` with write access to `MichalFidor/homebrew-ghnotif`.
 
-Publikacja działa w środowisku `release`, które wymaga akceptacji właściciela repo
-(Actions → oczekujący run → **Review deployments**). Gałąź `main` i tagi `v*` są
-chronione regułami. Ominąć je może tylko administrator repozytorium.
+Publishing runs in the `release` environment, which requires approval from the repository owner
+(Actions → waiting run → **Review deployments**). The `main` branch and `v*` tags are
+protected by rulesets. Only a repository administrator can bypass them.
 
-## Jak to działa
+## How it works
 
-Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…`, wyniki są łączone i deduplikowane. Wzmianki i prośby o review to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
+Instead of one query joined with `OR` (GitHub search allows at most 5 logical operators), authors are split into batches of 10; repeated `author:` qualifiers act as OR. Each batch is a GraphQL query `is:pr is:open draft:false author:… author:…`, and the results are merged and deduplicated. Mentions and review requests are separate queries; a PR found by several of them carries all their markers.
 
-Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `MenuBarExtra` złożona z kilku widoków pokazuje tylko ich część.
+In the macOS menu bar the logo and the counter are drawn as a single image, because a `MenuBarExtra` label made of several views only shows some of them.
 
-## Testy
+## Tests
 
 ```bash
 swift run CoreChecks
 bash scripts/check-app.sh
 ```
 
-Testy są zwykłym programem wykonywalnym, bo Command Line Tools nie zawierają XCTest ani makr Swift Testing.
-Testy aplikacji sprawdzają ukrywanie, przywracanie, powrót PR-a po nowej aktywności, migrację starego stanu, zwijanie repozytoriów i trwałość stanu oraz powiadomienia. Działają z izolowaną konfiguracją i atrapami GitHuba oraz powiadomień.
+The tests are a plain executable, because Command Line Tools include neither XCTest nor the Swift Testing macros.
+The app tests cover dismissing, restoring, PRs returning after new activity, migrating old state, collapsing repositories, state persistence and notifications. They run with an isolated configuration and fake GitHub and notification services.
 
 Windows:
 
 ```powershell
 dotnet run --project windows/GHNotif.Checks -c Release
-dotnet run --project windows/GHNotif.Windows.Checks -c Release # tylko Windows
+dotnet run --project windows/GHNotif.Windows.Checks -c Release # Windows only
 ```
 
-Testy rdzenia działają też na macOS/Linux: zapytania, paginacja, SSO, błędy API, konfiguracja, trwałość odhaczania, powrót po nowej aktywności, migrację stanu, przywracanie i powiadomienia. Testy Windows sprawdzają dodatkowo layout WPF, kliknięcia odhaczania/przywracania/zwijania, ustawienia i szyfrowanie DPAPI, bez prawdziwych tokenów i kont.
-Workflow Windows buduje oba warianty portable i wykonuje te testy na runnerze Windows. Sam cross-build na Macu nie zastępuje testu interfejsu na Windowsie.
+The core tests also run on macOS/Linux: queries, pagination, SSO, API errors, configuration, dismissal persistence, returning after new activity, state migration, restoring and notifications. The Windows tests additionally check the WPF layout, dismiss/restore/collapse clicks, settings and DPAPI encryption, without real tokens or accounts.
+The Windows workflow builds both portable variants and runs these tests on a Windows runner. A cross-build on a Mac doesn't replace testing the UI on Windows.

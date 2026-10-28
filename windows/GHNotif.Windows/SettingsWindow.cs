@@ -40,10 +40,10 @@ internal sealed class SettingsWindow : Window
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
     private readonly TextBlock source = Ui.Text("");
     private readonly TextBlock updateStatus = Ui.Text("");
-    private readonly CheckBox reminderEnabled = new() { Content = L("Pokazuj okno z listą PR-ów o stałych porach", "Show a window with the PR list at set times"), Margin = new Thickness(8) };
     private readonly CheckBox[] reminderDays = L("Pn Wt Śr Cz Pt So Nd", "Mo Tu We Th Fr Sa Su").Split(' ')
         .Select(day => new CheckBox { Content = day, Margin = new Thickness(8, 4, 8, 4) }).ToArray();
-    private readonly TextBox reminderTimes = new() { Margin = new Thickness(8), Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly StackPanel reminderRows = new();
+    private readonly List<(CheckBox Enabled, TextBox Time)> reminderAlarms = [];
     private readonly TextBlock nextReminder = Ui.Text("");
     private bool adding;
 
@@ -107,9 +107,6 @@ internal sealed class SettingsWindow : Window
         search.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz ustawienia wyszukiwania", "Save search settings"), () => _ = app.RunAsync(SaveAsync)));
 
         var reminders = Page();
-        reminderEnabled.IsChecked = app.Config.ReviewReminder.Enabled;
-        reminders.Children.Add(reminderEnabled);
-        reminders.Children.Add(Ui.Text(L("Okno pojawia się na środku ekranu, nad innymi aplikacjami. Jeśli komputer był uśpiony, przypomnienie pojawi się po wybudzeniu (tego samego dnia).", "The window appears in the center of the screen, above other apps. If the computer was asleep, the reminder appears after wake (same day).")));
         reminders.Children.Add(Heading(L("Dni", "Days")));
         var days = new WrapPanel();
         for (var index = 0; index < reminderDays.Length; index++)
@@ -118,10 +115,11 @@ internal sealed class SettingsWindow : Window
             days.Children.Add(reminderDays[index]);
         }
         reminders.Children.Add(days);
-        reminders.Children.Add(Heading(L("Godziny (GG:MM, oddzielone przecinkami)", "Times (HH:MM, comma separated)")));
-        reminderTimes.Text = string.Join(", ", app.Config.ReviewReminder.Times);
-        reminderTimes.ToolTip = L("Np. 09:00, 14:00", "E.g. 09:00, 14:00");
-        reminders.Children.Add(reminderTimes);
+        reminders.Children.Add(Heading(L("Godziny (GG:MM)", "Times (HH:MM)")));
+        reminders.Children.Add(reminderRows);
+        RenderReminderAlarms(app.Config.ReviewReminder.Alarms);
+        reminders.Children.Add(Ui.Button(L("+ Dodaj godzinę", "+ Add time"), L("Dodaj kolejną godzinę przypomnienia", "Add another reminder time"), AddReminderAlarm));
+        reminders.Children.Add(Ui.Text(L("Włączone godziny pokazują okno z listą PR-ów na środku ekranu, nad innymi aplikacjami. Jeśli komputer był uśpiony, przypomnienie pojawi się po wybudzeniu (tego samego dnia).", "Times that are on show a window with the PR list in the center of the screen, above other apps. If the computer was asleep, the reminder appears after wake (same day).")));
         reminders.Children.Add(nextReminder);
         var reminderButtons = new StackPanel { Orientation = Orientation.Horizontal };
         reminderButtons.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz ustawienia przypomnienia", "Save reminder settings"), () => _ = app.RunAsync(SaveAsync)));
@@ -229,8 +227,8 @@ internal sealed class SettingsWindow : Window
         source.Text = L("Źródło tokenu: ", "Token source: ") + (app.Tokens.Source == "brak" ? L("brak", "none") : app.Tokens.Source);
         updateStatus.Text = app.UpdateStatus;
         var reminder = app.Config.ReviewReminder;
-        nextReminder.Text = !reminder.Enabled ? L("Następne przypomnienie: wyłączone", "Next reminder: off")
-            : reminder.Times.Count == 0 ? L("Następne przypomnienie: dodaj godzinę", "Next reminder: add a time")
+        nextReminder.Text = reminder.Alarms.Count == 0 ? L("Następne przypomnienie: dodaj godzinę", "Next reminder: add a time")
+            : !reminder.Enabled ? L("Następne przypomnienie: wyłączone", "Next reminder: off")
             : reminder.Weekdays.Count == 0 ? L("Następne przypomnienie: wybierz dni", "Next reminder: choose days")
             : L($"Następne przypomnienie: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "—"}", $"Next reminder: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "—"}")
               + (app.ReviewReminderSnoozedUntil is { } snoozed && snoozed > DateTimeOffset.Now
@@ -243,8 +241,8 @@ internal sealed class SettingsWindow : Window
     {
         if (!int.TryParse(minutes.Text, out var value) || value is < 1 or > 60)
             throw new InvalidOperationException(L("Interwał musi wynosić 1–60 minut.", "The interval must be 1–60 minutes."));
-        var times = ParseValues(reminderTimes.Text);
-        if (times.FirstOrDefault(time => !ReviewReminderSettings.TryParseTime(time, out _)) is { } invalid)
+        var alarms = reminderAlarms.Select(row => new ReminderAlarm { Time = row.Time.Text.Trim(), Enabled = row.Enabled.IsChecked == true }).ToList();
+        if (alarms.FirstOrDefault(alarm => !ReviewReminderSettings.TryParseTime(alarm.Time, out _))?.Time is { } invalid)
             throw new InvalidOperationException(L($"Nieprawidłowa godzina przypomnienia: {invalid}. Użyj formatu GG:MM, np. 09:00.", $"Invalid reminder time: {invalid}. Use the HH:MM format, e.g. 09:00."));
         var config = Copy();
         config.ExtraQualifiers = extra.Text.Trim();
@@ -259,13 +257,55 @@ internal sealed class SettingsWindow : Window
         if (language.SelectedValue is AppLanguage chosen) config.Language = chosen;
         config.ReviewReminder = new ReviewReminderSettings
         {
-            Enabled = reminderEnabled.IsChecked == true,
-            Times = times,
+            Alarms = alarms,
             Weekdays = Enumerable.Range(1, 7).Where(day => reminderDays[day - 1].IsChecked == true).ToList()
         };
         await app.SaveConfigAsync(config);
-        reminderTimes.Text = string.Join(", ", app.Config.ReviewReminder.Times);
+        RenderReminderAlarms(app.Config.ReviewReminder.Alarms);
         UpdateSource();
+    }
+
+    private void RenderReminderAlarms(IEnumerable<ReminderAlarm> alarms)
+    {
+        reminderRows.Children.Clear();
+        reminderAlarms.Clear();
+        foreach (var alarm in alarms) AddReminderRow(alarm);
+    }
+
+    private void AddReminderRow(ReminderAlarm alarm)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 2, 8, 2) };
+        var enabled = new CheckBox
+        {
+            IsChecked = alarm.Enabled, VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = L("Włącz lub wyłącz tę godzinę", "Turn this time on or off")
+        };
+        var time = new TextBox
+        {
+            Text = alarm.Time, Width = 70, Margin = new Thickness(8, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = L("Godzina przypomnienia, np. 09:00", "Reminder time, e.g. 09:00")
+        };
+        var entry = (enabled, time);
+        var remove = Ui.Button("✕", L("Usuń godzinę", "Remove time"), () =>
+        {
+            reminderRows.Children.Remove(row);
+            reminderAlarms.Remove(entry);
+        });
+        row.Children.Add(enabled);
+        row.Children.Add(time);
+        row.Children.Add(remove);
+        reminderRows.Children.Add(row);
+        reminderAlarms.Add(entry);
+    }
+
+    private void AddReminderAlarm()
+    {
+        var times = reminderAlarms.Select(row => ReviewReminderSettings.TryParseTime(row.Time.Text, out var parsed) ? parsed : (TimeSpan?)null)
+            .OfType<TimeSpan>().ToList();
+        var last = times.Count == 0 ? new TimeSpan(8, 0, 0) : times.Max();
+        var next = new TimeSpan(Math.Min(last.Hours + 1, 23), last.Minutes, 0);
+        if (times.Contains(next)) return;
+        AddReminderRow(new ReminderAlarm { Time = ReviewReminderSettings.FormatTime(next) });
     }
 
     private async Task ImportTeamAsync()

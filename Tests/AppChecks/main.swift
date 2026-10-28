@@ -244,7 +244,7 @@ func runChecks() async throws {
     }
     ReviewReminderPresenter.shownCount = 0
     model.config.reviewReminder = ReviewReminderSettings(
-        enabled: true, times: [ReminderTime(hour: 9, minute: 0)!], weekdays: Set(1...7)
+        alarms: [ReminderAlarm(time: ReminderTime(hour: 9, minute: 0)!)], weekdays: Set(1...7)
     )
     precondition(model.nextReviewReminder == tomorrowAt(9, 0) || calendar.isDateInToday(model.nextReviewReminder!),
                  "Next reminder is exposed for settings")
@@ -263,7 +263,7 @@ func runChecks() async throws {
         .flatMap { try? JSONDecoder().decode(ReviewReminderState.self, from: $0) }
     precondition(storedReminder?.lastHandled == tomorrowAt(9, 16), "Reminder state is persisted")
     let reloadedConfig = try store.load()
-    precondition(reloadedConfig.reviewReminder.enabled && reloadedConfig.reviewReminder.times.map(\.description) == ["09:00"],
+    precondition(reloadedConfig.reviewReminder.enabled && reloadedConfig.reviewReminder.activeTimes.map(\.description) == ["09:00"],
                  "Reminder settings are saved in config")
     model.config.language = .english
     precondition(L("Odśwież", "Refresh") == "Refresh", "Choosing English switches texts immediately")

@@ -59,13 +59,6 @@ struct SettingsView: View {
 
     private var remindersTab: some View {
         Form {
-            Section {
-                Toggle(L("Pokazuj okno z listą PR-ów o stałych porach", "Show a window with the PR list at set times"), isOn: $model.config.reviewReminder.enabled)
-            } footer: {
-                Text(L("Okno pojawia się na środku ekranu, nad innymi aplikacjami. Jeśli komputer był uśpiony, przypomnienie pojawi się po wybudzeniu (tego samego dnia).", "The window appears in the center of the screen, above other apps. If the computer was asleep, the reminder appears after wake (same day)."))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
             Section(L("Dni", "Days")) {
                 HStack(spacing: 6) {
                     ForEach(1...7, id: \.self) { day in
@@ -81,15 +74,28 @@ struct SettingsView: View {
                 }
             }
 
-            Section(L("Godziny", "Times")) {
-                ForEach(Array(model.config.reviewReminder.times.enumerated()), id: \.offset) { index, time in
+            Section {
+                ForEach(Array(model.config.reviewReminder.alarms.enumerated()), id: \.offset) { index, alarm in
                     HStack {
                         DatePicker(L("Godzina \(index + 1)", "Time \(index + 1)"), selection: Binding(
-                            get: { Self.date(for: time) },
+                            get: { Self.date(for: alarm.time) },
                             set: { setReminderTime($0, at: index) }
                         ), displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .opacity(alarm.enabled ? 1 : 0.5)
+                        Spacer()
+                        Toggle(L("Włączone", "On"), isOn: Binding(
+                            get: { alarm.enabled },
+                            set: { on in
+                                guard model.config.reviewReminder.alarms.indices.contains(index) else { return }
+                                model.config.reviewReminder.alarms[index].enabled = on
+                            }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .help(alarm.enabled ? L("Wyłącz tę godzinę", "Turn this time off") : L("Włącz tę godzinę", "Turn this time on"))
                         Button {
-                            model.config.reviewReminder.times.remove(at: index)
+                            model.config.reviewReminder.alarms.remove(at: index)
                         } label: {
                             Image(systemName: "minus.circle.fill").foregroundStyle(.red)
                         }
@@ -98,14 +104,19 @@ struct SettingsView: View {
                     }
                 }
                 Button(L("Dodaj godzinę", "Add time"), systemImage: "plus") {
-                    let last = model.config.reviewReminder.times.max()
+                    let times = model.config.reviewReminder.alarms.map(\.time)
+                    let last = times.max()
                     let hour = min((last?.hour ?? 8) + 1, 23)
-                    if let time = ReminderTime(hour: hour, minute: last?.minute ?? 0),
-                       !model.config.reviewReminder.times.contains(time) {
-                        model.config.reviewReminder.times.append(time)
+                    if let time = ReminderTime(hour: hour, minute: last?.minute ?? 0), !times.contains(time) {
+                        model.config.reviewReminder.alarms.append(ReminderAlarm(time: time))
                     }
                 }
                 .buttonStyle(.borderless)
+            } header: {
+                Text(L("Godziny", "Times"))
+            } footer: {
+                Text(L("Włączone godziny pokazują okno z listą PR-ów na środku ekranu, nad innymi aplikacjami. Jeśli komputer był uśpiony, przypomnienie pojawi się po wybudzeniu (tego samego dnia).", "Times that are on show a window with the PR list in the center of the screen, above other apps. If the computer was asleep, the reminder appears after wake (same day)."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
@@ -121,8 +132,8 @@ struct SettingsView: View {
 
     private var nextReminderText: String {
         let reminder = model.config.reviewReminder
+        if reminder.alarms.isEmpty { return L("dodaj godzinę", "add a time") }
         guard reminder.enabled else { return L("wyłączone", "off") }
-        if reminder.times.isEmpty { return L("dodaj godzinę", "add a time") }
         if reminder.weekdays.isEmpty { return L("wybierz dni", "choose days") }
         return model.nextReviewReminder?.formatted(.dateTime.weekday(.wide).hour().minute().locale(Localization.language.locale)) ?? "—"
     }
@@ -134,8 +145,8 @@ struct SettingsView: View {
     private func setReminderTime(_ date: Date, at index: Int) {
         let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
         guard let time = ReminderTime(hour: parts.hour ?? 0, minute: parts.minute ?? 0),
-              model.config.reviewReminder.times.indices.contains(index) else { return }
-        model.config.reviewReminder.times[index] = time
+              model.config.reviewReminder.alarms.indices.contains(index) else { return }
+        model.config.reviewReminder.alarms[index].time = time
     }
 
     private var peopleTab: some View {

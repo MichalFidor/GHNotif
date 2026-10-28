@@ -240,8 +240,7 @@ do {
         calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!
     }
     let settings = ReviewReminderSettings(
-        enabled: true,
-        times: [ReminderTime(hour: 14, minute: 0)!, ReminderTime(hour: 9, minute: 0)!],
+        alarms: [ReminderAlarm(time: ReminderTime(hour: 14, minute: 0)!), ReminderAlarm(time: ReminderTime(hour: 9, minute: 0)!)],
         weekdays: [1, 2, 3, 4, 5]
     )
     check(ReviewReminderSettings.isoWeekday(of: at(26, 12), calendar: calendar) == 1, "ISO weekday: Monday is 1")
@@ -272,15 +271,32 @@ do {
           "snooze ends -> reminder shown again")
 
     var disabled = settings
-    disabled.enabled = false
+    for index in disabled.alarms.indices { disabled.alarms[index].enabled = false }
     state = ReviewReminderState(lastHandled: at(26, 8), snoozedUntil: at(26, 8, 30))
     check(!state.shouldShow(settings: disabled, now: at(26, 9), calendar: calendar) && state.snoozedUntil == nil,
           "disabled reminder never fires and drops its snooze")
     check(disabled.nextOccurrence(after: at(26, 8), calendar: calendar) == nil, "disabled has no next occurrence")
 
+    var nineOff = settings
+    nineOff.alarms[1].enabled = false
+    check(nineOff.enabled && nineOff.nextOccurrence(after: at(26, 8), calendar: calendar) == at(26, 14),
+          "a switched-off time is skipped, other times stay active")
+    state = ReviewReminderState(lastHandled: at(26, 8))
+    check(!state.shouldShow(settings: nineOff, now: at(26, 9), calendar: calendar), "switched-off 9:00 does not fire")
+    check(state.shouldShow(settings: nineOff, now: at(26, 14), calendar: calendar), "switched-on 14:00 still fires")
+
+    let oldFormat = try JSONDecoder().decode(ReviewReminderSettings.self,
+        from: Data(#"{"enabled":true,"times":["09:00","09:47"],"weekdays":[1,2]}"#.utf8))
+    check(oldFormat.alarms.map(\.time.description) == ["09:00", "09:47"] && oldFormat.alarms.allSatisfy(\.enabled)
+          && oldFormat.weekdays == [1, 2], "old enabled+times format migrates to switched-on alarms")
+    let oldDisabled = try JSONDecoder().decode(ReviewReminderSettings.self,
+        from: Data(#"{"enabled":false,"times":["09:00"]}"#.utf8))
+    check(oldDisabled.alarms.count == 1 && !oldDisabled.enabled, "old disabled reminder migrates to a switched-off alarm")
+
     let encoded = try JSONEncoder().encode(settings)
     let json = String(decoding: encoded, as: UTF8.self)
-    check(json.contains("\"14:00\"") && json.contains("[1,2,3,4,5]"), "reminder encodes readable times and sorted days")
+    check(json.contains("\"14:00\"") && json.contains("[1,2,3,4,5]") && json.contains("\"alarms\"")
+          && !json.contains("\"times\""), "reminder encodes readable alarms and sorted days")
     check(try JSONDecoder().decode(ReviewReminderSettings.self, from: encoded) == settings, "reminder round trip")
     let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":["a"]}"#.utf8))
     check(legacy.reviewReminder == ReviewReminderSettings() && !legacy.reviewReminder.enabled,

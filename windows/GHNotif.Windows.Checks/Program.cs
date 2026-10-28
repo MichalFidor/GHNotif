@@ -136,13 +136,20 @@ internal static class Program
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             var reminderBoxes = Descendants<CheckBox>(settings).ToList();
-            reminderBoxes.Single(box => Equals(box.Content, "Pokazuj okno z listą PR-ów o stałych porach")).IsChecked = true;
+            reminderBoxes.Single(box => Equals(box.ToolTip, "Włącz lub wyłącz tę godzinę")).IsChecked = true;
             reminderBoxes.Single(box => Equals(box.Content, "So")).IsChecked = true;
-            Descendants<TextBox>(settings).Single(box => Equals(box.ToolTip, "Np. 09:00, 14:00")).Text = "14:00, 9:00";
+            Buttons(settings).Single(b => Equals(b.ToolTip, "Dodaj kolejną godzinę przypomnienia"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            settings.UpdateLayout();
+            var reminderTimes = Descendants<TextBox>(settings).Where(box => Equals(box.ToolTip, "Godzina przypomnienia, np. 09:00")).ToList();
+            Check(reminderTimes.Count == 2 && reminderTimes[1].Text == "10:00", "Add time appends the next hour");
+            reminderTimes[1].Text = "14:00";
             Buttons(settings).Single(b => Equals(b.ToolTip, "Zapisz ustawienia przypomnienia"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             for (var i = 0; i < 100 && !app.Config.ReviewReminder.Enabled; i++) await Task.Delay(10);
-            Check(app.Config.ReviewReminder.Enabled && app.Config.ReviewReminder.Times.SequenceEqual(["09:00", "14:00"])
+            Check(app.Config.ReviewReminder.Enabled
+                && app.Config.ReviewReminder.Alarms.Select(alarm => alarm.Time).SequenceEqual(["09:00", "14:00"])
+                && app.Config.ReviewReminder.Alarms.All(alarm => alarm.Enabled)
                 && app.Config.ReviewReminder.Weekdays.SequenceEqual([1, 2, 3, 4, 5, 6]), "Reminder settings saved from the tab");
             Check(app.State.ReviewReminder.LastHandled is not null, "Saving the schedule records a baseline");
             var tomorrowNine = new DateTimeOffset(DateTime.Today.AddDays(1).AddHours(9));

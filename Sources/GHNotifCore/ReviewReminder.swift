@@ -21,7 +21,7 @@ public struct ReminderTime: Codable, Hashable, Comparable, Sendable, CustomStrin
         let container = try decoder.singleValueContainer()
         let text = try container.decode(String.self)
         guard let time = ReminderTime(parsing: text) else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Nieprawidłowa godzina: \(text)")
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid time: \(text)")
         }
         self = time
     }
@@ -38,33 +38,52 @@ public struct ReminderTime: Codable, Hashable, Comparable, Sendable, CustomStrin
     }
 }
 
+/// One reminder time with its own on/off switch, like an alarm on iOS.
+public struct ReminderAlarm: Codable, Hashable, Sendable {
+    public var time: ReminderTime
+    public var enabled: Bool
+
+    public init(time: ReminderTime, enabled: Bool = true) {
+        self.time = time
+        self.enabled = enabled
+    }
+}
+
 /// Weekdays use ISO numbering: 1 = Monday … 7 = Sunday (shared with the Windows app).
 public struct ReviewReminderSettings: Codable, Equatable, Sendable {
-    public var enabled: Bool
-    public var times: [ReminderTime]
+    public var alarms: [ReminderAlarm]
     public var weekdays: Set<Int>
 
-    private enum CodingKeys: String, CodingKey { case enabled, times, weekdays }
-    public init(enabled: Bool = false, times: [ReminderTime] = [ReminderTime(hour: 9, minute: 0)!],
+    /// Reminders are active when at least one alarm is switched on.
+    public var enabled: Bool { alarms.contains(where: \.enabled) }
+    public var activeTimes: [ReminderTime] { alarms.filter(\.enabled).map(\.time) }
+
+    // `enabled` and `times` are the pre-0.5.2 format: one switch for all times.
+    private enum CodingKeys: String, CodingKey { case alarms, weekdays, enabled, times }
+    public init(alarms: [ReminderAlarm] = [ReminderAlarm(time: ReminderTime(hour: 9, minute: 0)!, enabled: false)],
                 weekdays: Set<Int> = [1, 2, 3, 4, 5]) {
-        self.enabled = enabled
-        self.times = times
+        self.alarms = alarms
         self.weekdays = weekdays
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let fallback = ReviewReminderSettings()
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? fallback.enabled
-        times = try container.decodeIfPresent([ReminderTime].self, forKey: .times) ?? fallback.times
+        if let alarms = try container.decodeIfPresent([ReminderAlarm].self, forKey: .alarms) {
+            self.alarms = alarms
+        } else if let times = try container.decodeIfPresent([ReminderTime].self, forKey: .times) {
+            let enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            alarms = times.map { ReminderAlarm(time: $0, enabled: enabled) }
+        } else {
+            alarms = fallback.alarms
+        }
         weekdays = try container.decodeIfPresent(Set<Int>.self, forKey: .weekdays)?.filter { (1...7).contains($0) }
             ?? fallback.weekdays
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(enabled, forKey: .enabled)
-        try container.encode(times, forKey: .times)
+        try container.encode(alarms, forKey: .alarms)
         try container.encode(weekdays.sorted(), forKey: .weekdays)
     }
 
@@ -75,18 +94,18 @@ public struct ReviewReminderSettings: Codable, Equatable, Sendable {
     /// Latest scheduled reminder on the same calendar day that is not later than `now`.
     public func latestOccurrence(atOrBefore now: Date, calendar: Calendar = .current) -> Date? {
         guard weekdays.contains(Self.isoWeekday(of: now, calendar: calendar)) else { return nil }
-        return times.compactMap { calendar.date(bySettingHour: $0.hour, minute: $0.minute, second: 0, of: now) }
+        return activeTimes.compactMap { calendar.date(bySettingHour: $0.hour, minute: $0.minute, second: 0, of: now) }
             .filter { $0 <= now }
             .max()
     }
 
     public func nextOccurrence(after now: Date, calendar: Calendar = .current) -> Date? {
-        guard enabled, !times.isEmpty, !weekdays.isEmpty else { return nil }
+        guard enabled, !weekdays.isEmpty else { return nil }
         let startOfToday = calendar.startOfDay(for: now)
         for offset in 0...7 {
             guard let day = calendar.date(byAdding: .day, value: offset, to: startOfToday),
                   weekdays.contains(Self.isoWeekday(of: day, calendar: calendar)) else { continue }
-            let next = times.sorted()
+            let next = activeTimes.sorted()
                 .compactMap { calendar.date(bySettingHour: $0.hour, minute: $0.minute, second: 0, of: day) }
                 .first { $0 > now }
             if let next { return next }

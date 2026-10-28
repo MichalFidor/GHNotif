@@ -1,18 +1,42 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace GHNotif.Core;
+
+/// One reminder time with its own on/off switch, like an alarm on iOS.
+public sealed class ReminderAlarm
+{
+    public string Time { get; set; } = "09:00";
+    public bool Enabled { get; set; } = true;
+
+    public ReminderAlarm Copy() => new() { Time = Time, Enabled = Enabled };
+}
 
 /// Times are "HH:mm" and weekdays use ISO numbering (1 = Monday … 7 = Sunday), matching the macOS app.
 public sealed class ReviewReminderSettings
 {
-    public bool Enabled { get; set; }
-    public List<string> Times { get; set; } = ["09:00"];
+    public List<ReminderAlarm> Alarms { get; set; } = [new() { Time = "09:00", Enabled = false }];
     public List<int> Weekdays { get; set; } = [1, 2, 3, 4, 5];
 
-    public ReviewReminderSettings Copy() => new() { Enabled = Enabled, Times = Times.ToList(), Weekdays = Weekdays.ToList() };
+    // Pre-0.5.2 format: one switch for all times. Migrated by Normalize and never written back.
+    [JsonPropertyName("enabled"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyEnabled { get; set; }
+    [JsonPropertyName("times"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? LegacyTimes { get; set; }
+
+    /// Reminders are active when at least one alarm is switched on.
+    [JsonIgnore] public bool Enabled => Alarms.Any(alarm => alarm.Enabled);
+
+    public ReviewReminderSettings Copy() => new()
+    {
+        Alarms = Alarms.Select(alarm => alarm.Copy()).ToList(), Weekdays = Weekdays.ToList(),
+        LegacyEnabled = LegacyEnabled, LegacyTimes = LegacyTimes?.ToList()
+    };
 
     public bool SameAs(ReviewReminderSettings other) =>
-        Enabled == other.Enabled && Times.SequenceEqual(other.Times) && Weekdays.SequenceEqual(other.Weekdays);
+        Alarms.Count == other.Alarms.Count
+        && Alarms.Zip(other.Alarms).All(pair => pair.First.Time == pair.Second.Time && pair.First.Enabled == pair.Second.Enabled)
+        && Weekdays.SequenceEqual(other.Weekdays);
 
     public static bool TryParseTime(string text, out TimeSpan time)
     {
@@ -30,22 +54,33 @@ public sealed class ReviewReminderSettings
 
     public void Normalize()
     {
-        if (Times is null || Weekdays is null) throw new InvalidDataException(L("Nieprawidłowe ustawienia przypomnienia.", "Invalid reminder settings."));
-        var parsed = new List<TimeSpan>();
-        foreach (var text in Times)
+        if (LegacyTimes is not null)
         {
-            if (!TryParseTime(text, out var time))
-                throw new InvalidDataException(L($"Nieprawidłowa godzina przypomnienia: {text}. Użyj formatu GG:MM.", $"Invalid reminder time: {text}. Use the HH:MM format."));
-            parsed.Add(time);
+            Alarms = LegacyTimes.Select(time => new ReminderAlarm { Time = time, Enabled = LegacyEnabled ?? false }).ToList();
+            LegacyTimes = null;
         }
-        Times = parsed.Distinct().Order().Select(FormatTime).ToList();
+        LegacyEnabled = null;
+        if (Alarms is null || Weekdays is null || Alarms.Any(alarm => alarm is null))
+            throw new InvalidDataException(L("Nieprawidłowe ustawienia przypomnienia.", "Invalid reminder settings."));
+        var parsed = new List<(TimeSpan Time, bool Enabled)>();
+        foreach (var alarm in Alarms)
+        {
+            if (!TryParseTime(alarm.Time ?? "", out var time))
+                throw new InvalidDataException(L($"Nieprawidłowa godzina przypomnienia: {alarm.Time}. Użyj formatu GG:MM.", $"Invalid reminder time: {alarm.Time}. Use the HH:MM format."));
+            parsed.Add((time, alarm.Enabled));
+        }
+        // A time listed twice stays on if any of its copies was on.
+        Alarms = parsed.GroupBy(alarm => alarm.Time).OrderBy(group => group.Key)
+            .Select(group => new ReminderAlarm { Time = FormatTime(group.Key), Enabled = group.Any(alarm => alarm.Enabled) })
+            .ToList();
         Weekdays = Weekdays.Where(day => day is >= 1 and <= 7).Distinct().Order().ToList();
     }
 
     public static int IsoWeekday(DateTime date) => date.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)date.DayOfWeek;
 
     private IEnumerable<TimeSpan> ParsedTimes() =>
-        Times.Select(text => TryParseTime(text, out var time) ? time : (TimeSpan?)null).OfType<TimeSpan>();
+        Alarms.Where(alarm => alarm.Enabled)
+            .Select(alarm => TryParseTime(alarm.Time, out var time) ? time : (TimeSpan?)null).OfType<TimeSpan>();
 
     private static DateTimeOffset At(DateTime day, TimeSpan time, TimeZoneInfo zone)
     {

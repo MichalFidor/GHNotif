@@ -270,13 +270,17 @@ Check((await GitHubRelease.LatestAsync(releases))?.IsNewer("0.1.0") == true, "Re
 
 var warsaw = TimeZoneInfo.CreateCustomTimeZone("PL", TimeSpan.FromHours(1), "PL", "PL");
 DateTimeOffset At(int day, int hour, int minute = 0) => new(2026, 10, day, hour, minute, 0, TimeSpan.FromHours(1));
-var reminder = new ReviewReminderSettings { Enabled = true, Times = ["14:00", "9:00", "09:00"], Weekdays = [5, 1, 2, 3, 4, 9] };
+var reminder = new ReviewReminderSettings
+{
+    Alarms = [new() { Time = "14:00" }, new() { Time = "9:00", Enabled = false }, new() { Time = "09:00" }],
+    Weekdays = [5, 1, 2, 3, 4, 9]
+};
 reminder.Normalize();
-Check(reminder.Times.SequenceEqual(["09:00", "14:00"]) && reminder.Weekdays.SequenceEqual([1, 2, 3, 4, 5]),
-    "Reminder times and days are normalized");
+Check(reminder.Alarms.Select(alarm => alarm.Time).SequenceEqual(["09:00", "14:00"]) && reminder.Alarms.All(alarm => alarm.Enabled)
+    && reminder.Weekdays.SequenceEqual([1, 2, 3, 4, 5]), "Reminder times and days are normalized");
 Check(!ReviewReminderSettings.TryParseTime("24:00", out _) && !ReviewReminderSettings.TryParseTime("ab", out _),
     "Invalid reminder time rejected");
-try { new ReviewReminderSettings { Times = ["25:00"] }.Normalize(); Check(false, "Invalid time must fail validation"); }
+try { new ReviewReminderSettings { Alarms = [new() { Time = "25:00" }] }.Normalize(); Check(false, "Invalid time must fail validation"); }
 catch (InvalidDataException) { checks++; }
 Check(ReviewReminderSettings.IsoWeekday(new DateTime(2026, 10, 26)) == 1
     && ReviewReminderSettings.IsoWeekday(new DateTime(2026, 10, 25)) == 7, "ISO weekdays");
@@ -296,12 +300,18 @@ reminderState = new ReviewReminderState { LastHandled = At(26, 9, 1), SnoozedUnt
 Check(!reminderState.ShouldShow(reminder, At(26, 9, 15), warsaw), "Snooze not over yet");
 Check(reminderState.ShouldShow(reminder, At(26, 9, 16), warsaw) && reminderState.SnoozedUntil is null, "Snooze returns");
 var disabledReminder = reminder.Copy();
-disabledReminder.Enabled = false;
+disabledReminder.Alarms.ForEach(alarm => alarm.Enabled = false);
 reminderState = new ReviewReminderState { LastHandled = At(26, 8), SnoozedUntil = At(26, 8, 30) };
 Check(!reminderState.ShouldShow(disabledReminder, At(26, 9), warsaw) && reminderState.SnoozedUntil is null,
     "Disabled reminder never fires");
-Check(legacyConfig.ReviewReminder is { Enabled: false } && legacyConfig.ReviewReminder.Times.SequenceEqual(["09:00"]),
+Check(legacyConfig.ReviewReminder is { Enabled: false } && legacyConfig.ReviewReminder.Alarms.Single().Time == "09:00",
     "Old configs get a disabled reminder");
+var nineOff = reminder.Copy();
+nineOff.Alarms[0].Enabled = false;
+Check(nineOff.Enabled && nineOff.NextOccurrence(At(26, 8), warsaw) == At(26, 14), "Switched-off time is skipped");
+reminderState = new ReviewReminderState { LastHandled = At(26, 8) };
+Check(!reminderState.ShouldShow(nineOff, At(26, 9), warsaw) && reminderState.ShouldShow(nineOff, At(26, 14), warsaw),
+    "Only switched-on times fire");
 var reminderFolder = Path.Combine(Path.GetTempPath(), "ghnotif-reminder-" + Guid.NewGuid());
 try
 {
@@ -309,6 +319,15 @@ try
     reminderConfigStore.Save(new Config { ReviewReminder = reminder.Copy() });
     var reloadedReminder = reminderConfigStore.Load().ReviewReminder;
     Check(reloadedReminder.SameAs(reminder), "Reminder settings persist");
+    var reminderJson = File.ReadAllText(Path.Combine(reminderFolder, "config.json"));
+    Check(reminderJson.Contains("\"alarms\"") && !reminderJson.Contains("\"times\""), "Reminder saved in the alarms format");
+    var oldReminderPath = Path.Combine(reminderFolder, "old.json");
+    File.WriteAllText(oldReminderPath, """{"users":["a"],"reviewReminder":{"enabled":true,"times":["09:47","9:00"],"weekdays":[1]}}""");
+    var migratedReminder = new JsonStore<Config>(oldReminderPath).Load();
+    migratedReminder.Validate();
+    Check(migratedReminder.ReviewReminder.Alarms.Select(alarm => alarm.Time).SequenceEqual(["09:00", "09:47"])
+        && migratedReminder.ReviewReminder.Alarms.All(alarm => alarm.Enabled)
+        && migratedReminder.ReviewReminder.LegacyTimes is null, "Old enabled+times format migrates to switched-on alarms");
     var reminderStateStore = new JsonStore<LocalState>(Path.Combine(reminderFolder, "state.json"));
     var savedState = new LocalState { ReviewReminder = new ReviewReminderState { LastHandled = At(26, 9) } };
     reminderStateStore.Save(savedState.Clone());
