@@ -135,7 +135,7 @@ struct SettingsView: View {
         if reminder.alarms.isEmpty { return L("dodaj godzinę", "add a time") }
         guard reminder.enabled else { return L("wyłączone", "off") }
         if reminder.weekdays.isEmpty { return L("wybierz dni", "choose days") }
-        return model.nextReviewReminder?.formatted(.dateTime.weekday(.wide).hour().minute().locale(Localization.language.locale)) ?? "—"
+        return model.nextReviewReminder?.formatted(.dateTime.weekday(.wide).hour().minute().locale(Localization.language.locale)) ?? "-"
     }
 
     private static func date(for time: ReminderTime) -> Date {
@@ -216,7 +216,7 @@ struct SettingsView: View {
                     Button(L("Eksportuj", "Export")) { exportWatchlist() }
                     Button(L("Importuj", "Import")) { importWatchlist() }
                 }
-                Text(L("Plik zawiera wyłącznie loginy obserwowanych osób — nie zawiera tokenu ani ustawień.", "The file contains only watched logins — no token or settings."))
+                Text(L("Plik zawiera wyłącznie loginy obserwowanych osób - nie zawiera tokenu ani ustawień.", "The file contains only watched logins - no token or settings."))
                     .font(.caption).foregroundStyle(.secondary)
                 if let listError = form.listError {
                     Text(listError).font(.caption).foregroundStyle(.red)

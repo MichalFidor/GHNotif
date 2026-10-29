@@ -79,7 +79,7 @@ func runChecks() async throws {
     let activeReview = Activity(login: "reviewer", date: Date(), kind: .approved, id: "review-active")
     GitHubClient.results = [makePR(activity: [activeReview])]
     await model.refresh()
-    precondition(Notifier.notifiedDetails.last == ["reviewer — zatwierdzenie ✅"],
+    precondition(Notifier.notifiedDetails.last == ["✅ reviewer - zatwierdzenie"],
                  "Activity on an active PR notifies with actor and action")
     let activeAlertCount = Notifier.notifiedIDs.count
     await model.refresh()
@@ -148,13 +148,13 @@ func runChecks() async throws {
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "Review by someone else brings the PR back")
     precondition(Notifier.notifiedIDs == [pr.id], "Reactivated PR notifies: \(Notifier.notifiedIDs)")
-    precondition(Notifier.notifiedDetails.last == ["reviewer — zatwierdzenie ✅"],
+    precondition(Notifier.notifiedDetails.last == ["✅ reviewer - zatwierdzenie"],
                  "Notification says who did what: \(Notifier.notifiedDetails)")
     model.dismiss(model.pullRequests[0])
     GitHubClient.results = [makePR(oid: "c2", activity: [Activity(login: "reviewer", date: later)])]
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "New commit brings the PR back")
-    precondition(Notifier.notifiedDetails.last?.first == "Nowe commity", "Push is described: \(Notifier.notifiedDetails)")
+    precondition(Notifier.notifiedDetails.last?.first == "⬆️ Nowe commity", "Push is described: \(Notifier.notifiedDetails)")
 
     model.dismiss(model.pullRequests[0])
     model.restore(pr)
@@ -186,7 +186,7 @@ func runChecks() async throws {
     await model.refresh()
     precondition(model.pullRequests.map(\.id) == [pr.id], "Comment after my review reactivates the PR")
     precondition(Notifier.notifiedIDs.count == beforeComment + 1
-                 && Notifier.notifiedDetails.last == ["commenter — komentarz"],
+                 && Notifier.notifiedDetails.last == ["💬 commenter - komentarz"],
                  "Comment after review notifies once")
     for _ in 0..<4 { await model.refresh() }
     precondition(Notifier.notifiedIDs.count == beforeComment + 1,

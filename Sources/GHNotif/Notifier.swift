@@ -29,9 +29,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             return L("Brak zgody. Włącz GHNotif w Ustawienia systemowe → Powiadomienia.", "Permission denied. Enable GHNotif in System Settings → Notifications.")
         }
         let content = UNMutableNotificationContent()
-        content.title = L("GHNotif — test powiadomień", "GHNotif — test notification")
-        content.body = L("Tak wygląda alert o nowym PR-ze lub nowej aktywności.", "This is how an alert about a new PR or new activity looks.")
+        content.title = L("GHNotif - test powiadomień", "GHNotif - test notification")
+        content.body = AlertEvent.approved.line(L("octocat - zatwierdzenie", "octocat - approved"))
         content.sound = .default
+        if let icon = NotificationIcon.attachment(for: .approved) { content.attachments = [icon] }
         try await center.add(UNNotificationRequest(
             identifier: "ghnotif-test", content: content,
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
@@ -60,6 +61,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 "#\($0.pullRequest.number): \($0.details.first ?? $0.pullRequest.title)"
             })
             content.sound = .default
+            if let icon = NotificationIcon.attachment(for: AlertEvent.primary(in: alerts.flatMap(\.details))) {
+                content.attachments = [icon]
+            }
             enqueue(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
             return
         }
@@ -71,6 +75,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             content.body = summarizeChanges(alert.details)
             content.sound = .default
             content.userInfo = ["url": pr.url.absoluteString]
+            content.threadIdentifier = pr.id
+            if let icon = NotificationIcon.attachment(for: alert.event) { content.attachments = [icon] }
             enqueue(UNNotificationRequest(identifier: pr.id, content: content, trigger: nil))
         }
     }

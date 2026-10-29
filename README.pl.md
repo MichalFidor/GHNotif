@@ -19,7 +19,7 @@ brew upgrade --cask ghnotif
 
 Gotowe paczki dla Apple Silicon i Intela są też w [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 Rozpakuj ZIP i przenieś `GHNotif.app` do Applications. Nie wymaga to instalacji Swifta.
-Paczki Homebrew również nie są notaryzowane ani podpisane certyfikatem wydawcy — macOS może je zablokować
+Paczki Homebrew również nie są notaryzowane ani podpisane certyfikatem wydawcy - macOS może je zablokować
 przy pierwszym uruchomieniu. Po zweryfikowaniu źródła i sumy SHA-256 użyj
 Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to.
 
@@ -34,7 +34,7 @@ Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można wł
 
 ## Instalacja Windows
 
-Wymaga Windows 10/11. Wersja portable zawiera .NET — użytkownik nie musi go instalować.
+Wymaga Windows 10/11. Wersja portable zawiera .NET - użytkownik nie musi go instalować.
 
 1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
@@ -94,7 +94,7 @@ Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znik
 
 Zmiana tytułu, etykiet czy samego statusu CI nie przywraca PR-a.
 
-Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już jest na liście, i pokazuje, kto co zrobił, np. `anna — zatwierdzenie ✅`, `piotr — prośba o zmiany`, `bob — komentarz` albo `dave — nowe commity`. To samo zdarzenie nie jest ponawiane przy kolejnych odświeżeniach. Przy commitach widać autora ostatniego commita (GitHub API nie podaje, kto wykonał push). Nowy PR jest opisany jako „Nowy PR od …”, „Poproszono Cię o review” lub „Wspomniano Cię w PR-ze”.
+Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już jest na liście, i pokazuje, kto co zrobił, np. `anna - zatwierdzenie ✅`, `piotr - prośba o zmiany`, `bob - komentarz` albo `dave - nowe commity`. To samo zdarzenie nie jest ponawiane przy kolejnych odświeżeniach. Przy commitach widać autora ostatniego commita (GitHub API nie podaje, kto wykonał push). Nowy PR jest opisany jako „Nowy PR od …”, „Poproszono Cię o review” lub „Wspomniano Cię w PR-ze”.
 
 Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez Ciebie review bieżącego commita, o ile po tym review nie było nowej aktywności innych osób. Nowy commit lub komentarz/review innej osoby przywraca go na listę. Kolejne odświeżenia bez zmian nie powtarzają powiadomienia o tym samym komentarzu. Opcję można wyłączyć w ustawieniach.
 
@@ -102,7 +102,7 @@ Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez 
 
 Zegar przy PR-ze odkłada go na 2 godziny albo do jutra rano. Odłożone PR-y są w osobnej liście i wracają po upływie czasu (z powiadomieniem, jeśli powiadomienia są włączone). Repozytoria można wykluczyć wpisując `owner/repo`, a etykiety po nazwie. Sortowanie: ostatnio aktualizowane, najstarsze lub największe zmiany. Przy PR-ze widać też liczbę dodanych/usuniętych linii, status CI i decyzję review.
 
-Import/eksport listy obserwowanych przenosi wyłącznie loginy — nigdy token ani prywatne ustawienia. Import członków zespołu korzysta z endpointu GitHub do odczytu członków organizacji.
+Import/eksport listy obserwowanych przenosi wyłącznie loginy - nigdy token ani prywatne ustawienia. Import członków zespołu korzysta z endpointu GitHub do odczytu członków organizacji.
 
 Przycisk z haczykiem w nagłówku przełącza na listę załatwionych, nadal otwartych PR-ów. Strzałka przy PR-ze przywraca go na główną listę. To wyłącznie lokalny stan aplikacji, nie review ani zamknięcie PR-a na GitHubie. Identyfikatory wraz z momentem odhaczenia i ostatnim commitem są przechowywane w preferencjach macOS lub pliku stanu Windows, poza repozytorium.
 
@@ -126,13 +126,21 @@ Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → J
 
 ## Ikony i tooltipy
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania – prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik — prośbę o zmiany, oko — wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania – prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
 Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
 ```bash
 swift scripts/generate-icons.swift # macOS
 ```
+
+## Powiadomienia
+
+Każda linia mówi, kto co zrobił, z emoji w stylu GitHuba: ✅ zatwierdzenie, 🔴 prośba o zmiany, 💬 komentarz,
+⬆️ nowe commity, 👀 prośba o review, 📣 wzmianka, 🚫 odrzucone review, 🟢 nowy PR, ⏰ koniec odłożenia.
+Na macOS powiadomienie pokazuje też odznakę z osi czasu GitHuba dla najważniejszego zdarzenia i grupuje
+powiadomienia per PR. Odznaki używają [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
+zob. `Sources/GHNotif/Resources/Octicons-LICENSE.txt`). Dymki w zasobniku Windows pokazują tylko emoji.
 
 ## Powiadomienia macOS
 

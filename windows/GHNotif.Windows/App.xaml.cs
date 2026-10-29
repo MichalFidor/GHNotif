@@ -111,7 +111,7 @@ public partial class App : Application
         tray = new Forms.NotifyIcon
         {
             Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "GHNotif.ico")),
-            Text = L("GHNotif — PR-y do review", "GHNotif — PRs to review"), Visible = true
+            Text = L("GHNotif - PR-y do review", "GHNotif - PRs to review"), Visible = true
         };
         tray.MouseClick += (_, args) =>
         {
@@ -172,10 +172,10 @@ public partial class App : Application
             Error = ex is Win32Exception
                 ? L("Nie można uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT w ustawieniach.", "Cannot run gh. Install GitHub CLI or add a PAT in settings.")
                 : ex.Message;
-            if (tray is not null) tray.Text = L("GHNotif — błąd; otwórz panel", "GHNotif — error; open the panel");
+            if (tray is not null) tray.Text = L("GHNotif - błąd; otwórz panel", "GHNotif - error; open the panel");
             Changed?.Invoke();
             if (panel is null || settings?.IsVisible == true)
-                MessageBox.Show(Error, L("GHNotif — błąd", "GHNotif — error"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Error, L("GHNotif - błąd", "GHNotif - error"), MessageBoxButton.OK, MessageBoxImage.Warning);
             if (panel is null) Shutdown(1);
         }
     }
@@ -332,7 +332,7 @@ public partial class App : Application
 
     private void UpdateTray()
     {
-        if (tray is not null) tray.Text = L($"GHNotif — {State.Visible(Results.PullRequests).Count()} PR-ów do review", $"GHNotif — {State.Visible(Results.PullRequests).Count()} PRs to review");
+        if (tray is not null) tray.Text = L($"GHNotif - {State.Visible(Results.PullRequests).Count()} PR-ów do review", $"GHNotif - {State.Visible(Results.PullRequests).Count()} PRs to review");
     }
 
     /// Windows build their texts once, so a language switch recreates the visible UI.

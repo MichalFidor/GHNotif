@@ -136,12 +136,12 @@ internal sealed class TrayWindow : Window
             ? L($"Odświeżono {time:HH:mm}", $"Refreshed {time:HH:mm}") : L("Jeszcze nie odświeżono", "Not refreshed yet");
         banners.Children.Clear();
         if (app.AvailableRelease is { } release)
-            banners.Children.Add(Ui.Button(L($"Dostępna wersja {release.TagName} — pobierz", $"Version {release.TagName} is available — download"),
+            banners.Children.Add(Ui.Button(L($"Dostępna wersja {release.TagName} - pobierz", $"Version {release.TagName} is available - download"),
                 L("Otwórz GitHub Releases (aktualizacja ręczna)", "Open GitHub Releases (manual update)"),
                 () => _ = app.RunAsync(() => { App.OpenGitHub(release.HtmlUrl); return Task.CompletedTask; })));
         if (app.Error is not null) banners.Children.Add(Ui.Text(app.Error, Brushes.Firebrick));
         if (app.Results.BlockedOrganizations.Count > 0)
-            banners.Children.Add(Ui.Button(L("🔒 Brak dostępu SSO — autoryzuj token", "🔒 No SSO access — authorize the token"),
+            banners.Children.Add(Ui.Button(L("🔒 Brak dostępu SSO - autoryzuj token", "🔒 No SSO access - authorize the token"),
                 L("GitHub ukrywa wyniki z części organizacji. Autoryzuj token lub aplikację GitHub CLI dla SSO.", "GitHub hides results from some organizations. Authorize the token or the GitHub CLI app for SSO."),
                 () => _ = app.RunAsync(() =>
                 {
@@ -153,7 +153,7 @@ internal sealed class TrayWindow : Window
         rows.Children.Clear();
         if (prs.Count == 0)
             rows.Children.Add(Ui.Text(app.IsRefreshing ? L("Ładowanie…", "Loading…") : app.Error is not null
-                ? L("Nie udało się pobrać PR-ów — sprawdź komunikat powyżej.", "Could not fetch PRs — see the message above.")
+                ? L("Nie udało się pobrać PR-ów - sprawdź komunikat powyżej.", "Could not fetch PRs - see the message above.")
                 : !app.Config.HasSearches ? L("Dodaj obserwowane osoby w ustawieniach.", "Add watched people in settings.")
                 : listMode == ListMode.Done ? L("Brak załatwionych PR-ów.", "No done PRs.")
                 : listMode == ListMode.Snoozed ? L("Brak odłożonych PR-ów.", "No snoozed PRs.") : L("Brak PR-ów wymagających uwagi.", "No PRs need attention.")));
@@ -242,7 +242,7 @@ internal sealed class TrayWindow : Window
             row.Children.Add(snooze);
         }
         var done = Ui.Button(inActive ? "✓" : "↶",
-            inActive ? L("Oznacz jako załatwione — lokalnie, bez zmian na GitHubie", "Mark as done — locally, nothing changes on GitHub") : L("Przywróć na listę wymagających uwagi", "Move back to needs attention"),
+            inActive ? L("Oznacz jako załatwione - lokalnie, bez zmian na GitHubie", "Mark as done - locally, nothing changes on GitHub") : L("Przywróć na listę wymagających uwagi", "Move back to needs attention"),
             () => _ = app.RunAsync(() =>
             {
                 if (listMode == ListMode.Snoozed) app.Unsnooze(pr);

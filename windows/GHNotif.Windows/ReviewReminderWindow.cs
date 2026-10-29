@@ -19,7 +19,7 @@ internal sealed class ReviewReminderWindow : Window
     internal ReviewReminderWindow(App app)
     {
         this.app = app;
-        Title = L("GHNotif — czas na review", "GHNotif — time to review");
+        Title = L("GHNotif - czas na review", "GHNotif - time to review");
         Width = 560;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
@@ -102,7 +102,7 @@ internal sealed class ReviewReminderWindow : Window
     private UIElement CreateRow(PullRequest pr)
     {
         var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-        var done = Ui.Button("✓", L("Oznacz jako załatwione — lokalnie, bez zmian na GitHubie", "Mark as done — locally, nothing changes on GitHub"),
+        var done = Ui.Button("✓", L("Oznacz jako załatwione - lokalnie, bez zmian na GitHubie", "Mark as done - locally, nothing changes on GitHub"),
             () => _ = app.RunAsync(() => { app.ToggleDismissed(pr); return Task.CompletedTask; }));
         done.Margin = new Thickness(6, 0, 0, 0);
         done.Padding = new Thickness(8, 2, 8, 2);

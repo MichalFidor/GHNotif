@@ -83,7 +83,7 @@ do {
     check(first.activity.map(\.kind) == [.comment, .changesRequested, .approved], "activity kinds parsed")
     check(first.headCommitAuthor == "dave", "head commit author parsed")
     let since = DismissalSnapshot(dismissedAt: Date(timeIntervalSince1970: 0), headCommitOID: "old")
-    check(first.changes(since: since, viewer: "me") == ["dave — nowe commity", "bob — komentarz", "carol — prośba o zmiany"],
+    check(first.changes(since: since, viewer: "me") == ["⬆️ dave - nowe commity", "💬 bob - komentarz", "🔴 carol - prośba o zmiany"],
           "changes describe who did what, excluding the viewer")
     let activeSnapshot = first.notificationSnapshot(preserving: nil)
     let newReview = Activity(login: "erin", date: Date(), kind: .approved, id: "review-new")
@@ -95,7 +95,7 @@ do {
         additions: first.additions, deletions: first.deletions, labels: first.labels, reviews: first.reviews,
         headCommitAuthor: first.headCommitAuthor
     )
-    check(activeUpdate.newActivity(since: activeSnapshot, viewer: "me") == ["erin — zatwierdzenie ✅"],
+    check(activeUpdate.newActivity(since: activeSnapshot, viewer: "me") == ["✅ erin - zatwierdzenie"],
           "new activity on an active PR is detected")
     let updatedSnapshot = activeUpdate.notificationSnapshot(preserving: activeSnapshot)
     check(activeUpdate.newActivity(since: updatedSnapshot, viewer: "me").isEmpty,
@@ -173,8 +173,10 @@ do {
     let unknownCommit = DismissalSnapshot(dismissedAt: dismissedAt, headCommitOID: nil)
     check(!pr(oid: "b2", activity: []).hasNewActivity(since: unknownCommit, viewer: "me"), "no commit baseline -> no commit reactivation")
     let twice = pr(oid: "a1", activity: [after, Activity(login: "bob", date: dismissedAt.addingTimeInterval(90))])
-    check(twice.changes(since: snapshot, viewer: "me") == ["bob — komentarz"], "repeated activity collapsed")
-    check(pr(oid: "b2", activity: []).changes(since: snapshot, viewer: "me") == ["Nowe commity"], "push without known author")
+    check(twice.changes(since: snapshot, viewer: "me") == ["💬 bob - komentarz"], "repeated activity collapsed")
+    check(pr(oid: "b2", activity: []).changes(since: snapshot, viewer: "me") == ["⬆️ Nowe commity"], "push without known author")
+    check(AlertEvent.primary(in: ["💬 bob - komentarz", "✅ ann - zatwierdzenie", "⬆️ Nowe commity"]) == .approved
+            && AlertEvent.primary(in: ["Bez prefiksu"]) == .activity, "icon follows the most important event")
     check(summarizeChanges(["a", "b", "c", "d", "e"]) == "a\nb\nc\n+2 więcej", "long change lists truncated")
     let encoded = try JSONEncoder().encode(snapshot)
     check(try JSONDecoder().decode(DismissalSnapshot.self, from: encoded) == snapshot, "snapshot round-trips")
@@ -316,11 +318,11 @@ do { // Localization
     check([1, 2, 5, 12, 22, 25].map { Localization.polishPlural($0, one: "o", few: "f", many: "m") }.joined() == "ofmmfm",
           "Polish plural forms")
     Localization.language = .english
-    check(ActivityKind.approved.label == "approved ✅" && summarizeChanges(["a", "b", "c", "d"]).hasSuffix("+1 more"),
+    check(ActivityKind.approved.label == "approved" && summarizeChanges(["a", "b", "c", "d"]).hasSuffix("+1 more"),
           "English texts")
     check(GitHubError.unauthorized.errorDescription == "The GitHub token is invalid or expired.", "English errors")
     Localization.language = .polish
-    check(ActivityKind.approved.label == "zatwierdzenie ✅", "switching back to Polish")
+    check(ActivityKind.approved.label == "zatwierdzenie", "switching back to Polish")
 }
 
 if failures > 0 {

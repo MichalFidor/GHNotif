@@ -11,8 +11,8 @@ struct GHNotifApp: App {
                 .environmentObject(model)
         } label: {
             Image(nsImage: MenuBarIcon.image(count: model.pullRequests.count, hasError: model.lastError != nil))
-                .help(model.lastError == nil ? L("GHNotif — PR-y wymagające uwagi", "GHNotif — PRs needing attention")
-                      : L("GHNotif — błąd pobierania PR-ów", "GHNotif — failed to fetch PRs"))
+                .help(model.lastError == nil ? L("GHNotif - PR-y wymagające uwagi", "GHNotif - PRs needing attention")
+                      : L("GHNotif - błąd pobierania PR-ów", "GHNotif - failed to fetch PRs"))
         }
         .menuBarExtraStyle(.window)
 

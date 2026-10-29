@@ -50,7 +50,7 @@ internal sealed class SettingsWindow : Window
     internal SettingsWindow(App app)
     {
         this.app = app;
-        Title = L("GHNotif — ustawienia", "GHNotif — Settings");
+        Title = L("GHNotif - ustawienia", "GHNotif - Settings");
         Width = 680;
         Height = 560;
         MinWidth = 560;
@@ -90,7 +90,7 @@ internal sealed class SettingsWindow : Window
         reviewRequests.IsChecked = app.Config.IncludeReviewRequests;
         search.Children.Add(mentions);
         search.Children.Add(reviewRequests);
-        search.Children.Add(Ui.Text(L("Niezależnie od autora — wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu — mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author — mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team — they can still make the list much longer, so they're off by default.")));
+        search.Children.Add(Ui.Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu - mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team - they can still make the list much longer, so they're off by default.")));
         search.Children.Add(Heading(L("Zakres", "Scope")));
         extra.Text = app.Config.ExtraQualifiers;
         extra.ToolTip = L("Dodatkowe kwalifikatory GitHub, np. org:my-org. Puste = wszystkie dostępne repozytoria.", "Extra GitHub qualifiers, e.g. org:my-org. Empty = every accessible repository.");
@@ -135,7 +135,7 @@ internal sealed class SettingsWindow : Window
         language.Items.Add(new ComboBoxItem { Content = "Polski", Tag = AppLanguage.Polish });
         language.Items.Add(new ComboBoxItem { Content = "English", Tag = AppLanguage.English });
         language.SelectedValue = app.Config.Language;
-        language.ToolTip = L("Język aplikacji — zapisz, aby zastosować", "App language — save to apply");
+        language.ToolTip = L("Język aplikacji - zapisz, aby zastosować", "App language - save to apply");
         general.Children.Add(language);
         general.Children.Add(Heading(L("Odświeżanie co ile minut (1–60)", "Refresh every N minutes (1–60)")));
         minutes.Text = app.Config.RefreshMinutes.ToString();
@@ -166,7 +166,7 @@ internal sealed class SettingsWindow : Window
         token.Children.Add(Heading(L("Token GitHub", "GitHub token")));
         token.Children.Add(source);
         token.Children.Add(Ui.Text(L("Domyślnie: gh auth login. PAT ma pierwszeństwo i jest szyfrowany przez Windows DPAPI dla bieżącego użytkownika. Classic PAT: scope repo; organizacje SSO wymagają autoryzacji.", "Default: gh auth login. A PAT takes precedence and is encrypted with Windows DPAPI for the current user. Classic PAT: repo scope; SSO organizations require authorization.")));
-        pat.ToolTip = L("Personal access token — nigdy nie jest zapisywany w config.json", "Personal access token — never saved in config.json");
+        pat.ToolTip = L("Personal access token - nigdy nie jest zapisywany w config.json", "Personal access token - never saved in config.json");
         token.Children.Add(pat);
         token.Children.Add(Ui.Button(L("Zapisz PAT", "Save PAT"), L("Zapisz zaszyfrowany token", "Save the encrypted token"),
             () => _ = app.RunAsync(async () =>
@@ -230,7 +230,7 @@ internal sealed class SettingsWindow : Window
         nextReminder.Text = reminder.Alarms.Count == 0 ? L("Następne przypomnienie: dodaj godzinę", "Next reminder: add a time")
             : !reminder.Enabled ? L("Następne przypomnienie: wyłączone", "Next reminder: off")
             : reminder.Weekdays.Count == 0 ? L("Następne przypomnienie: wybierz dni", "Next reminder: choose days")
-            : L($"Następne przypomnienie: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "—"}", $"Next reminder: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "—"}")
+            : L($"Następne przypomnienie: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "-"}", $"Next reminder: {app.NextReviewReminder?.ToLocalTime().ToString("dddd HH:mm", Culture) ?? "-"}")
               + (app.ReviewReminderSnoozedUntil is { } snoozed && snoozed > DateTimeOffset.Now
                   ? L($" (odłożone do {snoozed.ToLocalTime():HH:mm})", $" (snoozed until {snoozed.ToLocalTime():HH:mm})") : "");
     }
@@ -318,7 +318,7 @@ internal sealed class SettingsWindow : Window
 
     private async Task ExchangeWatchlistAsync()
     {
-        var choice = MessageBox.Show(L("Tak — eksportuj listę do pliku. Nie — importuj istniejącą listę.", "Yes — export the list to a file. No — import an existing list."),
+        var choice = MessageBox.Show(L("Tak - eksportuj listę do pliku. Nie - importuj istniejącą listę.", "Yes - export the list to a file. No - import an existing list."),
             L("Lista obserwowanych osób", "Watched people list"), MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
         if (choice == MessageBoxResult.Cancel) return;
         if (choice == MessageBoxResult.Yes)

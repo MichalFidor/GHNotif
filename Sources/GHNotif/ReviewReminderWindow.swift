@@ -14,7 +14,7 @@ final class ReviewReminderPresenter {
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
-            window.title = "GHNotif — czas na review"
+            window.title = "GHNotif - czas na review"
             window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.level = .floating

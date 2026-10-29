@@ -1,3 +1,9 @@
+# GHNotif 0.5.3
+
+- Notifications use GitHub-style emoji per line (✅ approved, 🔴 changes requested, 💬 comment, ⬆️ new commits, 👀 review requested, …).
+- macOS: notifications show a GitHub timeline badge (Octicons) for the most important event and are grouped per PR.
+- Short dashes ("-") instead of long ones in notifications and UI texts.
+
 # GHNotif 0.5.2
 
 - Review reminders work like iOS alarms: each time has its own on/off switch, and a newly added time is switched on. The separate "show reminders" switch is gone, so adding a time no longer leaves reminders off by mistake. Existing schedules are migrated automatically.

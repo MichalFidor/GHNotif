@@ -94,7 +94,7 @@ The check mark button on the right of a PR marks it as done. The PR disappears f
 
 Changes to the title, labels or the CI status alone don't bring a PR back.
 
-A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `anna — approved ✅`, `piotr — changes requested`, `bob — comment` or `dave — pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
+A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `anna - approved ✅`, `piotr - changes requested`, `bob - comment` or `dave - pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
 
 Optionally a PR is dismissed automatically after you submit a review of its current commit, as long as nobody else has been active on it since. A new commit or another person's comment/review brings it back. Later refreshes without changes don't repeat the notification about the same comment. This can be turned off in the settings.
 
@@ -102,7 +102,7 @@ Optionally a PR is dismissed automatically after you submit a review of its curr
 
 The clock next to a PR snoozes it for 2 hours or until tomorrow morning. Snoozed PRs are listed separately and come back when the time is up (with a notification if notifications are enabled). Repositories can be excluded as `owner/repo`, labels by name. Sorting: recently updated, oldest first or largest changes. Each PR also shows added/removed lines, CI status and the review decision.
 
-Importing/exporting the watch list transfers logins only — never tokens or private settings. Importing team members uses the GitHub endpoint for reading organization members.
+Importing/exporting the watch list transfers logins only - never tokens or private settings. Importing team members uses the GitHub endpoint for reading organization members.
 
 The check mark button in the header switches to the list of dismissed, still open PRs. The arrow next to a PR restores it to the main list. This is purely local app state, not a review or closing the PR on GitHub. IDs together with the dismissal time and the latest commit are kept in macOS preferences or the Windows state file, outside the repository.
 
@@ -133,6 +133,14 @@ The logo shows a PR branch with a notification dot. The colored app icons (`.icn
 ```bash
 swift scripts/generate-icons.swift # macOS
 ```
+
+## Notifications
+
+Each line says who did what, with a GitHub-style emoji: ✅ approved, 🔴 changes requested, 💬 comment,
+⬆️ new commits, 👀 review requested, 📣 mention, 🚫 review dismissed, 🟢 new PR, ⏰ snooze ended.
+On macOS the notification also shows a GitHub timeline badge for the most important event and groups
+notifications per PR. Badges use [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
+see `Sources/GHNotif/Resources/Octicons-LICENSE.txt`). Windows tray balloons show the emoji only.
 
 ## macOS notifications
 

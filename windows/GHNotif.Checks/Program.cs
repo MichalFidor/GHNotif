@@ -57,7 +57,7 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     Check(pr.Activity!.Select(a => a.Kind).SequenceEqual([ActivityKind.Comment, ActivityKind.Approved]), "Activity kinds parsed");
     Check(pr.HeadCommitAuthor == "pusher", "Head commit author parsed");
     var since = new DismissalSnapshot { DismissedAt = DateTimeOffset.MinValue, HeadCommitOid = "c0" };
-    Check(pr.Changes(since, "me").SequenceEqual(["pusher — nowe commity", "reviewer — komentarz"]),
+    Check(pr.Changes(since, "me").SequenceEqual(["⬆️ pusher - nowe commity", "💬 reviewer - komentarz"]),
         "Changes describe who did what, excluding the viewer");
 
     var reviewState = new LocalState();
@@ -73,7 +73,7 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
         return reviewState.ObserveAlerts([current], true, false, "me", returned,
             reactivationChanges: details);
     }
-    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["commenter — komentarz"]),
+    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["💬 commenter - komentarz"]),
         "Comment after review notifies once");
     for (var i = 0; i < 4; i++)
     {
@@ -83,7 +83,7 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     }
     var nextComment = new PrActivity("commenter", reviewAt.AddMinutes(2), Id: "next-after-review");
     commented = commented with { Activity = [.. commented.Activity!, nextComment] };
-    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["commenter — komentarz"]),
+    Check(RefreshReviewed(commented).Single().Details.SequenceEqual(["💬 commenter - komentarz"]),
         "A genuinely new comment after review still notifies");
     Check(RefreshReviewed(commented).Count == 0, "New comment is not repeated either");
     reviewState.Snooze(commented, DateTimeOffset.UtcNow.AddHours(1));
@@ -184,19 +184,19 @@ var activeReview = one with
     Activity = (one.Activity ?? []).Append(new("reviewer", later, ActivityKind.ChangesRequested, "review-new")).ToList()
 };
 var activityAlert = activeState.ObserveAlerts([activeReview], true, false, "me").Single();
-Check(activityAlert.Details.SequenceEqual(["reviewer — prośba o zmiany"]),
+Check(activityAlert.Details.SequenceEqual(["🔴 reviewer - prośba o zmiany"]),
     "New review on an active PR reports actor and action");
 Check(activeState.ObserveAlerts([activeReview], true, false, "me").Count == 0, "Active review does not notify twice");
 var activeCommit = activeReview with { HeadCommitOid = "c2", HeadCommitAuthor = "pusher" };
 Check(activeState.ObserveAlerts([activeCommit], true, false, "me").Single().Details
-    .SequenceEqual(["pusher — nowe commity"]), "New commit on an active PR is reported");
+    .SequenceEqual(["⬆️ pusher - nowe commity"]), "New commit on an active PR is reported");
 Check(activeState.Clone().NotificationSnapshots.ContainsKey("one"), "Notification state is cloned for persistence");
 var probe = state.Clone();
 Check(probe.Reactivate([one with { Activity = [new("ME", later)] }], "me").Count == 0, "Own comment ignored");
 Check(probe.Reactivate([one with { Activity = [new("reviewer", later, ActivityKind.ChangesRequested)] }], "me",
         out var described).Count == 1 && !probe.IsDismissed("one"),
     "New review by someone else reactivates");
-Check(described["one"].SequenceEqual(["reviewer — prośba o zmiany"]), "Reactivation reports who did what");
+Check(described["one"].SequenceEqual(["🔴 reviewer - prośba o zmiany"]), "Reactivation reports who did what");
 Check(ActivityText.Summarize(["a", "b", "c", "d"]) == "a\nb\nc\n+1 więcej", "Long change lists truncated");
 Check(state.IsDismissed("one"), "Clone is independent");
 probe = state.Clone();
@@ -354,10 +354,10 @@ try
 finally { Directory.Delete(languageFolder, true); }
 Check(string.Concat(new[] { 1, 2, 5, 12, 22, 25 }.Select(n => PolishPlural(n, "o", "f", "m"))) == "ofmmfm", "Polish plural forms");
 Localization.Language = AppLanguage.English;
-Check(ActivityKind.Approved.Label() == "approved ✅" && ActivityText.Summarize(["a", "b", "c", "d"]).EndsWith("+1 more"),
+Check(ActivityKind.Approved.Label() == "approved" && ActivityText.Summarize(["a", "b", "c", "d"]).EndsWith("+1 more"),
     "English texts");
 Localization.Language = AppLanguage.Polish;
-Check(ActivityKind.Approved.Label() == "zatwierdzenie ✅", "Switching back to Polish");
+Check(ActivityKind.Approved.Label() == "zatwierdzenie", "Switching back to Polish");
 
 Console.WriteLine($"All {checks} Windows core checks passed.");
 

@@ -17,16 +17,16 @@ public sealed record PullRequest(
     /// GitHub login of the head commit's author; the pusher isn't exposed by the API.
     public string? HeadCommitAuthor { get; init; }
 
-    /// Human-readable list of what changed since the snapshot, e.g. "bob — zatwierdzenie".
+    /// Human-readable list of what changed since the snapshot, e.g. "✅ bob - zatwierdzenie".
     public List<string> Changes(DismissalSnapshot snapshot, string? viewer)
     {
         var lines = new List<string>();
         if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
-            lines.Add(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} — nowe commity", $"{HeadCommitAuthor} — new commits"));
+            lines.Add(AlertEvent.Commits.Line(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} - nowe commity", $"{HeadCommitAuthor} - new commits")));
         foreach (var item in (Activity ?? []).Where(item => item.Date > snapshot.DismissedAt
                      && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
         {
-            var line = $"{item.Login} — {item.Kind.Label()}";
+            var line = item.Kind.Event().Line($"{item.Login} - {item.Kind.Label()}");
             if (!lines.Contains(line, StringComparer.OrdinalIgnoreCase)) lines.Add(line);
         }
         return lines;
@@ -36,10 +36,10 @@ public sealed record PullRequest(
     {
         var lines = new List<string>();
         if (snapshot.HeadCommitOid is not null && HeadCommitOid is not null && snapshot.HeadCommitOid != HeadCommitOid)
-            lines.Add(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} — nowe commity", $"{HeadCommitAuthor} — new commits"));
+            lines.Add(AlertEvent.Commits.Line(HeadCommitAuthor is null ? L("Nowe commity", "New commits") : L($"{HeadCommitAuthor} - nowe commity", $"{HeadCommitAuthor} - new commits")));
         foreach (var item in (Activity ?? []).Where(item => !snapshot.ActivityDates.ContainsKey(item.NotificationKey)
                      && !string.Equals(item.Login, viewer, StringComparison.OrdinalIgnoreCase)).OrderBy(item => item.Date))
-            lines.Add($"{item.Login} — {item.Kind.Label()}");
+            lines.Add(item.Kind.Event().Line($"{item.Login} - {item.Kind.Label()}"));
         return lines;
     }
 
@@ -94,6 +94,9 @@ public sealed class NotificationSnapshot
 
 public sealed record PullRequestAlert(PullRequest PullRequest, IReadOnlyList<string> Details);
 
+/// What a notification line is about; ordered by importance.
+public enum AlertEvent { ChangesRequested, Approved, ReviewRequested, Mention, ReviewDismissed, Comment, Commits, NewPullRequest, SnoozeEnded, Activity }
+
 public static class ActivityText
 {
     /// Maps a GitHub `PullRequestReviewState`.
@@ -107,12 +110,37 @@ public static class ActivityText
 
     public static string Label(this ActivityKind kind) => kind switch
     {
-        ActivityKind.Approved => L("zatwierdzenie ✅", "approved ✅"),
+        ActivityKind.Approved => L("zatwierdzenie", "approved"),
         ActivityKind.ChangesRequested => L("prośba o zmiany", "changes requested"),
         ActivityKind.ReviewComment => L("komentarz w review", "review comment"),
         ActivityKind.ReviewDismissed => L("odrzucone review", "review dismissed"),
         _ => L("komentarz", "comment")
     };
+
+    public static AlertEvent Event(this ActivityKind kind) => kind switch
+    {
+        ActivityKind.Approved => AlertEvent.Approved,
+        ActivityKind.ChangesRequested => AlertEvent.ChangesRequested,
+        ActivityKind.ReviewDismissed => AlertEvent.ReviewDismissed,
+        _ => AlertEvent.Comment
+    };
+
+    /// GitHub-style emoji prefix of a notification line.
+    public static string Emoji(this AlertEvent kind) => kind switch
+    {
+        AlertEvent.ChangesRequested => "🔴",
+        AlertEvent.Approved => "✅",
+        AlertEvent.ReviewRequested => "👀",
+        AlertEvent.Mention => "📣",
+        AlertEvent.ReviewDismissed => "🚫",
+        AlertEvent.Comment => "💬",
+        AlertEvent.Commits => "⬆️",
+        AlertEvent.NewPullRequest => "🟢",
+        AlertEvent.SnoozeEnded => "⏰",
+        _ => "🔔"
+    };
+
+    public static string Line(this AlertEvent kind, string text) => $"{kind.Emoji()} {text}";
 
     /// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
     public static string Summarize(IReadOnlyList<string> lines, int limit = 3) => lines.Count <= limit
@@ -120,8 +148,9 @@ public static class ActivityText
         : string.Join("\n", lines.Take(limit).Append(L($"+{lines.Count - limit} więcej", $"+{lines.Count - limit} more")));
 
     public static string NewPullRequest(PullRequest pr) =>
-        pr.Reasons.Contains(MatchReason.ReviewRequested) ? L("Poproszono Cię o review", "Your review was requested")
-        : pr.Reasons.Contains(MatchReason.Mention) ? L("Wspomniano Cię w PR-ze", "You were mentioned") : L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}");
+        pr.Reasons.Contains(MatchReason.ReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Poproszono Cię o review", "Your review was requested"))
+        : pr.Reasons.Contains(MatchReason.Mention) ? AlertEvent.Mention.Line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
+        : AlertEvent.NewPullRequest.Line(L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}"));
 }
 public sealed record PullRequestReview(string Login, string? CommitOid, DateTimeOffset? SubmittedAt);
 
@@ -288,7 +317,7 @@ public sealed class LocalState
             if (pr.HasNewActivity(snapshot, viewer))
             {
                 var described = pr.Changes(snapshot, viewer);
-                changes[pr.Id] = described.Count > 0 ? described : [L("Nowa aktywność", "New activity")];
+                changes[pr.Id] = described.Count > 0 ? described : [AlertEvent.Activity.Line(L("Nowa aktywność", "New activity"))];
                 Dismissals.Remove(pr.Id);
                 reactivated.Add(pr);
             }
@@ -319,12 +348,12 @@ public sealed class LocalState
             foreach (var pr in (reactivated ?? []).Where(pr => previousSeen.Contains(pr.Id)))
             {
                 var details = reactivationChanges is not null && reactivationChanges.TryGetValue(pr.Id, out var changes)
-                    ? changes : [L("Nowa aktywność", "New activity")];
+                    ? changes : [AlertEvent.Activity.Line(L("Nowa aktywność", "New activity"))];
                 alerts.Add(new PullRequestAlert(pr, details));
             }
             foreach (var pr in current.Where(pr => wokeFromSnooze?.Contains(pr.Id) == true
                          && previousSeen.Contains(pr.Id) && !IsDismissed(pr.Id)))
-                alerts.Add(new PullRequestAlert(pr, [L("Koniec odłożenia", "Snooze ended")]));
+                alerts.Add(new PullRequestAlert(pr, [AlertEvent.SnoozeEnded.Line(L("Koniec odłożenia", "Snooze ended"))]));
 
             var handled = alerts.Select(alert => alert.PullRequest.Id).ToHashSet(StringComparer.Ordinal);
             foreach (var pr in current.Where(pr => previousSeen.Contains(pr.Id) && !handled.Contains(pr.Id)

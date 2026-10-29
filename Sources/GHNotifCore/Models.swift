@@ -94,16 +94,16 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Human-readable list of what changed since the snapshot, e.g. "bob — zatwierdzenie".
+    /// Human-readable list of what changed since the snapshot, e.g. "✅ bob - zatwierdzenie".
     public func changes(since snapshot: DismissalSnapshot, viewer: String?) -> [String] {
         var lines: [String] = []
         if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
-            lines.append(headCommitAuthor.map { L("\($0) — nowe commity", "\($0) — new commits") } ?? L("Nowe commity", "New commits"))
+            lines.append(AlertEvent.commits.line(headCommitAuthor.map { L("\($0) - nowe commity", "\($0) - new commits") } ?? L("Nowe commity", "New commits")))
         }
         var seen = Set<String>()
         for item in activity.sorted(by: { $0.date < $1.date }) where item.date > snapshot.dismissedAt
             && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true) {
-            let line = "\(item.login) — \(item.kind.label)"
+            let line = item.kind.event.line("\(item.login) - \(item.kind.label)")
             if seen.insert(line.lowercased()).inserted { lines.append(line) }
         }
         return lines
@@ -112,12 +112,12 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public func newActivity(since snapshot: NotificationSnapshot, viewer: String?) -> [String] {
         var lines: [String] = []
         if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
-            lines.append(headCommitAuthor.map { L("\($0) — nowe commity", "\($0) — new commits") } ?? L("Nowe commity", "New commits"))
+            lines.append(AlertEvent.commits.line(headCommitAuthor.map { L("\($0) - nowe commity", "\($0) - new commits") } ?? L("Nowe commity", "New commits")))
         }
         for item in activity.sorted(by: { $0.date < $1.date })
             where snapshot.activityDates[item.notificationKey] == nil
                 && (viewer.map { item.login.caseInsensitiveCompare($0) != .orderedSame } ?? true) {
-            lines.append("\(item.login) — \(item.kind.label)")
+            lines.append(item.kind.event.line("\(item.login) - \(item.kind.label)"))
         }
         return lines
     }
@@ -167,11 +167,48 @@ public enum ActivityKind: Hashable, Sendable {
     public var label: String {
         switch self {
         case .comment: L("komentarz", "comment")
-        case .approved: L("zatwierdzenie ✅", "approved ✅")
+        case .approved: L("zatwierdzenie", "approved")
         case .changesRequested: L("prośba o zmiany", "changes requested")
         case .reviewComment: L("komentarz w review", "review comment")
         case .reviewDismissed: L("odrzucone review", "review dismissed")
         }
+    }
+
+    public var event: AlertEvent {
+        switch self {
+        case .comment, .reviewComment: .comment
+        case .approved: .approved
+        case .changesRequested: .changesRequested
+        case .reviewDismissed: .reviewDismissed
+        }
+    }
+}
+
+/// What a notification line is about; drives the GitHub-style emoji prefix and the notification icon.
+public enum AlertEvent: String, CaseIterable, Sendable {
+    // Ordered by importance: the first event found in an alert picks its icon.
+    case changesRequested, approved, reviewRequested, mention, reviewDismissed, comment, commits, newPullRequest, snoozeEnded, activity
+
+    public var emoji: String {
+        switch self {
+        case .changesRequested: "🔴"
+        case .approved: "✅"
+        case .reviewRequested: "👀"
+        case .mention: "📣"
+        case .reviewDismissed: "🚫"
+        case .comment: "💬"
+        case .commits: "⬆️"
+        case .newPullRequest: "🟢"
+        case .snoozeEnded: "⏰"
+        case .activity: "🔔"
+        }
+    }
+
+    public func line(_ text: String) -> String { "\(emoji) \(text)" }
+
+    /// Most important event among the lines, recognised by their emoji prefix.
+    public static func primary(in lines: [String]) -> AlertEvent {
+        allCases.first { event in lines.contains { $0.hasPrefix(event.emoji + " ") } } ?? .activity
     }
 }
 
@@ -219,15 +256,18 @@ private extension ActivityKind {
 public struct PullRequestAlert: Sendable {
     public let pullRequest: PullRequest
     public let details: [String]
+    public let event: AlertEvent
 
     public init(pullRequest: PullRequest, details: [String]) {
         self.pullRequest = pullRequest
         self.details = details
+        self.event = AlertEvent.primary(in: details)
     }
 
     public static func new(_ pr: PullRequest) -> PullRequestAlert {
-        let detail = pr.reasons.contains(.reviewRequested) ? L("Poproszono Cię o review", "Your review was requested")
-            : pr.reasons.contains(.mention) ? L("Wspomniano Cię w PR-ze", "You were mentioned") : L("Nowy PR od \(pr.author)", "New PR by \(pr.author)")
+        let detail = pr.reasons.contains(.reviewRequested) ? AlertEvent.reviewRequested.line(L("Poproszono Cię o review", "Your review was requested"))
+            : pr.reasons.contains(.mention) ? AlertEvent.mention.line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
+            : AlertEvent.newPullRequest.line(L("Nowy PR od \(pr.author)", "New PR by \(pr.author)"))
         return PullRequestAlert(pullRequest: pr, details: [detail])
     }
 }

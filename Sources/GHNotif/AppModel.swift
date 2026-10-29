@@ -358,7 +358,7 @@ final class AppModel: ObservableObject {
             if pr.hasNewActivity(since: snapshot, viewer: viewer) {
                 updated[pr.id] = nil
                 let changes = pr.changes(since: snapshot, viewer: viewer)
-                reactivated.append(PullRequestAlert(pullRequest: pr, details: changes.isEmpty ? [L("Nowa aktywność", "New activity")] : changes))
+                reactivated.append(PullRequestAlert(pullRequest: pr, details: changes.isEmpty ? [AlertEvent.activity.line(L("Nowa aktywność", "New activity"))] : changes))
             } else if snapshot.headCommitOID == nil, let oid = pr.headCommitOID {
                 // Dismissals migrated from the ID-only format get their commit baseline on the first refresh.
                 updated[pr.id]?.headCommitOID = oid
@@ -378,7 +378,7 @@ final class AppModel: ObservableObject {
             let returned = reactivated.filter { seen.contains($0.pullRequest.id) }
             let woke = wokeFromSnooze.filter { seen.contains($0.id) && dismissals[$0.id] == nil }
             alerts = fresh.map(PullRequestAlert.new) + returned
-                + woke.map { PullRequestAlert(pullRequest: $0, details: [L("Koniec odłożenia", "Snooze ended")]) }
+                + woke.map { PullRequestAlert(pullRequest: $0, details: [AlertEvent.snoozeEnded.line(L("Koniec odłożenia", "Snooze ended"))]) }
             let handledIDs = Set(alerts.map { $0.pullRequest.id })
             for pr in prs where seen.contains(pr.id) && !handledIDs.contains(pr.id)
                 && dismissals[pr.id] == nil && !isSnoozed(pr) {
