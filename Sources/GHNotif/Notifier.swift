@@ -41,15 +41,26 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard granted else {
             return L("Brak zgody. Włącz GHNotif w Ustawienia systemowe → Powiadomienia.", "Permission denied. Enable GHNotif in System Settings → Notifications.")
         }
-        let content = UNMutableNotificationContent()
-        content.title = L("GHNotif - test powiadomień", "GHNotif - test notification")
-        content.body = AlertEvent.approved.line(L("octocat - zatwierdzenie", "octocat - approved"))
-        content.sound = .default
-        if let icon = NotificationIcon.attachment(for: .approved) { content.attachments = [icon] }
-        try await center.add(UNNotificationRequest(
-            identifier: "ghnotif-test", content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
-        ))
+        let samples: [[String]] = [
+            [AlertEvent.approved.line(L("octocat - zatwierdzenie", "octocat - approved")),
+             AlertEvent.comment.line(L("hubot - komentarz", "hubot - comment"))],
+            [AlertEvent.changesRequested.line(L("monalisa - prośba o zmiany", "monalisa - changes requested")),
+             AlertEvent.commits.line(L("octocat - nowe commity", "octocat - new commits"))],
+            [AlertEvent.reviewRequested.line(L("Poproszono Cię o review", "Your review was requested"))],
+            [AlertEvent.mention.line(L("Wspomniano Cię w PR-ze", "You were mentioned"))]
+        ]
+        for (index, lines) in samples.enumerated() {
+            let content = UNMutableNotificationContent()
+            content.title = L("GHNotif - test powiadomień", "GHNotif - test notification")
+            content.subtitle = "octo/repo #\(42 + index)"
+            content.body = summarizeChanges(lines)
+            content.sound = index == 0 ? .default : nil
+            if let icon = NotificationIcon.attachment(for: AlertEvent.primary(in: lines)) { content.attachments = [icon] }
+            try await center.add(UNNotificationRequest(
+                identifier: "ghnotif-test-\(index)", content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5 + Double(index) * 2, repeats: false)
+            ))
+        }
         let settings = await center.notificationSettings()
         let alerts = settings.alertSetting == .enabled
         return L("System przyjął powiadomienie (za 5 sekund). Alerty: \(alerts ? "włączone" : "wyłączone"). Jeśli banner się nie pojawił, sprawdź tryb skupienia i ustawienia powiadomień GHNotif.",
@@ -60,7 +71,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard let center else { return L("Brak kontekstu aplikacji.", "No app context.") }
         let settings = await center.notificationSettings()
         let delivered = await center.deliveredNotifications()
-        let testDelivered = delivered.contains { $0.request.identifier == "ghnotif-test" }
+        let testDelivered = delivered.contains { $0.request.identifier.hasPrefix("ghnotif-test") }
         return L("Zgoda: \(settings.authorizationStatus.rawValue), styl alertów: \(settings.alertStyle.rawValue), Centrum powiadomień: \(settings.notificationCenterSetting.rawValue), test w Centrum: \(testDelivered ? "tak" : "nie").",
                  "Permission: \(settings.authorizationStatus.rawValue), alert style: \(settings.alertStyle.rawValue), Notification Center: \(settings.notificationCenterSetting.rawValue), test in Center: \(testDelivered ? "yes" : "no").")
     }

@@ -17,7 +17,7 @@ public sealed record PullRequest(
     /// GitHub login of the head commit's author; the pusher isn't exposed by the API.
     public string? HeadCommitAuthor { get; init; }
 
-    /// Human-readable list of what changed since the snapshot, e.g. "✅ bob - zatwierdzenie".
+    /// Human-readable list of what changed since the snapshot, e.g. "✓ bob - zatwierdzenie".
     public List<string> Changes(DismissalSnapshot snapshot, string? viewer)
     {
         var lines = new List<string>();
@@ -125,28 +125,28 @@ public static class ActivityText
         _ => AlertEvent.Comment
     };
 
-    /// GitHub-style emoji prefix of a notification line.
-    public static string Emoji(this AlertEvent kind) => kind switch
+    /// GitHub-style symbol prefix of a notification line.
+    public static string Symbol(this AlertEvent kind) => kind switch
     {
-        AlertEvent.ChangesRequested => "🔴",
-        AlertEvent.Approved => "✅",
-        AlertEvent.ReviewRequested => "👀",
-        AlertEvent.Mention => "📣",
-        AlertEvent.ReviewDismissed => "🚫",
-        AlertEvent.Comment => "💬",
-        AlertEvent.Commits => "⬆️",
-        AlertEvent.NewPullRequest => "🟢",
-        AlertEvent.SnoozeEnded => "⏰",
-        _ => "🔔"
+        AlertEvent.ChangesRequested => "✗",
+        AlertEvent.Approved => "✓",
+        AlertEvent.ReviewRequested => "◉",
+        AlertEvent.Mention => "@",
+        AlertEvent.ReviewDismissed => "⊘",
+        AlertEvent.Comment => "•",
+        AlertEvent.Commits => "↑",
+        AlertEvent.NewPullRequest => "+",
+        AlertEvent.SnoozeEnded => "◷",
+        _ => "·"
     };
 
-    public static string Line(this AlertEvent kind, string text) => $"{kind.Emoji()} {text}";
+    public static string Line(this AlertEvent kind, string text) => $"{kind.Symbol()} {text}";
 
-    /// Event of a single line, recognised by its emoji prefix.
+    /// Event of a single line, recognised by its symbol prefix.
     public static AlertEvent EventOf(string line)
     {
         foreach (var kind in Enum.GetValues<AlertEvent>())
-            if (line.StartsWith(kind.Emoji() + " ", StringComparison.Ordinal)) return kind;
+            if (line.StartsWith(kind.Symbol() + " ", StringComparison.Ordinal)) return kind;
         return AlertEvent.Activity;
     }
 

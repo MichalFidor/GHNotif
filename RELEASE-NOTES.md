@@ -1,3 +1,8 @@
+# GHNotif 0.6.1
+
+- Notification lines use simple text symbols instead of emoji (✓ approved, ✗ changes requested, • comment, ↑ new commits, ◉ review requested, @ mention, ⊘ review dismissed, + new PR, ◷ snooze ended). The GitHub icon of the most important event remains the notification badge.
+- **Send test** in settings now sends several sample notifications with different events.
+
 # GHNotif 0.6.0
 
 - Update notifications appear once per release on macOS and Windows, with **Update now** and **Later** actions.

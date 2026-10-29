@@ -95,7 +95,7 @@ The check mark button on the right of a PR marks it as done. The PR disappears f
 
 Changes to the title, labels or the CI status alone don't bring a PR back.
 
-A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `anna - approved ✅`, `piotr - changes requested`, `bob - comment` or `dave - pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
+A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `✓ anna - approved`, `piotr - changes requested`, `bob - comment` or `dave - pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
 
 Optionally a PR is dismissed automatically after you submit a review of its current commit, as long as nobody else has been active on it since. A new commit or another person's comment/review brings it back. Later refreshes without changes don't repeat the notification about the same comment. This can be turned off in the settings.
 
@@ -137,8 +137,8 @@ swift scripts/generate-icons.swift # macOS
 
 ## Notifications
 
-Each line says who did what, with a GitHub-style emoji: ✅ approved, 🔴 changes requested, 💬 comment,
-⬆️ new commits, 👀 review requested, 📣 mention, 🚫 review dismissed, 🟢 new PR, ⏰ snooze ended.
+Each line says who did what, with a simple text symbol (the GitHub icon of the most important event is shown as the notification badge): ✓ approved, ✗ changes requested, • comment,
+↑ new commits, ◉ review requested, @ mention, ⊘ review dismissed, + new PR, ◷ snooze ended.
 Notifications also show a GitHub timeline badge for the most important event: on macOS as an attachment
 (notifications are grouped per PR), on Windows as a toast icon (clicking the toast opens the PR; the tray balloon
 is a fallback). Badges use [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,

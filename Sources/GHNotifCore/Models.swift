@@ -94,7 +94,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Human-readable list of what changed since the snapshot, e.g. "✅ bob - zatwierdzenie".
+    /// Human-readable list of what changed since the snapshot, e.g. "✓ bob - zatwierdzenie".
     public func changes(since snapshot: DismissalSnapshot, viewer: String?) -> [String] {
         var lines: [String] = []
         if let old = snapshot.headCommitOID, let current = headCommitOID, old != current {
@@ -184,23 +184,23 @@ public enum ActivityKind: Hashable, Sendable {
     }
 }
 
-/// What a notification line is about; drives the GitHub-style emoji prefix and the notification icon.
+/// What a notification line is about; drives the GitHub-style symbol prefix and the notification icon.
 public enum AlertEvent: String, CaseIterable, Hashable, Sendable {
     // Ordered by importance: the first event found in an alert picks its icon.
     case changesRequested, approved, reviewRequested, mention, reviewDismissed, comment, commits, newPullRequest, snoozeEnded, activity
 
-    public var emoji: String {
+    public var symbol: String {
         switch self {
-        case .changesRequested: "🔴"
-        case .approved: "✅"
-        case .reviewRequested: "👀"
-        case .mention: "📣"
-        case .reviewDismissed: "🚫"
-        case .comment: "💬"
-        case .commits: "⬆️"
-        case .newPullRequest: "🟢"
-        case .snoozeEnded: "⏰"
-        case .activity: "🔔"
+        case .changesRequested: "✗"
+        case .approved: "✓"
+        case .reviewRequested: "◉"
+        case .mention: "@"
+        case .reviewDismissed: "⊘"
+        case .comment: "•"
+        case .commits: "↑"
+        case .newPullRequest: "+"
+        case .snoozeEnded: "◷"
+        case .activity: "·"
         }
     }
 
@@ -220,11 +220,11 @@ public enum AlertEvent: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    public func line(_ text: String) -> String { "\(emoji) \(text)" }
+    public func line(_ text: String) -> String { "\(symbol) \(text)" }
 
-    /// Event of a single line, recognised by its emoji prefix.
+    /// Event of a single line, recognised by its symbol prefix.
     public static func of(_ line: String) -> AlertEvent {
-        allCases.first { line.hasPrefix($0.emoji + " ") } ?? .activity
+        allCases.first { line.hasPrefix($0.symbol + " ") } ?? .activity
     }
 
     /// Most important event among the lines.

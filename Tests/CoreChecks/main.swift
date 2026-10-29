@@ -83,7 +83,7 @@ do {
     check(first.activity.map(\.kind) == [.comment, .changesRequested, .approved], "activity kinds parsed")
     check(first.headCommitAuthor == "dave", "head commit author parsed")
     let since = DismissalSnapshot(dismissedAt: Date(timeIntervalSince1970: 0), headCommitOID: "old")
-    check(first.changes(since: since, viewer: "me") == ["⬆️ dave - nowe commity", "💬 bob - komentarz", "🔴 carol - prośba o zmiany"],
+    check(first.changes(since: since, viewer: "me") == ["↑ dave - nowe commity", "• bob - komentarz", "✗ carol - prośba o zmiany"],
           "changes describe who did what, excluding the viewer")
     let activeSnapshot = first.notificationSnapshot(preserving: nil)
     let newReview = Activity(login: "erin", date: Date(), kind: .approved, id: "review-new")
@@ -95,7 +95,7 @@ do {
         additions: first.additions, deletions: first.deletions, labels: first.labels, reviews: first.reviews,
         headCommitAuthor: first.headCommitAuthor
     )
-    check(activeUpdate.newActivity(since: activeSnapshot, viewer: "me") == ["✅ erin - zatwierdzenie"],
+    check(activeUpdate.newActivity(since: activeSnapshot, viewer: "me") == ["✓ erin - zatwierdzenie"],
           "new activity on an active PR is detected")
     let updatedSnapshot = activeUpdate.notificationSnapshot(preserving: activeSnapshot)
     check(activeUpdate.newActivity(since: updatedSnapshot, viewer: "me").isEmpty,
@@ -173,9 +173,9 @@ do {
     let unknownCommit = DismissalSnapshot(dismissedAt: dismissedAt, headCommitOID: nil)
     check(!pr(oid: "b2", activity: []).hasNewActivity(since: unknownCommit, viewer: "me"), "no commit baseline -> no commit reactivation")
     let twice = pr(oid: "a1", activity: [after, Activity(login: "bob", date: dismissedAt.addingTimeInterval(90))])
-    check(twice.changes(since: snapshot, viewer: "me") == ["💬 bob - komentarz"], "repeated activity collapsed")
-    check(pr(oid: "b2", activity: []).changes(since: snapshot, viewer: "me") == ["⬆️ Nowe commity"], "push without known author")
-    check(AlertEvent.primary(in: ["💬 bob - komentarz", "✅ ann - zatwierdzenie", "⬆️ Nowe commity"]) == .approved
+    check(twice.changes(since: snapshot, viewer: "me") == ["• bob - komentarz"], "repeated activity collapsed")
+    check(pr(oid: "b2", activity: []).changes(since: snapshot, viewer: "me") == ["↑ Nowe commity"], "push without known author")
+    check(AlertEvent.primary(in: ["• bob - komentarz", "✓ ann - zatwierdzenie", "↑ Nowe commity"]) == .approved
             && AlertEvent.primary(in: ["Bez prefiksu"]) == .activity, "icon follows the most important event")
     check(summarizeChanges(["a", "b", "c", "d", "e"]) == "a\nb\nc\n+2 więcej", "long change lists truncated")
     let encoded = try JSONEncoder().encode(snapshot)
@@ -369,12 +369,12 @@ do {
     let pr = PullRequest(id: "P", number: 1, title: "t", url: URL(string: "https://github.com/o/r/pull/1")!, repository: "o/r",
                          author: "a", authorAvatarURL: nil, createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil)
     let alerts = [
-        PullRequestAlert(pullRequest: pr, details: ["💬 bob - komentarz", "✅ ann - zatwierdzenie"]),
-        PullRequestAlert(pullRequest: pr, details: ["💬 eve - komentarz"]),
+        PullRequestAlert(pullRequest: pr, details: ["• bob - komentarz", "✓ ann - zatwierdzenie"]),
+        PullRequestAlert(pullRequest: pr, details: ["• eve - komentarz"]),
     ]
     let muted = NotificationPreferences(mutedEvents: [.comment])
     let filtered = muted.filter(alerts, at: at(12), calendar: utc)
-    check(filtered.count == 1 && filtered[0].details == ["✅ ann - zatwierdzenie"] && filtered[0].event == .approved,
+    check(filtered.count == 1 && filtered[0].details == ["✓ ann - zatwierdzenie"] && filtered[0].event == .approved,
           "muted events are dropped")
     check(NotificationPreferences(quietHoursEnabled: true).filter(alerts, at: at(22), calendar: utc).isEmpty,
           "nothing is sent during quiet hours")
