@@ -131,7 +131,7 @@ internal static class Program
             Check(Buttons(settings).Any(b => Equals(b.Content, "Importuj członków zespołu")),
                 "Team import is available in settings");
             var nav = Descendants<TabControl>(settings).Single();
-            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 5, "Settings use a left navigation menu");
+            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 6, "Settings use a left navigation menu");
             settings.SelectTab(2);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
@@ -175,7 +175,23 @@ internal static class Program
             Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().ReviewReminder.SnoozedUntil is not null,
                 "Reminder snooze saved to disk");
             Check(savedWeekdays.Count == 6, "Weekday selection round trip");
-            settings.SelectTab(4);
+            settings.SelectTab(3);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            var eventBoxes = Descendants<CheckBox>(settings).Where(box => box.ToolTip is string).ToList();
+            eventBoxes.Single(box => Equals(box.ToolTip, "Komentarz")).IsChecked = false;
+            Descendants<CheckBox>(settings).Single(box => Equals(box.Content, "Ciche godziny")).IsChecked = true;
+            Descendants<TextBox>(settings).Single(box => Equals(box.ToolTip, "Początek cichych godzin, np. 18:00")).Text = "22:00";
+            Buttons(settings).Single(b => Equals(b.ToolTip, "Zapisz ustawienia powiadomień"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            for (var i = 0; i < 100 && !app.Config.Notifications.QuietHoursEnabled; i++) await Task.Delay(10);
+            Check(app.Config.Notifications.QuietHoursEnabled && app.Config.Notifications.QuietFrom == "22:00"
+                && app.Config.Notifications.MutedEvents.SequenceEqual(["comment"]), "Notification settings saved from the tab");
+            Check(File.Exists(Path.Combine(AppContext.BaseDirectory, "Badges", "badge-approved.png")), "Notification badges ship with the app");
+            var loud = app.Config.Copy();
+            loud.Notifications = new NotificationPreferences();
+            await app.SaveConfigAsync(loud);
+            settings.SelectTab(5);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Token tab renders");

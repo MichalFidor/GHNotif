@@ -48,6 +48,7 @@ struct SettingsView: View {
         case .people: peopleTab
         case .search: searchTab
         case .reminders: remindersTab
+        case .notifications: notificationsTab
         case .general: generalTab
         case .token: tokenTab
         }
@@ -250,7 +251,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Dodatkowo pokazuj", "Also show"))
             } footer: {
-                Text(L("Niezależnie od autora – wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu – mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author – mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team – they can still make the list much longer, so they're off by default."))
+                Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu - mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team - they can still make the list much longer, so they're off by default."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -261,7 +262,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Zakres", "Scope"))
             } footer: {
-                Text(L("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu – aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.", "Empty = every repository visible to the token. Press Enter to apply. SAML SSO organizations require token authorization – the app warns when results are hidden."))
+                Text(L("Puste = wszystkie repozytoria widoczne dla tokenu. Zatwierdź Enterem. Organizacje z SAML SSO wymagają autoryzacji tokenu - aplikacja pokaże ostrzeżenie, jeśli wyniki są ukryte.", "Empty = every repository visible to the token. Press Enter to apply. SAML SSO organizations require token authorization - the app warns when results are hidden."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -279,21 +280,9 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
-    private var generalTab: some View {
+    private var notificationsTab: some View {
         Form {
-            Section(L("Język", "Language")) {
-                Picker(L("Język aplikacji", "App language"), selection: $model.config.language) {
-                    Text(L("Systemowy", "System")).tag(AppLanguage.system)
-                    Text("Polski").tag(AppLanguage.polish)
-                    Text("English").tag(AppLanguage.english)
-                }
-            }
-
-            Section(L("Odświeżanie", "Refresh")) {
-                Stepper(L("Co \(model.config.refreshMinutes) min", "Every \(model.config.refreshMinutes) min"), value: $model.config.refreshMinutes, in: 1...60)
-            }
-
-            Section(L("Powiadomienia", "Notifications")) {
+            Section {
                 Toggle(L("Powiadamiaj o nowych PR-ach i nowej aktywności", "Notify about new PRs and new activity"), isOn: $model.config.notify)
                 HStack {
                     Button(L("Wyślij testowe", "Send test")) {
@@ -306,6 +295,70 @@ struct SettingsView: View {
                 if !model.notificationStatus.isEmpty {
                     Text(model.notificationStatus).font(.caption)
                 }
+            }
+
+            Section {
+                ForEach(AlertEvent.allCases, id: \.self) { event in
+                    Toggle(isOn: Binding(
+                        get: { !model.config.notifications.mutedEvents.contains(event) },
+                        set: { on in
+                            if on { model.config.notifications.mutedEvents.remove(event) }
+                            else { model.config.notifications.mutedEvents.insert(event) }
+                        }
+                    )) {
+                        HStack(spacing: 8) {
+                            Image(nsImage: NotificationIcon.image(for: event))
+                                .resizable().frame(width: 18, height: 18)
+                            Text(event.title)
+                        }
+                    }
+                }
+            } header: {
+                Text(L("Zdarzenia", "Events"))
+            } footer: {
+                Text(L("Wyłączone zdarzenia nie wysyłają powiadomień; PR i tak jest widoczny na liście.", "Events that are off don't send notifications; the PR still shows in the list."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.config.notify)
+
+            Section {
+                Toggle(L("Ciche godziny", "Quiet hours"), isOn: $model.config.notifications.quietHoursEnabled)
+                DatePicker(L("Od", "From"), selection: Binding(
+                    get: { Self.date(for: model.config.notifications.quietFrom) },
+                    set: { if let time = Self.time(from: $0) { model.config.notifications.quietFrom = time } }
+                ), displayedComponents: .hourAndMinute)
+                .disabled(!model.config.notifications.quietHoursEnabled)
+                DatePicker(L("Do", "To"), selection: Binding(
+                    get: { Self.date(for: model.config.notifications.quietTo) },
+                    set: { if let time = Self.time(from: $0) { model.config.notifications.quietTo = time } }
+                ), displayedComponents: .hourAndMinute)
+                .disabled(!model.config.notifications.quietHoursEnabled)
+            } footer: {
+                Text(L("W tych godzinach GHNotif nie wysyła powiadomień, ale lista PR-ów dalej się odświeża. Zakres może przechodzić przez północ.", "GHNotif sends no notifications during these hours, but the PR list keeps refreshing. The range may span midnight."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.config.notify)
+        }
+        .formStyle(.grouped)
+    }
+
+    private static func time(from date: Date) -> ReminderTime? {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return ReminderTime(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
+    }
+
+    private var generalTab: some View {
+        Form {
+            Section(L("Język", "Language")) {
+                Picker(L("Język aplikacji", "App language"), selection: $model.config.language) {
+                    Text(L("Systemowy", "System")).tag(AppLanguage.system)
+                    Text("Polski").tag(AppLanguage.polish)
+                    Text("English").tag(AppLanguage.english)
+                }
+            }
+
+            Section(L("Odświeżanie", "Refresh")) {
+                Stepper(L("Co \(model.config.refreshMinutes) min", "Every \(model.config.refreshMinutes) min"), value: $model.config.refreshMinutes, in: 1...60)
             }
 
             Section("Workflow") {
@@ -355,7 +408,7 @@ struct SettingsView: View {
                     Button(L("Usuń PAT i użyj gh CLI", "Remove PAT and use gh CLI")) { model.setPersonalAccessToken(nil) }
                 }
             } footer: {
-                Text(L("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests – read) ma pierwszeństwo i jest przechowywany w Keychain.", "By default the token from `gh auth login` is used. A PAT (classic: `repo` scope; fine-grained: Pull requests – read) takes precedence and is stored in Keychain."))
+                Text(L("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests - read) ma pierwszeństwo i jest przechowywany w Keychain.", "By default the token from `gh auth login` is used. A PAT (classic: `repo` scope; fine-grained: Pull requests - read) takes precedence and is stored in Keychain."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -417,7 +470,7 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case people, search, reminders, general, token
+    case people, search, reminders, notifications, general, token
 
     var id: Self { self }
 
@@ -426,6 +479,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .people: L("Osoby", "People")
         case .search: L("Wyszukiwanie", "Search")
         case .reminders: L("Przypomnienia", "Reminders")
+        case .notifications: L("Powiadomienia", "Notifications")
         case .general: L("Ogólne", "General")
         case .token: "Token"
         }
@@ -436,6 +490,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .people: "person.2.fill"
         case .search: "magnifyingglass"
         case .reminders: "alarm.fill"
+        case .notifications: "bell.badge.fill"
         case .general: "gearshape.fill"
         case .token: "key.fill"
         }
@@ -446,6 +501,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .people: .blue
         case .search: .purple
         case .reminders: .red
+        case .notifications: .pink
         case .general: .gray
         case .token: .orange
         }

@@ -200,6 +200,16 @@ func runChecks() async throws {
                  "A genuinely new comment after review still notifies")
     await model.refresh()
     precondition(Notifier.notifiedIDs.count == beforeComment + 2, "New comment is not repeated either")
+    model.config.notifications.mutedEvents = [.comment]
+    let mutedComment = Activity(login: "commenter", date: reviewAt.addingTimeInterval(150), id: "muted-comment")
+    GitHubClient.results = [makePR(
+        activity: [commentAfterReview, nextComment, mutedComment], reviews: reviewedPR.reviews
+    )]
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == beforeComment + 2, "Muted event type does not notify")
+    model.config.notifications.mutedEvents = []
+    await model.refresh()
+    precondition(Notifier.notifiedIDs.count == beforeComment + 2, "Muted activity is not delivered later")
     model.snooze(pr, until: Date().addingTimeInterval(3600))
     await model.refresh()
     precondition(model.snoozedRequests.map(\.id) == [pr.id] && Notifier.notifiedIDs.count == beforeComment + 2,

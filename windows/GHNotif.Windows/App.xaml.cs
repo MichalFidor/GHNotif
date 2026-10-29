@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -118,6 +119,11 @@ public partial class App : Application
             if (args.Button == Forms.MouseButtons.Left) Dispatcher.Invoke(() => panel?.Toggle());
         };
         tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => panel?.ShowPanel());
+        Toasts.Initialize(url => Dispatcher.Invoke(() =>
+        {
+            if (url is null) { panel?.ShowPanel(); return; }
+            try { OpenGitHub(url); } catch (InvalidOperationException) { panel?.ShowPanel(); }
+        }));
         tray.ContextMenuStrip = CreateTrayMenu();
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
         timer.Tick += (_, _) =>
@@ -210,17 +216,7 @@ public partial class App : Application
                 Error = null;
                 LastRefresh = DateTimeOffset.Now;
                 UpdateTray();
-                if (fresh.Count > 0 && tray is not null)
-                {
-                    var single = fresh.Count == 1 ? fresh[0] : null;
-                    tray.BalloonTipTitle = Clip(single is null ? L($"{fresh.Count} PR-ów wymaga uwagi", $"{fresh.Count} PRs need attention")
-                        : $"{single.PullRequest.Repository} #{single.PullRequest.Number}", 63);
-                    tray.BalloonTipText = Clip(single is null
-                        ? ActivityText.Summarize(fresh.Select(alert =>
-                            $"#{alert.PullRequest.Number}: {alert.Details.FirstOrDefault() ?? alert.PullRequest.Title}").ToList())
-                        : $"{single.PullRequest.Title}\n{ActivityText.Summarize(single.Details)}", 255);
-                    tray.ShowBalloonTip(5000);
-                }
+                Notify(config.Notifications.Filter(fresh, DateTime.Now.TimeOfDay));
             } while (refreshQueued);
         }
         finally { refreshing = false; Changed?.Invoke(); }
@@ -383,6 +379,23 @@ public partial class App : Application
         }
         settings.Show();
         settings.Activate();
+    }
+
+    private void Notify(IReadOnlyList<PullRequestAlert> alerts)
+    {
+        if (alerts.Count == 0 || tray is null) return;
+        var single = alerts.Count == 1 ? alerts[0] : null;
+        var title = single is null ? L($"{alerts.Count} PR-ów wymaga uwagi", $"{alerts.Count} PRs need attention")
+            : $"{single.PullRequest.Repository} #{single.PullRequest.Number}";
+        var body = single is null
+            ? ActivityText.Summarize(alerts.Select(alert =>
+                $"#{alert.PullRequest.Number}: {alert.Details.FirstOrDefault() ?? alert.PullRequest.Title}").ToList())
+            : ActivityText.Summarize(single.Details);
+        var kind = ActivityText.PrimaryEvent(alerts.SelectMany(alert => alert.Details));
+        if (Toasts.TryShow(title, single?.PullRequest.Title, body, kind, single?.PullRequest.Url, single?.PullRequest.Id)) return;
+        tray.BalloonTipTitle = Clip(title, 63);
+        tray.BalloonTipText = Clip(single is null ? body : $"{single.PullRequest.Title}\n{body}", 255);
+        tray.ShowBalloonTip(5000);
     }
 
     // NotifyIcon balloons reject titles over 63 and texts over 255 characters.

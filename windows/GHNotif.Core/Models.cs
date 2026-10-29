@@ -142,6 +142,33 @@ public static class ActivityText
 
     public static string Line(this AlertEvent kind, string text) => $"{kind.Emoji()} {text}";
 
+    /// Event of a single line, recognised by its emoji prefix.
+    public static AlertEvent EventOf(string line)
+    {
+        foreach (var kind in Enum.GetValues<AlertEvent>())
+            if (line.StartsWith(kind.Emoji() + " ", StringComparison.Ordinal)) return kind;
+        return AlertEvent.Activity;
+    }
+
+    /// Most important event among the lines; picks the notification icon.
+    public static AlertEvent PrimaryEvent(IEnumerable<string> lines) =>
+        lines.Select(EventOf).DefaultIfEmpty(AlertEvent.Activity).Min();
+
+    /// Name shown in the notification filter settings.
+    public static string Title(this AlertEvent kind) => kind switch
+    {
+        AlertEvent.ChangesRequested => L("Prośba o zmiany", "Changes requested"),
+        AlertEvent.Approved => L("Zatwierdzenie", "Approved"),
+        AlertEvent.ReviewRequested => L("Prośba o Twoje review", "Review requested from you"),
+        AlertEvent.Mention => L("Wzmianka", "Mention"),
+        AlertEvent.ReviewDismissed => L("Odrzucone review", "Review dismissed"),
+        AlertEvent.Comment => L("Komentarz", "Comment"),
+        AlertEvent.Commits => L("Nowe commity", "New commits"),
+        AlertEvent.NewPullRequest => L("Nowy PR", "New PR"),
+        AlertEvent.SnoozeEnded => L("Koniec odłożenia", "Snooze ended"),
+        _ => L("Inna aktywność", "Other activity")
+    };
+
     /// Notification body lines: at most `limit` entries, with a "+N więcej" suffix for the rest.
     public static string Summarize(IReadOnlyList<string> lines, int limit = 3) => lines.Count <= limit
         ? string.Join("\n", lines)
@@ -178,6 +205,7 @@ public sealed class Config
     public ReviewReminderSettings ReviewReminder { get; set; } = new();
     /// Configs from before the language option were always Polish; new installations start with System.
     public AppLanguage Language { get; set; } = AppLanguage.Polish;
+    public NotificationPreferences Notifications { get; set; } = new();
 
     public bool HasSearches => Users.Count > 0 || IncludeMentions || IncludeReviewRequests;
     public bool Includes(PullRequest pr) =>
@@ -190,19 +218,21 @@ public sealed class Config
         IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests,
         AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
         ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder, ReviewReminder = ReviewReminder.Copy(),
-        Language = Language
+        Language = Language, Notifications = Notifications.Copy()
     };
 
     public void Validate()
     {
         if (Users is null || ExtraQualifiers is null || ExcludedRepositories is null || ExcludedLabels is null
             || RefreshMinutes is < 1 or > 60 || !Enum.IsDefined(SortOrder) || !Enum.IsDefined(Language))
-            throw new InvalidDataException(L("Nieprawidłowa konfiguracja. Interwał musi wynosić 1–60 minut.", "Invalid configuration. The interval must be 1–60 minutes."));
+            throw new InvalidDataException(L("Nieprawidłowa konfiguracja. Interwał musi wynosić 1-60 minut.", "Invalid configuration. The interval must be 1-60 minutes."));
         Users = QueryBuilder.Normalize(Users).ToList();
         ExcludedRepositories = NormalizeValues(ExcludedRepositories);
         ExcludedLabels = NormalizeValues(ExcludedLabels);
         ReviewReminder ??= new();
         ReviewReminder.Normalize();
+        Notifications ??= new();
+        Notifications.Normalize();
     }
 
     private static List<string> NormalizeValues(IEnumerable<string> values) => values

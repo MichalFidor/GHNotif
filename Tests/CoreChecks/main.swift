@@ -9,7 +9,7 @@ func check(_ condition: @autoclosure () throws -> Bool, _ message: String, line:
         if try condition() { return }
         print("FAIL (line \(line)): \(message)")
     } catch {
-        print("FAIL (line \(line)): \(message) – threw \(error)")
+        print("FAIL (line \(line)): \(message) - threw \(error)")
     }
     failures += 1
 }
@@ -323,6 +323,49 @@ do { // Localization
     check(GitHubError.unauthorized.errorDescription == "The GitHub token is invalid or expired.", "English errors")
     Localization.language = .polish
     check(ActivityKind.approved.label == "zatwierdzenie", "switching back to Polish")
+}
+
+// MARK: Notification preferences
+
+do {
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = TimeZone(identifier: "UTC")!
+    func at(_ hour: Int, _ minute: Int = 0) -> Date {
+        utc.date(from: DateComponents(year: 2025, month: 1, day: 6, hour: hour, minute: minute))!
+    }
+    var prefs = NotificationPreferences(quietHoursEnabled: true)
+    check(prefs.isQuiet(at: at(18), calendar: utc) && prefs.isQuiet(at: at(2), calendar: utc)
+            && !prefs.isQuiet(at: at(8), calendar: utc) && !prefs.isQuiet(at: at(12), calendar: utc),
+          "quiet hours span midnight")
+    prefs.quietFrom = ReminderTime(hour: 12, minute: 0)!
+    prefs.quietTo = ReminderTime(hour: 13, minute: 30)!
+    check(prefs.isQuiet(at: at(13, 29), calendar: utc) && !prefs.isQuiet(at: at(13, 30), calendar: utc)
+            && !prefs.isQuiet(at: at(11, 59), calendar: utc), "same-day quiet hours")
+    prefs.quietHoursEnabled = false
+    check(!prefs.isQuiet(at: at(12, 30), calendar: utc), "quiet hours off")
+
+    let pr = PullRequest(id: "P", number: 1, title: "t", url: URL(string: "https://github.com/o/r/pull/1")!, repository: "o/r",
+                         author: "a", authorAvatarURL: nil, createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil)
+    let alerts = [
+        PullRequestAlert(pullRequest: pr, details: ["💬 bob - komentarz", "✅ ann - zatwierdzenie"]),
+        PullRequestAlert(pullRequest: pr, details: ["💬 eve - komentarz"]),
+    ]
+    let muted = NotificationPreferences(mutedEvents: [.comment])
+    let filtered = muted.filter(alerts, at: at(12), calendar: utc)
+    check(filtered.count == 1 && filtered[0].details == ["✅ ann - zatwierdzenie"] && filtered[0].event == .approved,
+          "muted events are dropped")
+    check(NotificationPreferences(quietHoursEnabled: true).filter(alerts, at: at(22), calendar: utc).isEmpty,
+          "nothing is sent during quiet hours")
+
+    let json = Data(#"{"mutedEvents":["comment","fromTheFuture"],"quietHoursEnabled":true,"quietFrom":"21:15"}"#.utf8)
+    let decoded = try? JSONDecoder().decode(NotificationPreferences.self, from: json)
+    check(decoded?.mutedEvents == [.comment] && decoded?.quietFrom.description == "21:15"
+            && decoded?.quietTo.description == "08:00", "lenient notification preferences decoding")
+    var config = AppConfig.default
+    config.notifications.mutedEvents = [.commits, .approved]
+    check(try JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(config)) == config, "notification preferences round trip")
+    check(try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":[]}"#.utf8)).notifications == NotificationPreferences(),
+          "old configs get default notification preferences")
 }
 
 if failures > 0 {

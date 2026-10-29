@@ -16,7 +16,7 @@ struct GHNotifApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window(L("GHNotif – ustawienia", "GHNotif – Settings"), id: SettingsView.windowID) {
+        Window(L("GHNotif - ustawienia", "GHNotif - Settings"), id: SettingsView.windowID) {
             SettingsView()
                 .environmentObject(model)
         }

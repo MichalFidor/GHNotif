@@ -1,3 +1,10 @@
+# GHNotif 0.5.4
+
+- New Notifications settings section: turn off single events (e.g. comments, new commits) and set quiet hours (e.g. 18:00-08:00) when no notifications are sent.
+- Windows: modern toast notifications with the GitHub badge of the event; clicking a toast opens the PR. The tray balloon remains as a fallback.
+- Windows: the tray icon and badges are shipped next to the exe (the icon was previously bundled inside the single-file exe and could not be loaded).
+- Short dashes ("-") everywhere in the UI.
+
 # GHNotif 0.5.3
 
 - Notifications use GitHub-style emoji per line (✅ approved, 🔴 changes requested, 💬 comment, ⬆️ new commits, 👀 review requested, …).

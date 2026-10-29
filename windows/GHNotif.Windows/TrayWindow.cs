@@ -264,7 +264,7 @@ internal sealed class TrayWindow : Window
             "APPROVED" => ("✓", L("Review: PR zatwierdzony", "Review: approved")),
             "CHANGES_REQUESTED" => ("!", L("Review: poproszono o zmiany", "Review: changes requested")),
             "REVIEW_REQUIRED" => ("◉", L("Review: wymagane zatwierdzenie", "Review: approval required")),
-            _ => ("–", L("Review: brak decyzji", "Review: no decision"))
+            _ => ("-", L("Review: brak decyzji", "Review: no decision"))
         };
         if (pr.Reasons.Contains(MatchReason.ReviewRequested))
         {

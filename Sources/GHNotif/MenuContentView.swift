@@ -110,8 +110,8 @@ struct MenuContentView: View {
         if model.ssoBlockedOrgCount > 0 {
             Banner(
                 systemImage: "lock.fill", tint: .orange,
-                text: L("Wyniki z \(model.ssoBlockedOrgCount) organizacji są ukryte – token nie jest autoryzowany przez SSO.",
-                         "Results from \(model.ssoBlockedOrgCount) organizations are hidden – the token is not SSO-authorized."),
+                text: L("Wyniki z \(model.ssoBlockedOrgCount) organizacji są ukryte - token nie jest autoryzowany przez SSO.",
+                         "Results from \(model.ssoBlockedOrgCount) organizations are hidden - the token is not SSO-authorized."),
                 actionTitle: L("Autoryzuj", "Authorize")
             ) {
                 NSWorkspace.shared.open(model.ssoSettingsURL)
@@ -166,7 +166,7 @@ struct MenuContentView: View {
     }
 
     private var emptyStateText: String {
-        if !model.config.hasSearches { return L("Nikogo nie obserwujesz – dodaj osoby w Ustawieniach.", "You aren't watching anyone – add people in Settings.") }
+        if !model.config.hasSearches { return L("Nikogo nie obserwujesz - dodaj osoby w Ustawieniach.", "You aren't watching anyone - add people in Settings.") }
         if model.isLoading && model.lastRefresh == nil { return L("Ładowanie…", "Loading…") }
         if layout.list == .done { return L("Brak załatwionych PR-ów.", "No done PRs.") }
         if layout.list == .snoozed { return L("Brak odłożonych PR-ów.", "No snoozed PRs.") }

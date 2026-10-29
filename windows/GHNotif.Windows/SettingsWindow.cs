@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using GHNotif.Core;
 
@@ -45,6 +46,10 @@ internal sealed class SettingsWindow : Window
     private readonly StackPanel reminderRows = new();
     private readonly List<(CheckBox Enabled, TextBox Time)> reminderAlarms = [];
     private readonly TextBlock nextReminder = Ui.Text("");
+    private readonly Dictionary<AlertEvent, CheckBox> eventBoxes = [];
+    private readonly CheckBox quietHours = new() { Content = L("Ciche godziny", "Quiet hours"), Margin = new Thickness(8) };
+    private readonly TextBox quietFrom = new() { Width = 60, Margin = new Thickness(3), ToolTip = L("Początek cichych godzin, np. 18:00", "Quiet hours start, e.g. 18:00") };
+    private readonly TextBox quietTo = new() { Width = 60, Margin = new Thickness(3), ToolTip = L("Koniec cichych godzin, np. 08:00", "Quiet hours end, e.g. 08:00") };
     private bool adding;
 
     internal SettingsWindow(App app)
@@ -137,11 +142,9 @@ internal sealed class SettingsWindow : Window
         language.SelectedValue = app.Config.Language;
         language.ToolTip = L("Język aplikacji - zapisz, aby zastosować", "App language - save to apply");
         general.Children.Add(language);
-        general.Children.Add(Heading(L("Odświeżanie co ile minut (1–60)", "Refresh every N minutes (1–60)")));
+        general.Children.Add(Heading(L("Odświeżanie co ile minut (1-60)", "Refresh every N minutes (1-60)")));
         minutes.Text = app.Config.RefreshMinutes.ToString();
         general.Children.Add(minutes);
-        notify.IsChecked = app.Config.Notify;
-        general.Children.Add(notify);
         autoDismissReviewed.IsChecked = app.Config.AutoDismissReviewed;
         general.Children.Add(autoDismissReviewed);
         sortOrder.SelectedValuePath = "Tag";
@@ -155,12 +158,46 @@ internal sealed class SettingsWindow : Window
         launchAtLogin.Checked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(true); return Task.CompletedTask; });
         launchAtLogin.Unchecked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(false); return Task.CompletedTask; });
         general.Children.Add(launchAtLogin);
-        general.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz interwał i powiadomienia", "Save general settings"), () => _ = app.RunAsync(SaveAsync)));
+        general.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz ustawienia ogólne", "Save general settings"), () => _ = app.RunAsync(SaveAsync)));
         general.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
         general.Children.Add(Ui.Button(L("Sprawdź aktualizacje", "Check for updates"), L("Sprawdź najnowszy release na GitHubie", "Check the latest release on GitHub"),
             () => _ = app.CheckForUpdatesAsync()));
         general.Children.Add(updateStatus);
         general.Children.Add(Ui.Text(L("Zamknięcie panelu PR-ów ukrywa go w zasobniku. Zakończenie aplikacji: prawy przycisk na ikonie → Zakończ.", "Closing the PR panel hides it in the tray. To quit: right-click the icon → Quit.")));
+
+        var notifications = Page();
+        notify.IsChecked = app.Config.Notify;
+        notifications.Children.Add(notify);
+        notifications.Children.Add(Heading(L("Zdarzenia", "Events")));
+        foreach (var kind in Enum.GetValues<AlertEvent>())
+        {
+            var label = new StackPanel { Orientation = Orientation.Horizontal };
+            var badge = Toasts.BadgePath(kind);
+            if (File.Exists(badge))
+                label.Children.Add(new Image { Source = new BitmapImage(new Uri(badge)), Width = 18, Height = 18, Margin = new Thickness(0, 0, 6, 0) });
+            label.Children.Add(new TextBlock { Text = kind.Title(), VerticalAlignment = VerticalAlignment.Center });
+            var box = new CheckBox
+            {
+                Content = label, Margin = new Thickness(8, 4, 8, 4), ToolTip = kind.Title(),
+                IsChecked = !app.Config.Notifications.IsMuted(kind), VerticalContentAlignment = VerticalAlignment.Center
+            };
+            eventBoxes[kind] = box;
+            notifications.Children.Add(box);
+        }
+        notifications.Children.Add(Ui.Text(L("Wyłączone zdarzenia nie wysyłają powiadomień; PR i tak jest widoczny na liście.", "Events that are off don't send notifications; the PR still shows in the list.")));
+        notifications.Children.Add(Heading(L("Ciche godziny (GG:MM)", "Quiet hours (HH:MM)")));
+        quietHours.IsChecked = app.Config.Notifications.QuietHoursEnabled;
+        notifications.Children.Add(quietHours);
+        var quietRange = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(5, 0, 0, 0) };
+        quietFrom.Text = app.Config.Notifications.QuietFrom;
+        quietTo.Text = app.Config.Notifications.QuietTo;
+        quietRange.Children.Add(new TextBlock { Text = L("Od", "From"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3) });
+        quietRange.Children.Add(quietFrom);
+        quietRange.Children.Add(new TextBlock { Text = L("do", "to"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3) });
+        quietRange.Children.Add(quietTo);
+        notifications.Children.Add(quietRange);
+        notifications.Children.Add(Ui.Text(L("W tych godzinach GHNotif nie wysyła powiadomień, ale lista PR-ów dalej się odświeża. Zakres może przechodzić przez północ.", "GHNotif sends no notifications during these hours, but the PR list keeps refreshing. The range may span midnight.")));
+        notifications.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz ustawienia powiadomień", "Save notification settings"), () => _ = app.RunAsync(SaveAsync)));
 
         var token = Page();
         token.Children.Add(Heading(L("Token GitHub", "GitHub token")));
@@ -189,6 +226,7 @@ internal sealed class SettingsWindow : Window
         tabs.Items.Add(Tab("\uE716", L("Osoby", "People"), people));
         tabs.Items.Add(Tab("\uE721", L("Wyszukiwanie", "Search"), search));
         tabs.Items.Add(Tab("\uEA8F", L("Przypomnienia", "Reminders"), reminders));
+        tabs.Items.Add(Tab("\uE7E7", L("Powiadomienia", "Notifications"), notifications));
         tabs.Items.Add(Tab("\uE713", L("Ogólne", "General"), general));
         tabs.Items.Add(Tab("\uE8D7", "Token", token));
         Content = tabs;
@@ -240,11 +278,19 @@ internal sealed class SettingsWindow : Window
     private async Task SaveAsync()
     {
         if (!int.TryParse(minutes.Text, out var value) || value is < 1 or > 60)
-            throw new InvalidOperationException(L("Interwał musi wynosić 1–60 minut.", "The interval must be 1–60 minutes."));
+            throw new InvalidOperationException(L("Interwał musi wynosić 1-60 minut.", "The interval must be 1-60 minutes."));
         var alarms = reminderAlarms.Select(row => new ReminderAlarm { Time = row.Time.Text.Trim(), Enabled = row.Enabled.IsChecked == true }).ToList();
         if (alarms.FirstOrDefault(alarm => !ReviewReminderSettings.TryParseTime(alarm.Time, out _))?.Time is { } invalid)
             throw new InvalidOperationException(L($"Nieprawidłowa godzina przypomnienia: {invalid}. Użyj formatu GG:MM, np. 09:00.", $"Invalid reminder time: {invalid}. Use the HH:MM format, e.g. 09:00."));
+        var from = quietFrom.Text.Trim();
+        var to = quietTo.Text.Trim();
+        if (!ReviewReminderSettings.TryParseTime(from, out _) || !ReviewReminderSettings.TryParseTime(to, out _))
+            throw new InvalidOperationException(L("Nieprawidłowe ciche godziny. Użyj formatu GG:MM, np. 18:00.", "Invalid quiet hours. Use the HH:MM format, e.g. 18:00."));
         var config = Copy();
+        foreach (var (kind, box) in eventBoxes) config.Notifications.SetMuted(kind, box.IsChecked != true);
+        config.Notifications.QuietHoursEnabled = quietHours.IsChecked == true;
+        config.Notifications.QuietFrom = from;
+        config.Notifications.QuietTo = to;
         config.ExtraQualifiers = extra.Text.Trim();
         config.RefreshMinutes = value;
         config.Notify = notify.IsChecked == true;

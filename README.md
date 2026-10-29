@@ -64,11 +64,12 @@ The Windows version has a light panel grouped by repository, with avatars, revie
 
 Settings (the gear icon in the panel header) have a sidebar on the left (like System Settings) and show the selected section on the right:
 
-- **People** – add people to follow (logins are verified on GitHub); the list is collapsed by default, with a counter and a filter. You can import/export the list as JSON or import members of a GitHub team (requires organization membership access: `read:org` for classic tokens or `Members: read` for fine-grained ones).
-- **Search** – mentions and review requests (see below), extra qualifiers (e.g. `org:my-org`) and excluded repositories and labels.
-- **Reminders** – days and times of the review reminder window (see below).
-- **General** – language, refresh interval, notifications, sorting, auto-dismiss after your own review, launch at login, version and updates.
-- **Token** – token source and an optional PAT.
+- **People** - add people to follow (logins are verified on GitHub); the list is collapsed by default, with a counter and a filter. You can import/export the list as JSON or import members of a GitHub team (requires organization membership access: `read:org` for classic tokens or `Members: read` for fine-grained ones).
+- **Search** - mentions and review requests (see below), extra qualifiers (e.g. `org:my-org`) and excluded repositories and labels.
+- **Reminders** - days and times of the review reminder window (see below).
+- **Notifications** - notifications on/off, which events notify, quiet hours (see below).
+- **General** - language, refresh interval, sorting, auto-dismiss after your own review, launch at login, version and updates.
+- **Token** - token source and an optional PAT.
 
 A new installation starts with an empty list of people.
 
@@ -76,10 +77,10 @@ A new installation starts with an empty list of people.
 
 PRs from the people you follow come first, but the list can also include:
 
-- **mentions** (`mentions:@me`, on by default) – open PRs by any author where someone mentioned you; marked with a purple `@`,
-- **review requests** (`user-review-requested:@me`, off by default) – only requests addressed to you personally, not to your team; marked with a person icon with a question mark.
+- **mentions** (`mentions:@me`, on by default) - open PRs by any author where someone mentioned you; marked with a purple `@`,
+- **review requests** (`user-review-requested:@me`, off by default) - only requests addressed to you personally, not to your team; marked with a person icon with a question mark.
 
-Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications – only new ones do.
+Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications - only new ones do.
 
 The configuration is stored in `~/Library/Application Support/GHNotif/config.json`.
 On Windows: `%LOCALAPPDATA%/GHNotif/config.json`; dismissed, snoozed and seen PRs and collapsed repositories are kept in `state.json`, and the encrypted PAT in `token.dat`. Don't add these files to a repository and don't share your token.
@@ -138,13 +139,19 @@ swift scripts/generate-icons.swift # macOS
 
 Each line says who did what, with a GitHub-style emoji: ✅ approved, 🔴 changes requested, 💬 comment,
 ⬆️ new commits, 👀 review requested, 📣 mention, 🚫 review dismissed, 🟢 new PR, ⏰ snooze ended.
-On macOS the notification also shows a GitHub timeline badge for the most important event and groups
-notifications per PR. Badges use [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
-see `Sources/GHNotif/Resources/Octicons-LICENSE.txt`). Windows tray balloons show the emoji only.
+Notifications also show a GitHub timeline badge for the most important event: on macOS as an attachment
+(notifications are grouped per PR), on Windows as a toast icon (clicking the toast opens the PR; the tray balloon
+is a fallback). Badges use [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
+see `Sources/GHNotif/Resources/Octicons-LICENSE.txt`); regenerate them with
+`swift scripts/generate-notification-badges.swift`.
+
+In Settings → Notifications you can turn off single events (e.g. comments) and set **quiet hours**
+(e.g. 18:00-08:00, may span midnight). Muted events and anything during quiet hours are not sent - not even
+later - but the PR list keeps updating.
 
 ## macOS notifications
 
-In Settings → General choose **Send test**. The app asks for permission and shows the result and the alert state.
+In Settings → Notifications choose **Send test**. The app asks for permission and shows the result and the alert state.
 The API accepting a notification doesn't guarantee a banner: in System Settings → Notifications → GHNotif
 enable banners/sound and check Focus mode. Automated tests verify that a new PR and a returning dismissed PR
 trigger a notification; the look of the system banner has to be checked on a logged-in Mac.

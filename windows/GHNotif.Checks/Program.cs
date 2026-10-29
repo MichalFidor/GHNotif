@@ -359,6 +359,53 @@ Check(ActivityKind.Approved.Label() == "approved" && ActivityText.Summarize(["a"
 Localization.Language = AppLanguage.Polish;
 Check(ActivityKind.Approved.Label() == "zatwierdzenie", "Switching back to Polish");
 
+var quiet = new NotificationPreferences { QuietHoursEnabled = true };
+Check(quiet.IsQuiet(new TimeSpan(18, 0, 0)) && quiet.IsQuiet(new TimeSpan(2, 0, 0))
+    && !quiet.IsQuiet(new TimeSpan(8, 0, 0)) && !quiet.IsQuiet(new TimeSpan(12, 0, 0)), "Quiet hours span midnight");
+quiet.QuietFrom = "12:00";
+quiet.QuietTo = "13:30";
+Check(quiet.IsQuiet(new TimeSpan(13, 29, 59)) && !quiet.IsQuiet(new TimeSpan(13, 30, 0)) && !quiet.IsQuiet(new TimeSpan(11, 59, 0)),
+    "Same-day quiet hours");
+quiet.QuietHoursEnabled = false;
+Check(!quiet.IsQuiet(new TimeSpan(12, 30, 0)), "Quiet hours off");
+var notifyPr = new PullRequest("P", 1, "t", "https://github.com/o/r/pull/1", "o/r", "a", null,
+    DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null);
+PullRequestAlert[] notifyAlerts =
+[
+    new(notifyPr, ["💬 bob - komentarz", "✅ ann - zatwierdzenie"]),
+    new(notifyPr, ["💬 eve - komentarz"])
+];
+var mutedComments = new NotificationPreferences();
+mutedComments.SetMuted(AlertEvent.Comment, true);
+var delivered = mutedComments.Filter(notifyAlerts, new TimeSpan(12, 0, 0));
+Check(delivered.Count == 1 && delivered[0].Details.SequenceEqual(["✅ ann - zatwierdzenie"])
+    && ActivityText.PrimaryEvent(delivered[0].Details) == AlertEvent.Approved, "Muted events are dropped");
+Check(new NotificationPreferences { QuietHoursEnabled = true }.Filter(notifyAlerts, new TimeSpan(22, 0, 0)).Count == 0,
+    "Nothing is sent during quiet hours");
+Check(ActivityText.PrimaryEvent(["⬆️ Nowe commity", "🔴 x - prośba o zmiany"]) == AlertEvent.ChangesRequested
+    && ActivityText.EventOf("Bez prefiksu") == AlertEvent.Activity, "Primary event picks the most important line");
+Check(mutedComments.MutedEvents.SequenceEqual(["comment"]) && NotificationPreferences.Key(AlertEvent.NewPullRequest) == "newPullRequest",
+    "Event names match the macOS config");
+var prefsDirectory = Path.Combine(Path.GetTempPath(), "ghnotif-prefs-" + Guid.NewGuid());
+try
+{
+    Directory.CreateDirectory(prefsDirectory);
+    var prefsPath = Path.Combine(prefsDirectory, "config.json");
+    await File.WriteAllTextAsync(prefsPath, """{"users":[],"notifications":{"mutedEvents":["comment","fromTheFuture"],"quietHoursEnabled":true,"quietFrom":"21:15"}}""");
+    var prefsConfig = new JsonStore<Config>(prefsPath).Load();
+    prefsConfig.Validate();
+    Check(prefsConfig.Notifications.IsMuted(AlertEvent.Comment) && prefsConfig.Notifications.QuietFrom == "21:15"
+        && prefsConfig.Notifications.QuietTo == "08:00", "Lenient notification preferences loading");
+    await File.WriteAllTextAsync(prefsPath, """{"users":[]}""");
+    var oldConfig = new JsonStore<Config>(prefsPath).Load();
+    oldConfig.Validate();
+    Check(oldConfig.Notifications.MutedEvents.Count == 0 && !oldConfig.Notifications.QuietHoursEnabled,
+        "Old configs get default notification preferences");
+    await ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
+        new Config { Notifications = new NotificationPreferences { QuietFrom = "25:00" } }.Validate()), "Invalid quiet hours fail");
+}
+finally { if (Directory.Exists(prefsDirectory)) Directory.Delete(prefsDirectory, recursive: true); }
+
 Console.WriteLine($"All {checks} Windows core checks passed.");
 
 sealed class FakeHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler

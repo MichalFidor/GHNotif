@@ -26,7 +26,7 @@ public enum Localization {
         set { lock.withLock { storedLanguage = newValue.resolved() } }
     }
 
-    /// Polish plural: 1 → `one`, 2–4 (not 12–14) → `few`, otherwise `many`.
+    /// Polish plural: 1 → `one`, 2-4 (not 12-14) → `few`, otherwise `many`.
     public static func polishPlural(_ count: Int, one: String, few: String, many: String) -> String {
         if count == 1 { return one }
         let tens = count % 100, units = count % 10

@@ -185,7 +185,7 @@ public enum ActivityKind: Hashable, Sendable {
 }
 
 /// What a notification line is about; drives the GitHub-style emoji prefix and the notification icon.
-public enum AlertEvent: String, CaseIterable, Sendable {
+public enum AlertEvent: String, CaseIterable, Hashable, Sendable {
     // Ordered by importance: the first event found in an alert picks its icon.
     case changesRequested, approved, reviewRequested, mention, reviewDismissed, comment, commits, newPullRequest, snoozeEnded, activity
 
@@ -204,11 +204,33 @@ public enum AlertEvent: String, CaseIterable, Sendable {
         }
     }
 
+    /// Name shown in the notification filter settings.
+    public var title: String {
+        switch self {
+        case .changesRequested: L("Prośba o zmiany", "Changes requested")
+        case .approved: L("Zatwierdzenie", "Approved")
+        case .reviewRequested: L("Prośba o Twoje review", "Review requested from you")
+        case .mention: L("Wzmianka", "Mention")
+        case .reviewDismissed: L("Odrzucone review", "Review dismissed")
+        case .comment: L("Komentarz", "Comment")
+        case .commits: L("Nowe commity", "New commits")
+        case .newPullRequest: L("Nowy PR", "New PR")
+        case .snoozeEnded: L("Koniec odłożenia", "Snooze ended")
+        case .activity: L("Inna aktywność", "Other activity")
+        }
+    }
+
     public func line(_ text: String) -> String { "\(emoji) \(text)" }
 
-    /// Most important event among the lines, recognised by their emoji prefix.
+    /// Event of a single line, recognised by its emoji prefix.
+    public static func of(_ line: String) -> AlertEvent {
+        allCases.first { line.hasPrefix($0.emoji + " ") } ?? .activity
+    }
+
+    /// Most important event among the lines.
     public static func primary(in lines: [String]) -> AlertEvent {
-        allCases.first { event in lines.contains { $0.hasPrefix(event.emoji + " ") } } ?? .activity
+        let events = Set(lines.map(of))
+        return allCases.first(where: events.contains) ?? .activity
     }
 }
 

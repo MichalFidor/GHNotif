@@ -25,7 +25,7 @@ public static class Localization
     /// Picks the Polish or English text for the current language.
     public static string L(string polish, string english) => Language == AppLanguage.Polish ? polish : english;
 
-    /// Polish plural: 1 → one, 2–4 (not 12–14) → few, otherwise many.
+    /// Polish plural: 1 → one, 2-4 (not 12-14) → few, otherwise many.
     public static string PolishPlural(int count, string one, string few, string many) =>
         count == 1 ? one : count % 10 is >= 2 and <= 4 && count % 100 is not (>= 12 and <= 14) ? few : many;
 }

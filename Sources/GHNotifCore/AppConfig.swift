@@ -22,12 +22,14 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var sortOrder: SortOrder
     public var reviewReminder: ReviewReminderSettings
     public var language: AppLanguage
+    public var notifications: NotificationPreferences
 
     public init(
         users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true,
         includeMentions: Bool = true, includeReviewRequests: Bool = false, autoDismissReviewed: Bool = true,
         excludedRepositories: [String] = [], excludedLabels: [String] = [], sortOrder: SortOrder = .recentlyUpdated,
-        reviewReminder: ReviewReminderSettings = ReviewReminderSettings(), language: AppLanguage = .system
+        reviewReminder: ReviewReminderSettings = ReviewReminderSettings(), language: AppLanguage = .system,
+        notifications: NotificationPreferences = NotificationPreferences()
     ) {
         self.users = users
         self.extraQualifiers = extraQualifiers
@@ -41,6 +43,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.sortOrder = sortOrder
         self.reviewReminder = reviewReminder
         self.language = language
+        self.notifications = notifications
     }
 
     /// Missing keys (config files from older versions) fall back to defaults.
@@ -63,6 +66,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
             ?? fallback.reviewReminder
         // Configs from before the language option were always Polish; keep them that way.
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .polish
+        notifications = try container.decodeIfPresent(NotificationPreferences.self, forKey: .notifications)
+            ?? fallback.notifications
     }
 
     /// True when at least one search would run.

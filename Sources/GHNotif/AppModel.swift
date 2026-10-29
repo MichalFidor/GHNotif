@@ -392,7 +392,7 @@ final class AppModel: ObservableObject {
         })
         seenIDs = ids
         suppressNextNotifications = false
-        notifier.notify(about: alerts)
+        notifier.notify(about: config.notifications.filter(alerts))
     }
 
     private static func loadDismissals(from preferences: UserDefaults) -> [String: DismissalSnapshot] {

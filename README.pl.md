@@ -64,11 +64,12 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
 
-- **Osoby** – dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
-- **Wyszukiwanie** – wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
-- **Przypomnienia** – dni i godziny okna z przypomnieniem o review (patrz niżej).
-- **Ogólne** – język, interwał odświeżania, powiadomienia, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
-- **Token** – źródło tokenu i opcjonalny PAT.
+- **Osoby** - dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
+- **Wyszukiwanie** - wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
+- **Przypomnienia** - dni i godziny okna z przypomnieniem o review (patrz niżej).
+- **Powiadomienia** - włączanie powiadomień, które zdarzenia powiadamiają, ciche godziny (patrz niżej).
+- **Ogólne** - język, interwał odświeżania, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
+- **Token** - źródło tokenu i opcjonalny PAT.
 
 Nowa instalacja zaczyna z pustą listą osób.
 
@@ -76,10 +77,10 @@ Nowa instalacja zaczyna z pustą listą osób.
 
 Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
 
-- **wzmianki** (`mentions:@me`, domyślnie włączone) – otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
-- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) – tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
+- **wzmianki** (`mentions:@me`, domyślnie włączone) - otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
+- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) - tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
 
-Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień – tylko nowe.
+Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień - tylko nowe.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
 Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych, odłożonych i widzianych PR-ów oraz zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
@@ -126,7 +127,7 @@ Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → J
 
 ## Ikony i tooltipy
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania – prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania - prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
 Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
@@ -138,13 +139,18 @@ swift scripts/generate-icons.swift # macOS
 
 Każda linia mówi, kto co zrobił, z emoji w stylu GitHuba: ✅ zatwierdzenie, 🔴 prośba o zmiany, 💬 komentarz,
 ⬆️ nowe commity, 👀 prośba o review, 📣 wzmianka, 🚫 odrzucone review, 🟢 nowy PR, ⏰ koniec odłożenia.
-Na macOS powiadomienie pokazuje też odznakę z osi czasu GitHuba dla najważniejszego zdarzenia i grupuje
-powiadomienia per PR. Odznaki używają [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
-zob. `Sources/GHNotif/Resources/Octicons-LICENSE.txt`). Dymki w zasobniku Windows pokazują tylko emoji.
+Powiadomienia pokazują też odznakę z osi czasu GitHuba dla najważniejszego zdarzenia: na macOS jako załącznik
+(powiadomienia są grupowane per PR), na Windows jako ikonę toastu (kliknięcie otwiera PR; dymek w zasobniku
+to wariant zapasowy). Odznaki używają [Octicons](https://github.com/primer/octicons) (MIT, © GitHub Inc.,
+zob. `Sources/GHNotif/Resources/Octicons-LICENSE.txt`); generuje je `swift scripts/generate-notification-badges.swift`.
+
+W Ustawienia → Powiadomienia można wyłączyć pojedyncze zdarzenia (np. komentarze) i ustawić **ciche godziny**
+(np. 18:00-08:00, mogą przechodzić przez północ). Wyciszone zdarzenia i wszystko w cichych godzinach nie jest
+wysyłane - także później - ale lista PR-ów dalej się aktualizuje.
 
 ## Powiadomienia macOS
 
-W ustawieniach aplikacji wybierz **Wyślij testowe powiadomienie**. Aplikacja poprosi
+W Ustawienia → Powiadomienia wybierz **Wyślij testowe**. Aplikacja poprosi
 o zgodę i pokaże wynik wysłania oraz stan alertów. Przyjęcie powiadomienia przez API
 nie gwarantuje wyświetlenia bannera: w Ustawienia systemowe → Powiadomienia → GHNotif
 włącz banery/dźwięk i sprawdź tryb skupienia. Testy automatyczne sprawdzają, że nowy
