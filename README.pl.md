@@ -161,12 +161,17 @@ wymaga sprawdzenia na zalogowanym Macu.
 
 Numer wersji pochodzi z `VERSION`. Obie aplikacje sprawdzają najnowszy stabilny release
 przy starcie i co 6 godzin; można też użyć **Sprawdź aktualizacje** w ustawieniach.
-Gdy jest nowsza wersja, w panelu pojawia się przycisk otwierający GitHub Releases.
+Gdy jest nowsza wersja, w panelu pojawia się baner i raz dla danej wersji powiadomienie systemowe
+(na macOS wymagane są uprawnienia GHNotif do powiadomień). Można wybrać **Zaktualizuj teraz**
+albo **Później**; przycisk **Zaktualizuj teraz** jest też dostępny w panelu.
 Sprawdzanie korzysta z publicznego API, bez tokenu i bez wysyłania listy obserwowanych osób.
 Błędy sprawdzania są widoczne w ustawieniach i nie przerywają pobierania PR-ów.
 
-Przy instalacji ZIP aktualizacja pozostaje ręczna. Homebrew: `brew upgrade --cask ghnotif`.
-W obu przypadkach ustawienia, token i lokalny stan pozostają poza paczką.
+Instalacja Homebrew na macOS uruchamia w Terminalu `brew update` i `brew upgrade --cask ghnotif`.
+Inne instalacje macOS pobierają właściwy ZIP, weryfikują sumę SHA-256, podmieniają aplikację
+i uruchamiają ją ponownie. Windows pobiera i weryfikuje ZIP, po zamknięciu aplikacji podmienia
+pliki i uruchamia GHNotif ponownie. Instalacja w chronionym folderze może wymagać ręcznej
+aktualizacji z uprawnieniami administratora. Ustawienia, tokeny i stan lokalny pozostają poza paczką.
 
 Publikacja: zaktualizuj `VERSION` i `RELEASE-NOTES.md`, wypchnij commit i tag `vX.Y.Z`
 zgodny z `VERSION`. Workflow **Release** uruchamia testy macOS/Windows, buduje cztery

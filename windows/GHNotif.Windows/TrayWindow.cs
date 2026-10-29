@@ -136,9 +136,9 @@ internal sealed class TrayWindow : Window
             ? L($"Odświeżono {time:HH:mm}", $"Refreshed {time:HH:mm}") : L("Jeszcze nie odświeżono", "Not refreshed yet");
         banners.Children.Clear();
         if (app.AvailableRelease is { } release)
-            banners.Children.Add(Ui.Button(L($"Dostępna wersja {release.TagName} - pobierz", $"Version {release.TagName} is available - download"),
-                L("Otwórz GitHub Releases (aktualizacja ręczna)", "Open GitHub Releases (manual update)"),
-                () => _ = app.RunAsync(() => { App.OpenGitHub(release.HtmlUrl); return Task.CompletedTask; })));
+            banners.Children.Add(Ui.Button(L($"Dostępna wersja {release.TagName} - zaktualizuj teraz", $"Version {release.TagName} is available - update now"),
+                L("Pobierz i zainstaluj aktualizację GHNotif", "Download and install the GHNotif update"),
+                () => _ = app.RunAsync(app.InstallUpdateAsync)));
         if (app.Error is not null) banners.Children.Add(Ui.Text(app.Error, Brushes.Firebrick));
         if (app.Results.BlockedOrganizations.Count > 0)
             banners.Children.Add(Ui.Button(L("🔒 Brak dostępu SSO - autoryzuj token", "🔒 No SSO access - authorize the token"),

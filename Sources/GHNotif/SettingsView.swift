@@ -383,7 +383,10 @@ struct SettingsView: View {
                     .disabled(model.checkingUpdates)
                     Spacer()
                     if let release = model.availableRelease {
-                        Link(L("Pobierz \(release.tagName)", "Download \(release.tagName)"), destination: release.htmlURL)
+                        Button(L("Zaktualizuj teraz \(release.tagName)", "Update now \(release.tagName)")) {
+                            Task { await model.installUpdate() }
+                        }
+                        .disabled(model.installingUpdate)
                     }
                 }
                 if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption) }

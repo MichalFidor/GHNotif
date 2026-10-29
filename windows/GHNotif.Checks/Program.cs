@@ -256,6 +256,23 @@ Check(!(update with { Prerelease = true }).IsNewer("0.1.0"), "Prerelease ignored
 await ThrowsAsync<InvalidDataException>(() => Task.Run(() => GitHubRelease.ParseVersion("0.1-beta")), "Invalid version rejected");
 await ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
     (update with { HtmlUrl = "https://example.com/" }).IsNewer("0.1.0")), "Foreign update URL rejected");
+var packageRelease = update with
+{
+    Assets = [new GitHubReleaseAsset("GHNotif-win-x64.zip",
+        "https://github.com/MichalFidor/GHNotif/releases/download/v0.2.0/GHNotif-win-x64.zip")]
+};
+Check(packageRelease.DownloadUri("GHNotif-win-x64.zip").Host == "github.com", "Official update asset accepted");
+await ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
+    (packageRelease with
+    {
+        Assets = [new GitHubReleaseAsset("GHNotif-win-x64.zip",
+            "https://github.com/MichalFidor/GHNotif/releases/download/v0.1.0/GHNotif-win-x64.zip")]
+    }).DownloadUri("GHNotif-win-x64.zip")), "Asset from a different release rejected");
+Check(packageRelease.Checksum("GHNotif-win-x64.zip",
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  GHNotif-win-x64.zip")
+    == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "Update checksum parsed");
+await ThrowsAsync<InvalidDataException>(() => Task.Run(() => packageRelease.Checksum("missing.zip", "")),
+    "Missing update checksum rejected");
 using var noRelease = new HttpClient(new FakeHandler(_ =>
     Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
 Check(await GitHubRelease.LatestAsync(noRelease) is null, "No published release is supported");

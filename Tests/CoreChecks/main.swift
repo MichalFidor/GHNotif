@@ -213,9 +213,10 @@ do {
 
 do {
     func release(_ tag: String, draft: Bool = false, prerelease: Bool = false,
-                 url: String = "https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0") throws -> GitHubRelease {
+                 url: String = "https://github.com/MichalFidor/GHNotif/releases/tag/v0.2.0",
+                 assets: [[String: String]] = []) throws -> GitHubRelease {
         let data = try JSONSerialization.data(withJSONObject: [
-            "tag_name": tag, "html_url": url, "draft": draft, "prerelease": prerelease
+            "tag_name": tag, "html_url": url, "draft": draft, "prerelease": prerelease, "assets": assets
         ])
         return try JSONDecoder().decode(GitHubRelease.self, from: data)
     }
@@ -226,6 +227,27 @@ do {
     check(try !release("v0.2.0", draft: true).isNewer(than: "0.1.0"), "draft ignored")
     check(try !release("v0.2.0", prerelease: true).isNewer(than: "0.1.0"), "prerelease ignored")
     check(ReleaseVersion("0.1") == nil && ReleaseVersion("0.2.0-beta") == nil, "invalid version rejected")
+    let update = try release("v0.2.0", assets: [
+        ["name": "GHNotif-macos-arm64.zip",
+         "browser_download_url": "https://github.com/MichalFidor/GHNotif/releases/download/v0.2.0/GHNotif-macos-arm64.zip"]
+    ])
+    check(try update.downloadURL(named: "GHNotif-macos-arm64.zip").host == "github.com",
+          "official platform update asset is accepted")
+    check(try update.checksum(for: "GHNotif-macos-arm64.zip", in: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  GHNotif-macos-arm64.zip")
+          == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "release checksum is parsed")
+    do {
+        _ = try update.checksum(for: "GHNotif-macos-x86_64.zip", in: "")
+        check(false, "missing update checksum must fail")
+    } catch {}
+    do {
+        let foreignAsset = try release("v0.2.0", assets: [
+            ["name": "GHNotif-macos-arm64.zip",
+             "browser_download_url": "https://github.com/MichalFidor/GHNotif/releases/download/v0.1.0/GHNotif-macos-arm64.zip"]
+        ])
+        _ = try foreignAsset.downloadURL(named: "GHNotif-macos-arm64.zip")
+        check(false, "asset from another release must fail")
+    } catch {}
     do {
         _ = try release("v0.2.0", url: "https://example.com/").isNewer(than: "0.1.0")
         check(false, "foreign update URL must fail")

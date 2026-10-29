@@ -160,12 +160,17 @@ trigger a notification; the look of the system banner has to be checked on a log
 
 The version number comes from `VERSION`. Both apps check for the latest stable release
 at launch and every 6 hours; you can also use **Check for updates** in the settings.
-When a newer version exists, a button that opens GitHub Releases appears in the panel.
+When a newer version exists, the app shows a panel banner and sends one system notification
+per version (macOS requires GHNotif notification permission). Choose **Update now** or **Later**;
+the panel also has an **Update now** button.
 The check uses the public API, without a token and without sending your watch list.
 Update check errors are shown in the settings and don't interrupt fetching PRs.
 
-ZIP installations are updated manually. Homebrew: `brew upgrade --cask ghnotif`.
-Either way, settings, the token and local state stay outside the package.
+macOS Homebrew installations run `brew update` and `brew upgrade --cask ghnotif` in Terminal.
+Other macOS installations download the matching ZIP, verify its SHA-256 checksum, replace the
+app bundle and relaunch. Windows downloads and verifies the matching ZIP, replaces the app files
+after exit, and restarts GHNotif. Installations in protected folders may still need a manual
+update with administrator permissions. Settings, tokens and local state stay outside the package.
 
 Publishing: update `VERSION` and `RELEASE-NOTES.md`, push the commit and a `vX.Y.Z` tag
 matching `VERSION`. The **Release** workflow runs the macOS/Windows tests, builds four

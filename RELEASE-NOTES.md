@@ -1,3 +1,10 @@
+# GHNotif 0.6.0
+
+- Update notifications appear once per release on macOS and Windows, with **Update now** and **Later** actions.
+- macOS installs updates through Homebrew in Terminal or downloads and verifies the matching app ZIP before replacing the bundle.
+- Windows downloads and verifies the matching ZIP, replaces the app files after exit, and restarts GHNotif.
+- Added an **Update now** button to the PR panel and settings.
+
 # GHNotif 0.5.4
 
 - New Notifications settings section: turn off single events (e.g. comments, new commits) and set quiet hours (e.g. 18:00-08:00) when no notifications are sent.

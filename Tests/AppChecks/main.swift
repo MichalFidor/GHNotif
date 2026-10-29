@@ -12,15 +12,20 @@ enum Keychain {
     static func deletePAT() {}
 }
 final class Notifier {
+    var onUpdateNow: (() -> Void)?
     static var notifiedIDs: [String] = []
     static var notifiedDetails: [[String]] = []
     func requestAuthorization() {}
     func sendTest() async throws -> String { "Test" }
     func diagnostics() async -> String { "Test" }
+    func notifyUpdateAvailable(_ release: GitHubRelease) async throws -> Bool { false }
     func notify(about alerts: [PullRequestAlert]) {
         Self.notifiedIDs += alerts.map(\.pullRequest.id)
         Self.notifiedDetails += alerts.map(\.details)
     }
+}
+enum UpdateInstaller {
+    static func prepare(release: GitHubRelease, installedBundle: URL) async throws {}
 }
 final class ReviewReminderPresenter {
     static var shownCount = 0

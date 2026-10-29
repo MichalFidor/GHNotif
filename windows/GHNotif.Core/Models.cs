@@ -251,6 +251,7 @@ public sealed class LocalState
     public HashSet<string>? Seen { get; set; }
     public Dictionary<string, NotificationSnapshot> NotificationSnapshots { get; set; } = new(StringComparer.Ordinal);
     public ReviewReminderState ReviewReminder { get; set; } = new();
+    public string? UpdateNotificationTag { get; set; }
 
     public void Migrate(DateTimeOffset now)
     {
@@ -275,7 +276,8 @@ public sealed class LocalState
             HeadCommitOid = kv.Value.HeadCommitOid,
             ActivityDates = kv.Value.ActivityDates.ToDictionary(item => item.Key, item => item.Value)
         }, StringComparer.Ordinal),
-        ReviewReminder = ReviewReminder.Copy()
+        ReviewReminder = ReviewReminder.Copy(),
+        UpdateNotificationTag = UpdateNotificationTag
     };
 
     public bool IsDismissed(string id) => Dismissals.ContainsKey(id);

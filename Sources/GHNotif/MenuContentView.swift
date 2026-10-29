@@ -100,8 +100,8 @@ struct MenuContentView: View {
         if let release = model.availableRelease {
             Banner(systemImage: "arrow.down.circle.fill", tint: .blue,
                    text: L("Dostępna nowa wersja \(release.tagName).", "New version \(release.tagName) is available."),
-                   actionTitle: L("Pobierz", "Download")) {
-                NSWorkspace.shared.open(release.htmlURL)
+                   actionTitle: L("Zaktualizuj teraz", "Update now")) {
+                Task { await model.installUpdate() }
             }
         }
         if let error = model.lastError {

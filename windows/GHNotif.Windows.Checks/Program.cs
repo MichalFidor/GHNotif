@@ -60,8 +60,8 @@ internal static class Program
             Directory.CreateDirectory("build");
             using (var file = File.Create("build/windows-preview.png")) encoder.Save(file);
             var rendered = Buttons(panel).ToList();
-            Check(rendered.Any(b => b.ToolTip?.ToString() == "Otwórz GitHub Releases (aktualizacja ręczna)"),
-                "Update download button is visible");
+            Check(rendered.Any(b => b.ToolTip?.ToString() == "Pobierz i zainstaluj aktualizację GHNotif"),
+                "Update button is visible");
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true),
                 "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Kliknij: odłóż na 2 godziny") == true),

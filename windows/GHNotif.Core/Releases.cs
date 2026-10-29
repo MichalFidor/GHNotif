@@ -8,7 +8,8 @@ public sealed record GitHubRelease(
     [property: JsonPropertyName("tag_name")] string TagName,
     [property: JsonPropertyName("html_url")] string HtmlUrl,
     [property: JsonPropertyName("draft")] bool Draft,
-    [property: JsonPropertyName("prerelease")] bool Prerelease)
+    [property: JsonPropertyName("prerelease")] bool Prerelease,
+    [property: JsonPropertyName("assets")] IReadOnlyList<GitHubReleaseAsset>? Assets = null)
 {
     public static Version ParseVersion(string value)
     {
@@ -28,6 +29,30 @@ public sealed record GitHubRelease(
         return !Draft && !Prerelease && ParseVersion(TagName) > ParseVersion(installed);
     }
 
+    public Uri DownloadUri(string name)
+    {
+        var asset = Assets?.FirstOrDefault(candidate => candidate.Name == name);
+        if (asset is null || !Uri.TryCreate(asset.BrowserDownloadUrl, UriKind.Absolute, out var url)
+            || url.Scheme != "https" || url.Host != "github.com"
+            || !url.AbsolutePath.Contains($"/MichalFidor/GHNotif/releases/download/{TagName}/", StringComparison.Ordinal)
+            || !string.Equals(url.Segments.LastOrDefault()?.TrimEnd('/'), name, StringComparison.Ordinal))
+            throw new InvalidDataException(L("Nie znaleziono prawidłowego pliku aktualizacji GHNotif.", "A valid GHNotif update asset was not found."));
+        return url;
+    }
+
+    public string Checksum(string fileName, string manifest)
+    {
+        foreach (var line in manifest.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length < 2 || fields[1].TrimStart('*') != fileName) continue;
+            if (fields[0].Length != 64 || !fields[0].All(Uri.IsHexDigit))
+                throw new InvalidDataException(L("Nieprawidłowa suma kontrolna aktualizacji.", "The update checksum is invalid."));
+            return fields[0].ToLowerInvariant();
+        }
+        throw new InvalidDataException(L("Brak sumy kontrolnej dla pliku aktualizacji.", "No checksum found for the update asset."));
+    }
+
     public static async Task<GitHubRelease?> LatestAsync(HttpClient http)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
@@ -39,4 +64,9 @@ public sealed record GitHubRelease(
         return await response.Content.ReadFromJsonAsync<GitHubRelease>()
             ?? throw new InvalidDataException(L("Pusta odpowiedź aktualizacji GHNotif.", "Empty GHNotif update response."));
     }
+
 }
+
+public sealed record GitHubReleaseAsset(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl);

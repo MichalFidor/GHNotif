@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import GHNotifCore
 import ServiceManagement
 
@@ -44,6 +45,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableRelease: GitHubRelease?
     @Published private(set) var updateStatus = ""
     @Published private(set) var checkingUpdates = false
+    @Published private(set) var installingUpdate = false
     @Published private(set) var notificationStatus = ""
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -60,8 +62,29 @@ final class AppModel: ObservableObject {
             availableRelease = try release.flatMap { try $0.isNewer(than: installedVersion) ? $0 : nil }
             updateStatus = availableRelease.map { L("Dostępna wersja \($0.tagName)", "Version \($0.tagName) is available") }
                 ?? L("Masz najnowszą wersję.", "You have the latest version.")
+            if let availableRelease,
+               preferences.string(forKey: Self.notifiedUpdateVersionKey) != availableRelease.tagName,
+               try await notifier.notifyUpdateAvailable(availableRelease) {
+                preferences.set(availableRelease.tagName, forKey: Self.notifiedUpdateVersionKey)
+            }
         } catch {
             updateStatus = L("Nie udało się sprawdzić aktualizacji: \(error.localizedDescription)", "Could not check for updates: \(error.localizedDescription)")
+        }
+    }
+
+    func installUpdate() async {
+        guard let availableRelease, !installingUpdate else { return }
+        installingUpdate = true
+        defer { installingUpdate = false }
+        updateStatus = L("Przygotowywanie aktualizacji \(availableRelease.tagName)...",
+                         "Preparing update \(availableRelease.tagName)...")
+        do {
+            try await UpdateInstaller.prepare(release: availableRelease, installedBundle: Bundle.main.bundleURL)
+            updateStatus = L("Aplikacja uruchomi się ponownie po aktualizacji.", "The app will relaunch after updating.")
+            NSApplication.shared.terminate(nil)
+        } catch {
+            updateStatus = L("Nie udało się zainstalować aktualizacji: \(error.localizedDescription)",
+                             "Could not install the update: \(error.localizedDescription)")
         }
     }
 
@@ -93,6 +116,7 @@ final class AppModel: ObservableObject {
     private static let snoozedKey = "snoozedPullRequests"
     private static let notificationSnapshotsKey = "notificationActivitySnapshots"
     private static let reminderStateKey = "reviewReminderState"
+    private static let notifiedUpdateVersionKey = "notifiedUpdateVersion"
 
     var pullRequests: [PullRequest] {
         allPullRequests.filter { dismissals[$0.id] == nil && !isSnoozed($0) }
@@ -191,6 +215,9 @@ final class AppModel: ObservableObject {
                           "Could not load \(store.fileURL.path): \(error.localizedDescription). Using the default list (the file won't be overwritten until the first change).")
         }
         Localization.language = config.language
+        notifier.onUpdateNow = { [weak self] in
+            Task { await self?.installUpdate() }
+        }
         if config.notify { notifier.requestAuthorization() }
         if ProcessInfo.processInfo.arguments.contains("--test-notification") {
             Task {

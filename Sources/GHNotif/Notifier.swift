@@ -3,6 +3,10 @@ import GHNotifCore
 import UserNotifications
 
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    private static let updateCategory = "GHNOTIF_UPDATE"
+    private static let updateNowAction = "GHNOTIF_UPDATE_NOW"
+    var onUpdateNow: (() -> Void)?
+
     /// UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`), so notifications are disabled there.
     private let center: UNUserNotificationCenter? =
         Bundle.main.bundleIdentifier != nil ? UNUserNotificationCenter.current() : nil
@@ -10,6 +14,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     override init() {
         super.init()
         center?.delegate = self
+        let updateNow = UNNotificationAction(
+            identifier: Self.updateNowAction, title: L("Zaktualizuj teraz", "Update now"), options: [.foreground]
+        )
+        let later = UNNotificationAction(
+            identifier: "GHNOTIF_UPDATE_LATER", title: L("Później", "Later"), options: []
+        )
+        center?.setNotificationCategories([
+            UNNotificationCategory(identifier: Self.updateCategory, actions: [updateNow, later], intentIdentifiers: [])
+        ])
     }
 
     func requestAuthorization() {
@@ -64,6 +77,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             if let icon = NotificationIcon.attachment(for: AlertEvent.primary(in: alerts.flatMap(\.details))) {
                 content.attachments = [icon]
             }
+
             enqueue(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
             return
         }
@@ -79,6 +93,21 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             if let icon = NotificationIcon.attachment(for: alert.event) { content.attachments = [icon] }
             enqueue(UNNotificationRequest(identifier: pr.id, content: content, trigger: nil))
         }
+    }
+
+    func notifyUpdateAvailable(_ release: GitHubRelease) async throws -> Bool {
+        guard let center else { return false }
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return false }
+        let content = UNMutableNotificationContent()
+        content.title = L("Dostępna aktualizacja GHNotif", "GHNotif update available")
+        content.body = L("Wersja \(release.tagName) jest gotowa do instalacji.", "Version \(release.tagName) is ready to install.")
+        content.categoryIdentifier = Self.updateCategory
+        content.sound = .default
+        try await center.add(UNNotificationRequest(
+            identifier: "ghnotif-update-\(release.tagName)", content: content, trigger: nil
+        ))
+        return true
     }
 
     private func enqueue(_ request: UNNotificationRequest) {
@@ -98,6 +127,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if response.actionIdentifier == Self.updateNowAction {
+            Task { @MainActor in onUpdateNow?() }
+            completionHandler()
+            return
+        }
         if let string = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: string) {
             NSWorkspace.shared.open(url)
         }
