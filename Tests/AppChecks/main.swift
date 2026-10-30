@@ -1,5 +1,10 @@
 import Foundation
+import AppKit
 import GHNotifCore
+
+extension Bundle {
+    static var module: Bundle { Bundle(path: CommandLine.arguments[1])! }
+}
 
 // Compile with AppModel and isolated collaborators: no GitHub requests, notifications, or real preferences.
 enum TokenSource { case ghCLI }
@@ -13,6 +18,7 @@ enum Keychain {
 }
 final class Notifier {
     var onUpdateNow: (() -> Void)?
+    var onPullRequestOpened: ((URL) -> Void)?
     static var notifiedIDs: [String] = []
     static var notifiedDetails: [[String]] = []
     func requestAuthorization() {}
@@ -48,6 +54,30 @@ struct GitHubClient {
 
 @MainActor
 func runChecks() async throws {
+    let loadingIcon = MenuBarIcon.image(count: 0, hasError: false, isReady: false)
+    let approvalIcon = MenuBarIcon.image(count: 0, hasError: false, isReady: true)
+    precondition(loadingIcon.size.width == 18 && approvalIcon.size.width == 38,
+                 "Approval badge appears beside the logo only after a successful load")
+    precondition(approvalIcon.accessibilityDescription == L("GHNotif - brak PR-ów do review", "GHNotif - no PRs to review"),
+                 "Empty review queue has an accessible status")
+    precondition(MenuBarIcon.image(count: 3, hasError: false, isReady: true).size
+                 == MenuBarIcon.image(count: 3, hasError: false, isReady: false).size,
+                 "A nonempty queue keeps its count without an approval badge")
+    precondition(MenuBarIcon.image(count: 0, hasError: true, isReady: true).size
+                 == MenuBarIcon.image(count: 0, hasError: true, isReady: false).size,
+                 "Errors never show an approval badge")
+    precondition(NotificationIcon.image(for: .approved).isValid, "Real GitHub approval badge loads from resources")
+    let renderedApproval = NSBitmapImageRep(data: approvalIcon.tiffRepresentation!)!
+    var greenPixels = 0
+    for x in 22..<renderedApproval.pixelsWide {
+        for y in 0..<renderedApproval.pixelsHigh {
+            let color = renderedApproval.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+            if color.alphaComponent > 0.5 && color.greenComponent > color.redComponent * 1.5 {
+                greenPixels += 1
+            }
+        }
+    }
+    precondition(greenPixels > 10, "Menu bar image actually draws the green GitHub badge beside the logo")
     Notifier.notifiedIDs = []
     Notifier.notifiedDetails = []
     let domain = "GHNotifTests.\(UUID().uuidString)"
@@ -71,7 +101,12 @@ func runChecks() async throws {
     GitHubClient.results = [pr]
     var releaseResult: GitHubRelease?
     var releaseFails = false
-    let model = AppModel(store: store, preferences: preferences, releaseLoader: {
+    var openedURLs: [URL] = []
+    var canOpenURL = true
+    let model = AppModel(store: store, preferences: preferences, urlOpener: {
+        openedURLs.append($0)
+        return canOpenURL
+    }, releaseLoader: {
         if releaseFails { throw GitHubError.http(403, "Rate limit") }
         return releaseResult
     })
@@ -81,17 +116,48 @@ func runChecks() async throws {
         try await Task.sleep(for: .milliseconds(10))
     }
     precondition(model.pullRequests.map(\.id) == [pr.id], "Initial PR is visible")
+    precondition(model.inbox.entries[pr.id]?.isUnread == false, "Initial list establishes a read baseline")
     let activeReview = Activity(login: "reviewer", date: Date(), kind: .approved, id: "review-active")
     GitHubClient.results = [makePR(activity: [activeReview])]
     await model.refresh()
     precondition(Notifier.notifiedDetails.last == ["✓ reviewer - zatwierdzenie"],
                  "Activity on an active PR notifies with actor and action")
+    precondition(model.inbox.entries[pr.id]?.details == ["✓ reviewer - zatwierdzenie"],
+                 "Panel retains activity independently of delivered notifications")
+    let restoredInbox = try JSONDecoder().decode(PullRequestInbox.self, from: preferences.data(forKey: "pullRequestInbox")!)
+    precondition(restoredInbox.entries[pr.id]?.isUnread == true, "Unread changes are persisted")
+    canOpenURL = false
+    model.openPullRequest(GitHubClient.results[0])
+    precondition(model.inbox.entries[pr.id]?.isUnread == true && model.lastError != nil,
+                 "Failed browser launch keeps changes unread and surfaces the error")
+    canOpenURL = true
+    model.openPullRequest(GitHubClient.results[0])
+    precondition(openedURLs.last == pr.url, "Opening a PR uses its browser URL")
+    precondition(model.inbox.entries[pr.id]?.isUnread == false && model.pullRequests.count == 1,
+                 "Marking read does not dismiss the PR")
     let activeAlertCount = Notifier.notifiedIDs.count
     await model.refresh()
     precondition(Notifier.notifiedIDs.count == activeAlertCount, "Activity does not notify twice on refresh")
+    precondition(model.inbox.entries[pr.id]?.isUnread == false, "Reading does not retrigger old activity")
+    GitHubClient.results = [makePR(activity: [
+        activeReview, Activity(login: "second-reviewer", date: Date(), kind: .approved, id: "another-review")
+    ])]
+    await model.refresh()
+    precondition(model.inbox.entries[pr.id]?.isUnread == true, "Later activity marks the PR unread again")
+    model.markRead(GitHubClient.results[0])
+    let countAfterSecondReview = Notifier.notifiedIDs.count
     GitHubClient.results = [makePR(activity: [Activity(login: "me", date: Date(), id: "own-comment")])]
     await model.refresh()
-    precondition(Notifier.notifiedIDs.count == activeAlertCount, "Own activity does not notify")
+    precondition(Notifier.notifiedIDs.count == countAfterSecondReview, "Own activity does not notify")
+    precondition(model.inbox.entries[pr.id]?.isUnread == false, "Own activity does not mark the PR unread")
+    model.config.notify = false
+    GitHubClient.results = [makePR(oid: "c2")]
+    await model.refresh()
+    precondition(model.inbox.entries[pr.id]?.details == ["↑ Nowe commity"],
+                 "Panel tracks changes even when notifications are disabled")
+    model.markAllRead()
+    precondition(model.inbox.entries[pr.id]?.isUnread == false, "Mark all clears unread changes")
+    model.config.notify = true
     GitHubClient.results = [pr]
     await model.refresh()
     let snapshotsData = preferences.data(forKey: "notificationActivitySnapshots")!

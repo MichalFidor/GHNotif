@@ -145,7 +145,13 @@ public partial class App : Application
             if (action == "update") { _ = RunAsync(InstallUpdateAsync); return; }
             if (action == "later") return;
             if (url is null) { panel?.ShowPanel(); return; }
-            try { OpenGitHub(url); } catch (InvalidOperationException) { panel?.ShowPanel(); }
+            _ = RunAsync(() =>
+            {
+                var pr = Results.PullRequests.FirstOrDefault(item => item.Url == url);
+                if (pr is null) OpenGitHub(url);
+                else OpenPullRequest(pr);
+                return Task.CompletedTask;
+            });
         }));
         tray.ContextMenuStrip = CreateTrayMenu();
         timer.Interval = TimeSpan.FromMinutes(Config.RefreshMinutes);
@@ -388,6 +394,19 @@ public partial class App : Application
         UpdateState(next => next.ReviewReminder.SnoozedUntil = DateTimeOffset.Now + delay);
 
     internal void ShowPanel() => panel?.ShowPanel();
+
+    internal void MarkRead(PullRequest pr) => UpdateState(next => next.Inbox.MarkRead(pr));
+
+    internal void MarkAllRead() => UpdateState(next =>
+    {
+        foreach (var pr in Results.PullRequests) next.Inbox.MarkRead(pr);
+    });
+
+    internal void OpenPullRequest(PullRequest pr)
+    {
+        OpenGitHub(pr.Url);
+        MarkRead(pr);
+    }
 
     internal void ToggleDismissed(PullRequest pr) => UpdateState(next =>
     {

@@ -115,7 +115,7 @@ internal sealed class ReviewReminderWindow : Window
             Text = $"#{pr.Number} · {pr.Author} · +{pr.Additions}/−{pr.Deletions}", FontSize = 12, Foreground = Brushes.DimGray
         });
         var open = Ui.Button("", L($"Otwórz PR w przeglądarce\n{pr.Url}", $"Open PR in browser\n{pr.Url}"),
-            () => _ = app.RunAsync(() => { App.OpenGitHub(pr.Url); return Task.CompletedTask; }));
+            () => _ = app.RunAsync(() => { app.OpenPullRequest(pr); return Task.CompletedTask; }));
         open.Content = text;
         open.HorizontalContentAlignment = HorizontalAlignment.Left;
         open.Background = Brushes.Transparent;

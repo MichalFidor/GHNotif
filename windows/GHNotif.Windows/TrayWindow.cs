@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -25,6 +26,7 @@ internal sealed class TrayWindow : Window
     private readonly Button toggle;
     private readonly Button snoozedToggle;
     private readonly Button refresh;
+    private readonly Button markAllRead;
     private ListMode listMode;
     private double? anchorBottom;
 
@@ -57,6 +59,10 @@ internal sealed class TrayWindow : Window
         header.Children.Add(refresh);
         header.Children.Add(snoozedToggle);
         header.Children.Add(toggle);
+        markAllRead = Ui.Button("▱", L("Oznacz wszystkie jako przeczytane", "Mark all as read"),
+            () => _ = app.RunAsync(() => { app.MarkAllRead(); return Task.CompletedTask; }));
+        DockPanel.SetDock(markAllRead, Dock.Right);
+        header.Children.Add(markAllRead);
         header.Children.Add(heading);
         root.Children.Add(header);
         root.Children.Add(banners);
@@ -132,6 +138,8 @@ internal sealed class TrayWindow : Window
         snoozedToggle.Content = listMode == ListMode.Snoozed ? "↶" : "◷";
         snoozedToggle.ToolTip = listMode == ListMode.Snoozed ? L("Pokaż PR-y wymagające uwagi", "Show PRs needing attention") : L("Pokaż odłożone PR-y", "Show snoozed PRs");
         refresh.IsEnabled = !app.IsRefreshing;
+        markAllRead.IsEnabled = app.Results.PullRequests.Any(pr =>
+            app.State.Inbox.Entries.GetValueOrDefault(pr.Id)?.IsUnread == true);
         updated.Text = app.IsRefreshing ? L("Odświeżanie…", "Refreshing…") : app.LastRefresh is { } time
             ? L($"Odświeżono {time:HH:mm}", $"Refreshed {time:HH:mm}") : L("Jeszcze nie odświeżono", "Not refreshed yet");
         banners.Children.Clear();
@@ -290,6 +298,22 @@ internal sealed class TrayWindow : Window
             Text = $"#{pr.Number} · {pr.Author} · {Age(pr.CreatedAt)} · +{pr.Additions}/−{pr.Deletions}",
             FontSize = 12, Foreground = Brushes.DimGray, Margin = new Thickness(0, 3, 0, 0)
         });
+        if (app.State.Inbox.Entries.TryGetValue(pr.Id, out var entry) && entry.IsUnread)
+        {
+            details.Children.Add(new TextBlock
+            {
+                Text = entry.IsNew ? L("Nowy PR", "New PR") : L("Od ostatniego przeczytania", "Since last read"),
+                FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brushes.RoyalBlue
+            });
+            if (entry.Details.Count > 0)
+                details.Children.Add(new TextBlock
+                {
+                    Text = ActivityText.Summarize(entry.Details), FontSize = 12, Foreground = Brushes.DimGray,
+                    TextWrapping = TextWrapping.Wrap, ToolTip = string.Join("\n", entry.Details)
+                });
+            row.Children.Add(Ui.Button("▱", L("Oznacz jako przeczytane", "Mark as read"),
+                () => _ = app.RunAsync(() => { app.MarkRead(pr); return Task.CompletedTask; })));
+        }
         var body = new StackPanel { Orientation = Orientation.Horizontal };
         if (Uri.TryCreate(pr.AvatarUrl, UriKind.Absolute, out var avatar) && avatar.Scheme == "https")
         {
@@ -309,7 +333,7 @@ internal sealed class TrayWindow : Window
         details.MaxWidth = 280;
         body.Children.Add(details);
         var open = Ui.Button("", L($"Otwórz PR w przeglądarce\n{pr.Url}", $"Open PR in browser\n{pr.Url}"),
-            () => _ = app.RunAsync(() => { App.OpenGitHub(pr.Url); return Task.CompletedTask; }));
+            () => _ = app.RunAsync(() => { app.OpenPullRequest(pr); return Task.CompletedTask; }));
         open.Content = body;
         open.MaxWidth = 320;
         open.HorizontalContentAlignment = HorizontalAlignment.Left;

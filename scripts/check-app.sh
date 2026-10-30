@@ -9,5 +9,6 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name GHNotifCore \
     -emit-module-path "$work/GHNotifCore.swiftmodule" -o "$work/libGHNotifCore.dylib"
 swiftc -swift-version 5 -I "$work" -L "$work" -lGHNotifCore \
     -Xlinker -rpath -Xlinker "$work" \
-    Sources/GHNotif/AppModel.swift Tests/AppChecks/main.swift -o "$work/AppChecks"
-"$work/AppChecks"
+    Sources/GHNotif/AppModel.swift Sources/GHNotif/MenuBarIcon.swift \
+    Sources/GHNotif/NotificationIcon.swift Tests/AppChecks/main.swift -o "$work/AppChecks"
+"$work/AppChecks" "$PWD/Sources/GHNotif/Resources"

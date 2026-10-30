@@ -10,9 +10,12 @@ struct GHNotifApp: App {
             MenuContentView()
                 .environmentObject(model)
         } label: {
-            Image(nsImage: MenuBarIcon.image(count: model.pullRequests.count, hasError: model.lastError != nil))
-                .help(model.lastError == nil ? L("GHNotif - PR-y wymagające uwagi", "GHNotif - PRs needing attention")
-                      : L("GHNotif - błąd pobierania PR-ów", "GHNotif - failed to fetch PRs"))
+            let icon = MenuBarIcon.image(
+                count: model.pullRequests.count, hasError: model.lastError != nil,
+                isReady: model.lastRefresh != nil && model.config.hasSearches && model.ssoBlockedOrgCount == 0
+            )
+            Image(nsImage: icon)
+                .help(icon.accessibilityDescription ?? "GHNotif")
         }
         .menuBarExtraStyle(.window)
 

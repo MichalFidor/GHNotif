@@ -147,7 +147,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         }
 }
 
-public enum ActivityKind: Hashable, Sendable {
+public enum ActivityKind: String, Codable, Hashable, Sendable {
     case comment
     case approved
     case changesRequested
@@ -234,7 +234,7 @@ public enum AlertEvent: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-public struct Activity: Hashable, Sendable {
+public struct Activity: Codable, Hashable, Sendable {
     public let login: String
     public let date: Date
     public let kind: ActivityKind

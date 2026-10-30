@@ -14,6 +14,17 @@ final class AppModel: ObservableObject {
 
     /// Every PR returned by the last search, including ones the user dismissed.
     @Published private(set) var allPullRequests: [PullRequest] = []
+    @Published private(set) var inbox: PullRequestInbox {
+        didSet {
+            do {
+                preferences.set(try JSONEncoder().encode(inbox), forKey: Self.inboxKey)
+            } catch {
+                lastError = L("Nie udało się zapisać stanu przeczytania: \(error.localizedDescription)",
+                              "Could not save read status: \(error.localizedDescription)")
+                NSLog("GHNotif: %@", error.localizedDescription)
+            }
+        }
+    }
     /// Dismissed PRs stay hidden until the user restores them or someone pushes commits / comments / reviews.
     @Published private(set) var dismissals: [String: DismissalSnapshot] {
         didSet { preferences.set(try? JSONEncoder().encode(dismissals), forKey: Self.dismissalsKey) }
@@ -99,6 +110,7 @@ final class AppModel: ObservableObject {
     private let store: ConfigStore
     private let preferences: UserDefaults
     private let releaseLoader: () async throws -> GitHubRelease?
+    private let urlOpener: (URL) -> Bool
     private let notifier = Notifier()
     private let reminderPresenter = ReviewReminderPresenter()
     private var token: ResolvedToken?
@@ -115,6 +127,7 @@ final class AppModel: ObservableObject {
     private static let seenIDsKey = "seenPullRequestIDs"
     private static let snoozedKey = "snoozedPullRequests"
     private static let notificationSnapshotsKey = "notificationActivitySnapshots"
+    private static let inboxKey = "pullRequestInbox"
     private static let reminderStateKey = "reviewReminderState"
     private static let notifiedUpdateVersionKey = "notifiedUpdateVersion"
 
@@ -123,6 +136,23 @@ final class AppModel: ObservableObject {
     }
     var dismissedPullRequests: [PullRequest] { allPullRequests.filter { dismissals[$0.id] != nil } }
     var snoozedRequests: [PullRequest] { allPullRequests.filter { isSnoozed($0) } }
+
+    func markRead(_ pr: PullRequest) { inbox.markRead(pr) }
+
+    func openPullRequest(_ pr: PullRequest) {
+        guard urlOpener(pr.url) else {
+            lastError = L("Nie udało się otworzyć PR-a w przeglądarce.",
+                          "Could not open the PR in the browser.")
+            return
+        }
+        markRead(pr)
+    }
+
+    func markAllRead() {
+        var updated = inbox
+        for pr in allPullRequests { updated.markRead(pr) }
+        inbox = updated
+    }
 
     private func isSnoozed(_ pr: PullRequest) -> Bool {
         guard let until = snoozedPullRequests[pr.id] else { return false }
@@ -192,10 +222,20 @@ final class AppModel: ObservableObject {
     }
 
     init(store: ConfigStore = ConfigStore(), preferences: UserDefaults = .standard,
+         urlOpener: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
          releaseLoader: @escaping () async throws -> GitHubRelease? = { try await GitHubRelease.latest() }) {
         self.store = store
         self.preferences = preferences
         self.releaseLoader = releaseLoader
+        self.urlOpener = urlOpener
+        inbox = PullRequestInbox()
+        if let data = preferences.data(forKey: Self.inboxKey) {
+            do {
+                inbox = try JSONDecoder().decode(PullRequestInbox.self, from: data)
+            } catch {
+                NSLog("GHNotif: nie udało się odczytać stanu przeczytania: %@", error.localizedDescription)
+            }
+        }
         dismissals = Self.loadDismissals(from: preferences)
         notificationSnapshots = Self.loadNotificationSnapshots(from: preferences)
         collapsedRepositories = Set(preferences.stringArray(forKey: Self.collapsedKey) ?? [])
@@ -217,6 +257,13 @@ final class AppModel: ObservableObject {
         Localization.language = config.language
         notifier.onUpdateNow = { [weak self] in
             Task { await self?.installUpdate() }
+        }
+        notifier.onPullRequestOpened = { [weak self] url in
+            Task { @MainActor in
+                if let pr = self?.allPullRequests.first(where: { $0.url == url }) {
+                    self?.markRead(pr)
+                }
+            }
         }
         if config.notify { notifier.requestAuthorization() }
         if ProcessInfo.processInfo.arguments.contains("--test-notification") {
@@ -317,6 +364,7 @@ final class AppModel: ObservableObject {
                 }
             }
             let reactivated = reactivateDismissed(in: outcome.pullRequests, viewer: outcome.viewerLogin)
+            inbox.observe(outcome.pullRequests, viewer: outcome.viewerLogin, baseline: suppressNextNotifications)
             handleNotifications(for: outcome.pullRequests, reactivated: reactivated,
                                 wokeFromSnooze: wokeFromSnooze, viewer: outcome.viewerLogin)
             allPullRequests = outcome.pullRequests

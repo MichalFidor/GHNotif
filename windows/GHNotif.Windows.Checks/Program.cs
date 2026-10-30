@@ -33,7 +33,8 @@ internal static class Program
         // WPF schedules OnStartup automatically; disable real tray/configuration startup for this fixture.
         var app = new App(startAutomatically: false);
         app.InitializeComponent();
-        using var http = new HttpClient(new FixtureHandler());
+        var fixture = new FixtureHandler();
+        using var http = new HttpClient(fixture);
         try
         {
             new JsonStore<Config>(Path.Combine(folder, "config.json")).Save(new Config { Users = ["example"] });
@@ -66,6 +67,28 @@ internal static class Program
                 "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Kliknij: odłóż na 2 godziny") == true),
                 "Snooze action is available on active PRs");
+            Check(!Buttons(panel).Single(b => Equals(b.ToolTip, "Oznacz wszystkie jako przeczytane")).IsEnabled,
+                "Initial inbox baseline has nothing unread");
+            fixture.HeadCommitOid = "c2";
+            await app.RefreshAsync();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            panel.UpdateLayout();
+            Check(Descendants<TextBlock>(panel).Any(text => text.Text == "Od ostatniego przeczytania"),
+                "Panel shows the unread changes heading");
+            Check(Descendants<TextBlock>(panel).Any(text => text.Text == "↑ Nowe commity"),
+                "Panel describes new commits");
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Oznacz jako przeczytane"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(!app.State.Inbox.Entries["fixture"].IsUnread && app.State.Visible(app.Results.PullRequests).Count() == 1,
+                "Mark as read does not dismiss the PR");
+            Check(!new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().Inbox.Entries["fixture"].IsUnread,
+                "Read status is saved to disk");
+            fixture.HeadCommitOid = "c3";
+            await app.RefreshAsync();
+            Buttons(panel).Single(b => Equals(b.ToolTip, "Oznacz wszystkie jako przeczytane"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(!app.State.Inbox.Entries["fixture"].IsUnread, "Mark all as read clears changes");
+            rendered = Buttons(panel).ToList();
             var done = rendered.Single(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true);
             done.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(app.State.Visible(app.Results.PullRequests).Count() == 0, "Dismiss button removes PR");
@@ -254,6 +277,7 @@ internal static class Program
 
     private sealed class FixtureHandler : HttpMessageHandler
     {
+        public string HeadCommitOid { get; set; } = "c1";
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             if (request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") == true)
@@ -266,12 +290,12 @@ internal static class Program
                 });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("""
+                Content = new StringContent($$$$"""
                 {"data":{"viewer":{"login":"me"},"search":{"issueCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
                 "id":"fixture","number":1,"title":"Example PR","url":"https://github.com/example/demo/pull/1",
                 "author":{"login":"example","avatarUrl":null},"repository":{"nameWithOwner":"example/demo"},
                 "createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:00:00Z",
-                "reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"c1","statusCheckRollup":{"state":"SUCCESS"}}}]},
+                "reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"{{{{HeadCommitOid}}}}","statusCheckRollup":{"state":"SUCCESS"}}}]},
                 "comments":{"nodes":[]},"reviews":{"nodes":[]}
                 }]}}}
                 """)

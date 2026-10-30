@@ -1,3 +1,9 @@
+# GHNotif 0.7.0
+
+- The PR list shows **Since last read** under changed PRs - who approved, requested changes, commented or pushed commits. New PRs are marked **New PR**.
+- Opening a PR marks its changes as read; there is also **Mark as read** per PR and **Mark all as read** in the header. Read status survives restarts and works even with notifications off.
+- macOS: a green GitHub approval badge appears next to the menu bar icon when no PR needs attention, and replaces the emoji in the empty list.
+
 # GHNotif 0.6.1
 
 - Notification lines use simple text symbols instead of emoji (✓ approved, ✗ changes requested, • comment, ↑ new commits, ◉ review requested, @ mention, ⊘ review dismissed, + new PR, ◷ snooze ended). The GitHub icon of the most important event remains the notification badge.

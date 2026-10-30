@@ -6,6 +6,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private static let updateCategory = "GHNOTIF_UPDATE"
     private static let updateNowAction = "GHNOTIF_UPDATE_NOW"
     var onUpdateNow: (() -> Void)?
+    var onPullRequestOpened: ((URL) -> Void)?
 
     /// UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`), so notifications are disabled there.
     private let center: UNUserNotificationCenter? =
@@ -144,7 +145,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         if let string = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: string) {
-            NSWorkspace.shared.open(url)
+            Task { @MainActor in
+                if NSWorkspace.shared.open(url) {
+                    onPullRequestOpened?(url)
+                } else {
+                    NSLog("GHNotif: nie udało się otworzyć adresu powiadomienia: %@", url.absoluteString)
+                }
+            }
         }
         completionHandler()
     }

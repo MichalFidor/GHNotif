@@ -61,6 +61,15 @@ struct MenuContentView: View {
             Text(layout.list.title).font(.headline)
             Text("\(displayedPullRequests.count)").foregroundStyle(.secondary)
             Spacer()
+            Button {
+                model.markAllRead()
+            } label: {
+                Image(systemName: "envelope.open")
+            }
+            .buttonStyle(.borderless)
+            .help(L("Oznacz wszystkie jako przeczytane", "Mark all as read"))
+            .accessibilityLabel(L("Oznacz wszystkie jako przeczytane", "Mark all as read"))
+            .disabled(!model.allPullRequests.contains { model.inbox.entries[$0.id]?.isUnread == true })
             Menu {
                 ForEach(PullRequestList.allCases) { list in
                     Button {
@@ -122,9 +131,17 @@ struct MenuContentView: View {
     @ViewBuilder
     private var content: some View {
         if displayedPullRequests.isEmpty {
-            Text(emptyStateText)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 80)
+            HStack(spacing: 7) {
+                if emptyStateShowsApproval {
+                    Image(nsImage: NotificationIcon.image(for: .approved))
+                        .resizable()
+                        .frame(width: 18, height: 18)
+                        .accessibilityHidden(true)
+                }
+                Text(emptyStateText)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 80)
         } else {
             ScrollView {
                 // Eager VStack so the full content height can be measured.
@@ -171,8 +188,14 @@ struct MenuContentView: View {
         if layout.list == .done { return L("Brak załatwionych PR-ów.", "No done PRs.") }
         if layout.list == .snoozed { return L("Brak odłożonych PR-ów.", "No snoozed PRs.") }
         if !model.snoozedRequests.isEmpty { return L("PR-y odłożone na później ⏰", "PRs snoozed for later ⏰") }
-        if !model.dismissedPullRequests.isEmpty { return L("Wszystko załatwione 🎉", "All done 🎉") }
-        return L("Brak otwartych PR-ów 🎉", "No open PRs 🎉")
+        if !model.dismissedPullRequests.isEmpty { return L("Wszystko załatwione", "All done") }
+        return L("Brak otwartych PR-ów", "No open PRs")
+    }
+
+    private var emptyStateShowsApproval: Bool {
+        model.config.hasSearches && !model.isLoading && model.lastError == nil
+            && model.lastRefresh != nil && model.ssoBlockedOrgCount == 0
+            && layout.list == .active && model.snoozedRequests.isEmpty
     }
 
     private func openSettings() {
@@ -305,6 +328,7 @@ private struct Banner: View {
 }
 
 struct PullRequestRow: View {
+    @EnvironmentObject private var model: AppModel
     let pr: PullRequest
     let list: PullRequestList
     let toggleDismissed: () -> Void
@@ -315,7 +339,7 @@ struct PullRequestRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 5) {
             Button {
-                NSWorkspace.shared.open(pr.url)
+                model.openPullRequest(pr)
             } label: {
                 HStack(alignment: .top, spacing: 8) {
                     AsyncImage(url: pr.authorAvatarURL) { image in
@@ -332,6 +356,18 @@ struct PullRequestRow: View {
                         Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named).locale(Localization.language.locale))) · +\(pr.additions)/−\(pr.deletions)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let entry = model.inbox.entries[pr.id], entry.isUnread {
+                            Text(entry.isNew ? L("Nowy PR", "New PR") : L("Od ostatniego przeczytania", "Since last read"))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.accentColor)
+                            if !entry.details.isEmpty {
+                                Text(summarizeChanges(entry.details))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .help(entry.details.joined(separator: "\n"))
+                            }
+                        }
                     }
                     .frame(maxWidth: 250, alignment: .leading)
                     ReasonBadges(reasons: pr.reasons)
@@ -343,6 +379,16 @@ struct PullRequestRow: View {
             .buttonStyle(.plain)
             .fixedSize(horizontal: true, vertical: false)
             .help(L("Otwórz PR w przeglądarce", "Open PR in browser") + "\n" + pr.url.absoluteString)
+            if model.inbox.entries[pr.id]?.isUnread == true {
+                Button {
+                    model.markRead(pr)
+                } label: {
+                    Image(systemName: "envelope.open")
+                }
+                .buttonStyle(.borderless)
+                .help(L("Oznacz jako przeczytane", "Mark as read"))
+                .accessibilityLabel(L("Oznacz jako przeczytane", "Mark as read"))
+            }
             if list == .active {
                 Menu {
                     Button(L("Za 2 godziny", "In 2 hours"), systemImage: "clock") { snooze() }

@@ -99,6 +99,16 @@ A notification also appears for new activity on a PR that is already on the list
 
 Optionally a PR is dismissed automatically after you submit a review of its current commit, as long as nobody else has been active on it since. A new commit or another person's comment/review brings it back. Later refreshes without changes don't repeat the notification about the same comment. This can be turned off in the settings.
 
+## Unread changes in the PR list
+
+On macOS, a green GitHub approval badge appears beside the menu bar icon when there are no PRs needing attention. It is not shown before the first successful refresh, without a configured search, on errors, or when SSO hides some results. Dismissed and snoozed PRs do not count as needing attention.
+
+The panel shows **Since last read** below each changed PR, with the people who commented, reviewed or authored new commits. New PRs are marked **New PR**. Repeated actions by the same person are grouped by type; this is a summary, not a full activity history.
+
+Opening a PR in the browser marks its current changes as read. You can also use **Mark as read** beside a PR, or **Mark all as read** in the header. Merely opening or closing the panel does not clear anything. Reading a PR does not mark it as done or change anything on GitHub.
+
+Read status survives restarts and works independently of desktop notification filters and quiet hours, even when notifications are disabled. The first successful refresh after enabling this feature establishes a baseline without marking existing PRs as new. Changes are detected during refreshes, not in real time.
+
 ## Snoozing and sorting
 
 The clock next to a PR snoozes it for 2 hours or until tomorrow morning. Snoozed PRs are listed separately and come back when the time is up (with a notification if notifications are enabled). Repositories can be excluded as `owner/repo`, labels by name. Sorting: recently updated, oldest first or largest changes. Each PR also shows added/removed lines, CI status and the review decision.

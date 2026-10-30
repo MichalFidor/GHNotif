@@ -250,6 +250,7 @@ public sealed class LocalState
     public Dictionary<string, DateTimeOffset> Snoozed { get; set; } = [];
     public HashSet<string>? Seen { get; set; }
     public Dictionary<string, NotificationSnapshot> NotificationSnapshots { get; set; } = new(StringComparer.Ordinal);
+    public PullRequestInbox Inbox { get; set; } = new();
     public ReviewReminderState ReviewReminder { get; set; } = new();
     public string? UpdateNotificationTag { get; set; }
 
@@ -259,6 +260,7 @@ public sealed class LocalState
         Collapsed ??= [];
         Snoozed ??= [];
         NotificationSnapshots ??= new(StringComparer.Ordinal);
+        Inbox ??= new();
         ReviewReminder ??= new();
         foreach (var id in Dismissed ?? []) Dismissals.TryAdd(id, new DismissalSnapshot { DismissedAt = now });
         Dismissed = null;
@@ -271,6 +273,7 @@ public sealed class LocalState
         Collapsed = Collapsed.ToHashSet(),
         Snoozed = Snoozed.ToDictionary(kv => kv.Key, kv => kv.Value),
         Seen = Seen?.ToHashSet(),
+        Inbox = Inbox.Copy(),
         NotificationSnapshots = NotificationSnapshots.ToDictionary(kv => kv.Key, kv => new NotificationSnapshot
         {
             HeadCommitOid = kv.Value.HeadCommitOid,
@@ -370,6 +373,7 @@ public sealed class LocalState
         IReadOnlyDictionary<string, List<string>>? reactivationChanges = null)
     {
         var current = prs.ToList();
+        Inbox.Observe(current, viewer, baseline);
         var previousSeen = Seen;
         var alerts = new List<PullRequestAlert>();
         if (notify && !baseline && previousSeen is not null)

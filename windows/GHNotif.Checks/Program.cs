@@ -60,6 +60,50 @@ using (var document = JsonDocument.Parse(Node("legacy-id", true)))
     Check(pr.Changes(since, "me").SequenceEqual(["↑ pusher - nowe commity", "• reviewer - komentarz"]),
         "Changes describe who did what, excluding the viewer");
 
+    var inbox = new PullRequestInbox();
+    inbox.Observe([pr], "me");
+    Check(!inbox.Entries[pr.Id].IsUnread, "Inbox starts with a read baseline");
+    var inboxUpdate = pr with
+    {
+        HeadCommitOid = "c2",
+        Activity = [.. pr.Activity!, new PrActivity("erin", DateTimeOffset.UtcNow, ActivityKind.Approved, "new-review")]
+    };
+    inbox.Observe([inboxUpdate], "me");
+    Check(inbox.Entries[pr.Id].Details.SequenceEqual(["↑ pusher - nowe commity", "✓ erin - zatwierdzenie"]),
+        "Inbox shows commits and review activity");
+    inbox.Observe([inboxUpdate], "me");
+    Check(inbox.Entries[pr.Id].Details.Count == 2, "Inbox deduplicates repeated refreshes");
+    inbox.Observe([inboxUpdate with { Activity = [] }], "me");
+    Check(inbox.Entries[pr.Id].Details.Count == 2, "Unread activity survives disappearance from API results");
+    inbox = JsonSerializer.Deserialize<PullRequestInbox>(JsonSerializer.Serialize(inbox))!;
+    Check(inbox.Entries[pr.Id].IsUnread, "Unread activity survives restart");
+    Localization.Language = AppLanguage.English;
+    Check(inbox.Entries[pr.Id].Details.Last() == "✓ erin - approved", "Inbox follows the current language");
+    Localization.Language = AppLanguage.Polish;
+    var newPr = pr with { Id = "inbox-new" };
+    inbox.Observe([inboxUpdate, newPr], "me");
+    Check(inbox.Entries[newPr.Id].IsNew, "New PRs are flagged");
+    var copiedInbox = inbox.Copy();
+    copiedInbox.MarkRead(inboxUpdate);
+    Check(inbox.Entries[pr.Id].IsUnread, "Inbox copy is isolated");
+    inbox.MarkRead(inboxUpdate);
+    Check(!inbox.Entries[pr.Id].IsUnread && inbox.Entries[newPr.Id].IsUnread, "Reading a PR does not clear others");
+    inbox.Observe([inboxUpdate], "me");
+    Check(!inbox.Entries[pr.Id].IsUnread, "Read activity does not reappear");
+    inbox.Observe([inboxUpdate with
+    {
+        Activity = [.. inboxUpdate.Activity!, new PrActivity("ME", DateTimeOffset.UtcNow, ActivityKind.Comment, "own")]
+    }], "me");
+    Check(!inbox.Entries[pr.Id].IsUnread, "Own activity does not mark PR unread");
+    var inboxBaseline = new PullRequestInbox();
+    inboxBaseline.Observe([], "me");
+    inboxBaseline.Observe([pr], "me", baseline: true);
+    Check(!inboxBaseline.Entries[pr.Id].IsUnread, "Watchlist baseline does not flag old PRs");
+    var silentState = new LocalState();
+    silentState.ObserveAlerts([pr], false, false, "me");
+    silentState.ObserveAlerts([inboxUpdate], false, false, "me");
+    Check(silentState.Inbox.Entries[pr.Id].IsUnread, "Inbox tracks changes when notifications are off");
+
     var reviewState = new LocalState();
     reviewState.AutoDismissReviewed([pr], "me");
     reviewState.ObserveAlerts([pr], true, true, "me");

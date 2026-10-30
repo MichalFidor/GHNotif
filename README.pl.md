@@ -99,6 +99,16 @@ Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już j
 
 Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez Ciebie review bieżącego commita, o ile po tym review nie było nowej aktywności innych osób. Nowy commit lub komentarz/review innej osoby przywraca go na listę. Kolejne odświeżenia bez zmian nie powtarzają powiadomienia o tym samym komentarzu. Opcję można wyłączyć w ustawieniach.
 
+## Nieprzeczytane zmiany na liście PR-ów
+
+Na macOS obok ikony w pasku menu pojawia się zielona odznaka zatwierdzenia z GitHuba, gdy żaden PR nie wymaga uwagi. Nie pojawia się przed pierwszym udanym odświeżeniem, bez skonfigurowanego wyszukiwania, przy błędzie ani gdy SSO ukrywa część wyników. Załatwione i odłożone PR-y nie są wliczane do wymagających uwagi.
+
+Panel pokazuje **Od ostatniego przeczytania** pod zmienionym PR-em wraz z osobami, które skomentowały, wysłały review lub są autorami nowych commitów. Nowe PR-y mają oznaczenie **Nowy PR**. Powtarzające się działania tej samej osoby są grupowane według typu - to podsumowanie, nie pełna historia aktywności.
+
+Otwarcie PR-a w przeglądarce oznacza jego bieżące zmiany jako przeczytane. Można też użyć **Oznacz jako przeczytane** przy PR-ze albo **Oznacz wszystkie jako przeczytane** w nagłówku. Samo otwarcie lub zamknięcie panelu niczego nie czyści. Przeczytanie nie oznacza PR-a jako załatwiony i niczego nie zmienia na GitHubie.
+
+Stan przeczytania przetrwa restart i działa niezależnie od filtrów powiadomień oraz godzin ciszy, także przy wyłączonych powiadomieniach. Pierwsze udane odświeżenie po włączeniu tej funkcji ustala stan początkowy bez oznaczania istniejących PR-ów jako nowych. Zmiany wykrywane są przy odświeżaniu, nie w czasie rzeczywistym.
+
 ## Odkładanie PR-ów i sortowanie
 
 Zegar przy PR-ze odkłada go na 2 godziny albo do jutra rano. Odłożone PR-y są w osobnej liście i wracają po upływie czasu (z powiadomieniem, jeśli powiadomienia są włączone). Repozytoria można wykluczyć wpisując `owner/repo`, a etykiety po nazwie. Sortowanie: ostatnio aktualizowane, najstarsze lub największe zmiany. Przy PR-ze widać też liczbę dodanych/usuniętych linii, status CI i decyzję review.
