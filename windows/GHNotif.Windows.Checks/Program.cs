@@ -261,9 +261,9 @@ internal static class Program
         config.IncludeReviewRequests = true;
         await app.SaveConfigAsync(config);
         fixture.Showcase = true;
-        await app.RefreshAsync();
+        await RefreshUntil(app, () => app.Results.PullRequests.Any(pr => pr.Id == "s-approved"));
         fixture.HeadCommitOid = "c9";
-        await app.RefreshAsync();
+        await RefreshUntil(app, () => app.State.Inbox.Entries.GetValueOrDefault("s-approved")?.IsUnread == true);
         var showcase = new TrayWindow(app);
         showcase.ShowPanel();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -271,6 +271,17 @@ internal static class Program
         SavePreview(showcase, "build/windows-showcase.png");
         showcase.Retire();
         fixture.Showcase = false;
+    }
+
+    private static async Task RefreshUntil(App app, Func<bool> done)
+    {
+        for (var attempt = 0; attempt < 20 && !done(); attempt++)
+        {
+            for (var i = 0; i < 200 && app.IsRefreshing; i++) await Task.Delay(25);
+            await app.RefreshAsync();
+            for (var i = 0; i < 200 && app.IsRefreshing; i++) await Task.Delay(25);
+        }
+        Check(done(), "Showcase fixture refresh");
     }
 
     private static void SavePreview(Window window, string path)
