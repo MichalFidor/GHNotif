@@ -50,6 +50,7 @@ public partial class App : Application
     private HttpClient? updateHttp;
     internal GitHubRelease? AvailableRelease { get; private set; }
     internal string UpdateStatus { get; private set; } = "";
+    internal bool IsInstallingUpdate => installingUpdate;
     internal string InstalledVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
 
     internal async Task CheckForUpdatesAsync()
@@ -284,6 +285,7 @@ public partial class App : Application
         finally
         {
             installingUpdate = false;
+            Changed?.Invoke();
         }
     }
 

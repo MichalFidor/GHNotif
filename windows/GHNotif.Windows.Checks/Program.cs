@@ -53,13 +53,7 @@ internal static class Program
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             panel.UpdateLayout();
             Check(panel.ActualHeight > 150 && panel.ActualWidth >= 500, "PR panel must not collapse");
-            var preview = new RenderTargetBitmap((int)Math.Ceiling(panel.ActualWidth * 1.5),
-                (int)Math.Ceiling(panel.ActualHeight * 1.5), 144, 144, PixelFormats.Pbgra32);
-            preview.Render(panel);
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(preview));
-            Directory.CreateDirectory("build");
-            using (var file = File.Create("build/windows-preview.png")) encoder.Save(file);
+            SavePreview(panel, "build/windows-preview.png");
             var rendered = Buttons(panel).ToList();
             Check(rendered.Any(b => b.ToolTip?.ToString() == "Pobierz i zainstaluj aktualizację GHNotif"),
                 "Update button is visible");
@@ -150,6 +144,7 @@ internal static class Program
             settings.Show();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
+            SavePreview(settings, "build/windows-settings.png");
             Check(Buttons(settings).Any(b => Equals(b.Content, "Dodaj")), "People tab renders first");
             Check(Buttons(settings).Any(b => Equals(b.Content, "Importuj członków zespołu")),
                 "Team import is available in settings");
@@ -187,6 +182,8 @@ internal static class Program
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Check(app.ReviewRemindersShown == remindersBefore + 1 && app.ReminderWindow is { IsVisible: true, Topmost: true },
                 "Reminder window opens on top at the scheduled time");
+            app.ReminderWindow!.UpdateLayout();
+            SavePreview(app.ReminderWindow, "build/windows-reminder.png");
             Check(app.ReminderWindow!.WindowStartupLocation == WindowStartupLocation.CenterScreen, "Reminder is centered");
             app.CheckReviewReminder(tomorrowNine.AddMinutes(1));
             Check(app.ReviewRemindersShown == remindersBefore + 1, "Reminder opens once");
@@ -245,6 +242,7 @@ internal static class Program
             app.Settings!.UpdateLayout();
             Check(Buttons(app.Settings).Any(b => Equals(b.Content, "Dodaj")), "Switching back to Polish restores Polish texts");
             app.Settings.Close();
+            await RenderShowcase(app, fixture);
             app.Tokens.Delete();
             Check(!File.Exists(Path.Combine(folder, "token.dat")), "PAT deletion");
             Console.WriteLine("All Windows UI checks passed (layout, buttons, persistence, settings, reminder, language, DPAPI).");
@@ -254,6 +252,48 @@ internal static class Program
             app.Shutdown();
             if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
         }
+    }
+
+    /// Renders a panel with varied PR states so CI artifacts show what the Windows UI looks like.
+    private static async Task RenderShowcase(App app, FixtureHandler fixture)
+    {
+        var config = app.Config.Copy();
+        config.IncludeReviewRequests = true;
+        await app.SaveConfigAsync(config);
+        fixture.Showcase = true;
+        await RefreshUntil(app, () => app.Results.PullRequests.Any(pr => pr.Id == "s-approved"));
+        fixture.HeadCommitOid = "c9";
+        await RefreshUntil(app, () => app.State.Inbox.Entries.GetValueOrDefault("s-approved")?.IsUnread == true);
+        var showcase = new TrayWindow(app);
+        showcase.ShowPanel();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        showcase.UpdateLayout();
+        SavePreview(showcase, "build/windows-showcase.png");
+        showcase.Retire();
+        fixture.Showcase = false;
+    }
+
+    private static async Task RefreshUntil(App app, Func<bool> done)
+    {
+        for (var attempt = 0; attempt < 20 && !done(); attempt++)
+        {
+            for (var i = 0; i < 200 && app.IsRefreshing; i++) await Task.Delay(25);
+            await app.RefreshAsync();
+            for (var i = 0; i < 200 && app.IsRefreshing; i++) await Task.Delay(25);
+        }
+        Check(done(), "Showcase fixture refresh");
+    }
+
+    private static void SavePreview(Window window, string path)
+    {
+        var preview = new RenderTargetBitmap((int)Math.Ceiling(window.ActualWidth * 1.5),
+            (int)Math.Ceiling(window.ActualHeight * 1.5), 144, 144, PixelFormats.Pbgra32);
+        preview.Render(window);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(preview));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var file = File.Create(path);
+        encoder.Save(file);
     }
 
     private static void Check(bool condition, string message)
@@ -278,7 +318,51 @@ internal static class Program
     private sealed class FixtureHandler : HttpMessageHandler
     {
         public string HeadCommitOid { get; set; } = "c1";
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        public bool Showcase { get; set; }
+
+        private static string Node(string id, int number, string title, string author, string repository, string review,
+            string checks, string oid, int days, int additions, int deletions) => $$$$"""
+            {"id":"{{{{id}}}}","number":{{{{number}}}},"title":"{{{{title}}}}","url":"https://github.com/{{{{repository}}}}/pull/{{{{number}}}}",
+            "author":{"login":"{{{{author}}}}","avatarUrl":null},"repository":{"nameWithOwner":"{{{{repository}}}}"},
+            "createdAt":"{{{{DateTimeOffset.UtcNow.AddDays(-days):O}}}}","updatedAt":"{{{{DateTimeOffset.UtcNow.AddHours(-days):O}}}}",
+            "additions":{{{{additions}}}},"deletions":{{{{deletions}}}},"labels":{"nodes":[]},
+            "reviewDecision":{{{{(review.Length == 0 ? "null" : $"\"{review}\"")}}}},
+            "commits":{"nodes":[{"commit":{"oid":"{{{{oid}}}}","statusCheckRollup":{"state":"{{{{checks}}}}"}}}]},
+            "comments":{"nodes":[]},"reviews":{"nodes":[]}}
+            """;
+
+        private async Task<string> ShowcaseNodes(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            if (body.Contains("mentions:@me"))
+                return Node("s-mention", 512, "Fix flaky upload retry in the sync worker", "katarzynakita", "acme/backend",
+                    "CHANGES_REQUESTED", "FAILURE", "m1", 3, 48, 12);
+            if (body.Contains("review-requested"))
+                return Node("s-review", 1044, "Add dark mode tokens to the design system", "rafalszmit", "acme/web-app",
+                    "REVIEW_REQUIRED", "PENDING", "r1", 1, 312, 87);
+            return string.Join(",",
+                Node("s-approved", 1039, "Migrate settings page to the new form components", "m-marchel", "acme/web-app",
+                    "APPROVED", "SUCCESS", HeadCommitOid, 2, 205, 160),
+                Node("s-mention", 512, "Fix flaky upload retry in the sync worker", "katarzynakita", "acme/backend",
+                    "CHANGES_REQUESTED", "FAILURE", "m1", 3, 48, 12),
+                Node("s-pending", 518, "Bump dependencies and regenerate lock file", "wojtekswieton", "acme/backend",
+                    "REVIEW_REQUIRED", "SUCCESS", "p1", 6, 1204, 1180));
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (Showcase && request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") != true)
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$$$"""
+                    {"data":{"viewer":{"login":"me"},"search":{"issueCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+                    {{{{await ShowcaseNodes(request, ct)}}}}]}}}
+                    """)
+                };
+            return await Fixture(request);
+        }
+
+        private Task<HttpResponseMessage> Fixture(HttpRequestMessage request)
         {
             if (request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") == true)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

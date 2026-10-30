@@ -102,10 +102,10 @@ internal sealed class ReviewReminderWindow : Window
     private UIElement CreateRow(PullRequest pr)
     {
         var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-        var done = Ui.Button("✓", L("Oznacz jako załatwione - lokalnie, bez zmian na GitHubie", "Mark as done - locally, nothing changes on GitHub"),
+        var done = Ui.IconButton(Glyph.Completed, L("Oznacz jako załatwione - lokalnie, bez zmian na GitHubie", "Mark as done - locally, nothing changes on GitHub"),
             () => _ = app.RunAsync(() => { app.ToggleDismissed(pr); return Task.CompletedTask; }));
         done.Margin = new Thickness(6, 0, 0, 0);
-        done.Padding = new Thickness(8, 2, 8, 2);
+        done.VerticalAlignment = VerticalAlignment.Center;
         DockPanel.SetDock(done, Dock.Right);
         row.Children.Add(done);
         var text = new StackPanel();
