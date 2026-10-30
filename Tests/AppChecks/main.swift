@@ -67,6 +67,7 @@ func runChecks() async throws {
                  == MenuBarIcon.image(count: 0, hasError: true, isReady: false).size,
                  "Errors never show an approval badge")
     precondition(NotificationIcon.image(for: .approved).isValid, "Real GitHub approval badge loads from resources")
+    precondition(AppResources.bundle.image(forResource: "TrayLogo") != nil, "Menu and reminder logo loads from app resources")
     let renderedApproval = NSBitmapImageRep(data: approvalIcon.tiffRepresentation!)!
     var greenPixels = 0
     for x in 22..<renderedApproval.pixelsWide {

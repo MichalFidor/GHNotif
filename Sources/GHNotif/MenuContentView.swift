@@ -53,7 +53,7 @@ struct MenuContentView: View {
 
     private var header: some View {
         HStack {
-            Image("TrayLogo", bundle: .module)
+            Image("TrayLogo", bundle: AppResources.bundle)
                 .renderingMode(.original)
                 .resizable()
                 .scaledToFit()

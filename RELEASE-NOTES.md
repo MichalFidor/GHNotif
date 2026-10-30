@@ -1,3 +1,8 @@
+# GHNotif 0.7.2
+
+- macOS: fixed a crash when opening the PR panel or review reminder - their logo now loads through the app resource bundle.
+- App checks prevent views from bypassing the shared app resource loader.
+
 # GHNotif 0.7.1
 
 - macOS: fixed a crash on launch in downloaded builds (0.6.1 and 0.7.0) - the app could not find its bundled icons.

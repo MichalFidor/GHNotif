@@ -4,6 +4,11 @@ cd "$(dirname "$0")/.."
 work="$(mktemp -d "${TMPDIR:-/tmp}/ghnotif-checks.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
+if git grep -n '\.module' -- Sources/GHNotif | grep -v '^Sources/GHNotif/AppResources.swift:'; then
+    echo "Load app resources through AppResources.bundle." >&2
+    exit 1
+fi
+
 swiftc -swift-version 5 -emit-library -emit-module -module-name GHNotifCore \
     Sources/GHNotifCore/*.swift \
     -emit-module-path "$work/GHNotifCore.swiftmodule" -o "$work/libGHNotifCore.dylib"

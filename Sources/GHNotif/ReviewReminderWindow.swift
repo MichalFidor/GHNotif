@@ -48,7 +48,7 @@ private struct ReviewReminderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Image("TrayLogo", bundle: .module)
+                Image("TrayLogo", bundle: AppResources.bundle)
                     .renderingMode(.original)
                     .resizable()
                     .scaledToFit()
