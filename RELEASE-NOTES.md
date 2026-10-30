@@ -1,3 +1,9 @@
+# GHNotif 0.7.3
+
+- Windows: refreshed the PR panel, settings navigation and review reminder with a flat, rounded design closer to the macOS app.
+- Windows: added a tray-style panel that dismisses on outside click or Escape, plus clearer PR activity and status indicators.
+- Windows CI now publishes panel, settings and reminder screenshots as preview artifacts.
+
 # GHNotif 0.7.2
 
 - macOS: fixed a crash when opening the PR panel or review reminder - their logo now loads through the app resource bundle.
