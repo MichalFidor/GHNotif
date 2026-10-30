@@ -2,8 +2,8 @@ import Foundation
 import AppKit
 import GHNotifCore
 
-extension Bundle {
-    static var module: Bundle { Bundle(path: CommandLine.arguments[1])! }
+enum AppResources {
+    static var bundle: Bundle { Bundle(path: CommandLine.arguments[1])! }
 }
 
 // Compile with AppModel and isolated collaborators: no GitHub requests, notifications, or real preferences.

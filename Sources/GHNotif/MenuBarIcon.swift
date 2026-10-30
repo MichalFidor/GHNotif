@@ -4,7 +4,7 @@ import GHNotifCore
 /// MenuBarExtra renders only part of a composite SwiftUI label (an HStack loses its image), so the logo,
 /// status marker, and count are drawn into a single non-template image.
 enum MenuBarIcon {
-    private static let logo: NSImage? = Bundle.module.image(forResource: "TrayLogo")
+    private static let logo: NSImage? = AppResources.bundle.image(forResource: "TrayLogo")
     private static let approval = NotificationIcon.image(for: .approved)
     private static let logoSize = NSSize(width: 18, height: 18)
     private static let approvalSize = NSSize(width: 16, height: 16)

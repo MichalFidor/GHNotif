@@ -22,6 +22,6 @@ enum NotificationIcon {
     }
 
     private static func url(for event: AlertEvent) -> URL? {
-        Bundle.module.url(forResource: "badge-\(event.rawValue)", withExtension: "png")
+        AppResources.bundle.url(forResource: "badge-\(event.rawValue)", withExtension: "png")
     }
 }

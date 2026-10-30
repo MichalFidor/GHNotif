@@ -1,3 +1,8 @@
+# GHNotif 0.7.1
+
+- macOS: fixed a crash on launch in downloaded builds (0.6.1 and 0.7.0) - the app could not find its bundled icons.
+- The release build now launches the packaged app as a smoke test before publishing.
+
 # GHNotif 0.7.0
 
 - The PR list shows **Since last read** under changed PRs - who approved, requested changes, commented or pushed commits. New PRs are marked **New PR**.
