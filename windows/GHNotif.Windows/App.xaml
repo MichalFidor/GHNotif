@@ -139,7 +139,7 @@
               <Border x:Name="Back" Background="Transparent" CornerRadius="6" />
               <Border x:Name="Bar" Width="3" Height="16" CornerRadius="2" Background="#0969DA"
                       HorizontalAlignment="Left" Visibility="Collapsed" />
-              <ContentPresenter ContentSource="Header" Margin="8,0,8,0" VerticalAlignment="Center" />
+              <ContentPresenter x:Name="Header" ContentSource="Header" Margin="8,0,8,0" VerticalAlignment="Center" />
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
@@ -148,7 +148,7 @@
               <Trigger Property="IsSelected" Value="True">
                 <Setter TargetName="Back" Property="Background" Value="#14000000" />
                 <Setter TargetName="Bar" Property="Visibility" Value="Visible" />
-                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter TargetName="Header" Property="TextElement.FontWeight" Value="SemiBold" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
