@@ -315,6 +315,11 @@ func runChecks() async throws {
     precondition(migrated.pullRequests.isEmpty && migrated.dismissals[pr.id]?.headCommitOID == "c9", "Migrated dismissal gets baseline")
     model.config.users = []
     model.config.includeMentions = false
+    // Config changes start their own refresh tasks; wait until they and any queued refresh finish.
+    for _ in 0..<50 {
+        await Task.yield()
+        while model.isLoading { try? await Task.sleep(for: .milliseconds(5)) }
+    }
     await model.refresh()
     precondition(model.allPullRequests.isEmpty, "An empty watch list clears results")
 
