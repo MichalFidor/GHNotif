@@ -495,7 +495,8 @@ internal sealed class TrayWindow : Window
     private static string Age(DateTimeOffset created)
     {
         var age = DateTimeOffset.UtcNow - created;
-        return age.TotalDays >= 1 ? L($"{(int)age.TotalDays} dni temu", $"{(int)age.TotalDays} d ago")
+        var days = (int)age.TotalDays;
+        return days >= 1 ? L(days == 1 ? "1 dzień temu" : $"{days} dni temu", $"{days} d ago")
             : age.TotalHours >= 1 ? L($"{(int)age.TotalHours} godz. temu", $"{(int)age.TotalHours} h ago") : L("przed chwilą", "just now");
     }
 }

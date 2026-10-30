@@ -247,7 +247,7 @@ internal sealed class SettingsWindow : Window
         var label = new StackPanel { Orientation = Orientation.Horizontal, MinWidth = 150, Margin = new Thickness(4, 6, 4, 6) };
         label.Children.Add(new TextBlock
         {
-            Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15,
+            Text = glyph, FontFamily = Ui.IconFont, FontSize = 15,
             Width = 22, VerticalAlignment = VerticalAlignment.Center
         });
         label.Children.Add(new TextBlock { Text = header, FontSize = 14, Margin = new Thickness(6, 0, 0, 0) });

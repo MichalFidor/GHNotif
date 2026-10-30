@@ -123,6 +123,38 @@
         </Trigger>
       </Style.Triggers>
     </Style>
+    <Style TargetType="TabControl">
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <!-- Windows 11 Settings-style navigation: flat items, a soft highlight and an accent bar on the selected one. -->
+    <Style TargetType="TabItem">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Foreground" Value="#1F2328" />
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TabItem">
+            <Grid Margin="4,1,4,1" SnapsToDevicePixels="True">
+              <Border x:Name="Back" Background="Transparent" CornerRadius="6" />
+              <Border x:Name="Bar" Width="3" Height="16" CornerRadius="2" Background="#0969DA"
+                      HorizontalAlignment="Left" Visibility="Collapsed" />
+              <ContentPresenter ContentSource="Header" Margin="8,0,8,0" VerticalAlignment="Center" />
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Back" Property="Background" Value="#0D000000" />
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Back" Property="Background" Value="#14000000" />
+                <Setter TargetName="Bar" Property="Visibility" Value="Visible" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="ToolTip">
       <Setter Property="MaxWidth" Value="400" />
     </Style>
