@@ -12,19 +12,20 @@ public sealed record OrganizationDiagnosis(string Login, OrgStatus Status);
 /// `Scopes` is null for fine-grained tokens and GitHub Apps (no `X-OAuth-Scopes` header).
 public sealed record ConnectionDiagnosis(string Login, IReadOnlyList<string>? Scopes, IReadOnlyList<OrganizationDiagnosis> Organizations)
 {
-    /// Required scopes missing from a classic token; broader scopes that imply them count as present.
-    public IReadOnlyList<string> MissingScopes
-    {
-        get
-        {
-            if (Scopes is null) return [];
-            var granted = Scopes.Select(scope => scope.ToLowerInvariant()).ToHashSet();
-            var missing = new List<string>();
-            if (!granted.Contains("repo")) missing.Add("repo");
-            if (!granted.Overlaps(["read:org", "write:org", "admin:org"])) missing.Add("read:org");
-            return missing;
-        }
-    }
+    /// Required scopes missing from a classic token. Only repo is required; read:org is optional.
+    public IReadOnlyList<string> MissingScopes =>
+        Scopes is null || Scopes.Any(scope => scope.Equals("repo", StringComparison.OrdinalIgnoreCase)) ? [] : ["repo"];
+
+    /// True when a classic token can't read organization membership (team import, organization list).
+    public bool LacksOrgScope => Scopes is not null
+        && !Scopes.Select(scope => scope.ToLowerInvariant()).Any(scope => scope is "read:org" or "write:org" or "admin:org");
+
+    private static readonly HashSet<string> UsedScopes =
+        ["repo", "read:org", "repo:status", "public_repo", "repo_deployment", "repo:invite", "security_events"];
+
+    /// Classic scopes GHNotif never uses; they widen what a leaked token could do.
+    public IReadOnlyList<string> UnneededScopes =>
+        Scopes?.Where(scope => !UsedScopes.Contains(scope.ToLowerInvariant())).ToList() ?? [];
 
     public bool HasProblems => MissingScopes.Count > 0 || Organizations.Any(org => org.Status.Access != OrgAccess.Ok);
 
@@ -40,15 +41,22 @@ public sealed record ConnectionDiagnosis(string Login, IReadOnlyList<string>? Sc
         {
             var list = Scopes.Count == 0 ? L("(brak)", "(none)") : string.Join(", ", Scopes);
             result.Add(L($"Uprawnienia tokena: {list}", $"Token scopes: {list}"));
-            foreach (var scope in MissingScopes)
-                result.Add(scope == "repo"
-                    ? L("✗ Brak uprawnienia repo - nie zobaczysz PR-ów z prywatnych repozytoriów.", "✗ Missing repo scope - PRs from private repositories won't show.")
-                    : L("✗ Brak uprawnienia read:org - lista organizacji i import zespołów mogą być niepełne.", "✗ Missing read:org scope - the organization list and team import may be incomplete."));
+            if (MissingScopes.Count > 0)
+                result.Add(L("✗ Brak uprawnienia repo - nie zobaczysz PR-ów z prywatnych repozytoriów.", "✗ Missing repo scope - PRs from private repositories won't show."));
+            if (LacksOrgScope)
+                result.Add(L("? Brak read:org (opcjonalne) - import zespołów i lista organizacji mogą nie działać.",
+                    "? No read:org (optional) - team import and the organization list may not work."));
+            if (UnneededScopes.Count > 0)
+            {
+                var extra = string.Join(", ", UnneededScopes);
+                result.Add(L($"? Uprawnienia niepotrzebne GHNotif: {extra}. Bezpieczniej użyć fine-grained PAT tylko do odczytu.",
+                    $"? Scopes GHNotif doesn't need: {extra}. A read-only fine-grained PAT is safer."));
+            }
         }
         else
         {
-            result.Add(L("Token fine-grained lub GitHub App - upewnij się, że ma dostęp do repozytoriów organizacji (Pull requests: read).",
-                "Fine-grained token or GitHub App - make sure it can read the organization's repositories (Pull requests: read)."));
+            result.Add(L("Token fine-grained lub GitHub App - upewnij się, że obejmuje organizację z PR-ami (All repositories, Pull requests: read, Commit statuses: read).",
+                "Fine-grained token or GitHub App - make sure it covers the organization with the PRs (All repositories, Pull requests: read, Commit statuses: read)."));
         }
         if (Organizations.Count == 0)
             result.Add(L("Nie widać żadnej organizacji - jeśli należysz do jakiejś, sprawdź read:org i autoryzację SSO.",

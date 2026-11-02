@@ -144,7 +144,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             completionHandler()
             return
         }
-        if let string = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: string) {
+        if let string = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: string),
+           url.scheme == "https" {
             Task { @MainActor in
                 if NSWorkspace.shared.open(url) {
                     onPullRequestOpened?(url)

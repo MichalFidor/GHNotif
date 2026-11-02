@@ -46,7 +46,7 @@ public sealed class GitHubClient(HttpClient http)
                     blocked.UnionWith(ParseSso(string.Join(";", headers)));
                 using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
                     cancellationToken: ct);
-                ThrowErrors(json.RootElement);
+                ThrowErrors(json.RootElement, "search");
                 var data = json.RootElement.GetProperty("data");
                 if (data.TryGetProperty("viewer", out var viewerNode)) viewer ??= Text(viewerNode, "login");
                 var search = data.GetProperty("search");
@@ -77,7 +77,7 @@ public sealed class GitHubClient(HttpClient http)
             "query($login:String!){user(login:$login){login}}", new { login }, ct);
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
             cancellationToken: ct);
-        ThrowErrors(json.RootElement);
+        ThrowErrors(json.RootElement, "user");
         var user = json.RootElement.GetProperty("data").GetProperty("user");
         return Text(user, "login") ?? throw new InvalidOperationException(L("Nie znaleziono użytkownika.", "User not found."));
     }
@@ -179,11 +179,19 @@ public sealed class GitHubClient(HttpClient http)
         return response;
     }
 
-    public static void ThrowErrors(JsonElement root)
+    /// Throws on GraphQL errors only when the requested field is missing; partial results (e.g. a fine-grained
+    /// token without access to some repositories or checks) are kept.
+    public static void ThrowErrors(JsonElement root, string field)
     {
-        if (root.TryGetProperty("errors", out var errors) && errors.GetArrayLength() > 0)
-            throw new InvalidOperationException("GitHub API: " +
-                string.Join("; ", errors.EnumerateArray().Select(e => e.GetProperty("message").GetString())));
+        if (!root.TryGetProperty("errors", out var errors) || errors.ValueKind != JsonValueKind.Array
+            || errors.GetArrayLength() == 0)
+            return;
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty(field, out var value) && value.ValueKind != JsonValueKind.Null)
+            return;
+        throw new InvalidOperationException("GitHub API: " + string.Join("; ", errors.EnumerateArray()
+            .Select(e => e.TryGetProperty("message", out var message) ? message.GetString() : null)
+            .Where(message => message is not null)));
     }
 
     public static HashSet<string> ParseSso(string header)

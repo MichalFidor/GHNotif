@@ -65,13 +65,19 @@ do {
     check(dotCom.isDotCom && dotCom.graphQLURL.absoluteString == "https://api.github.com/graphql"
             && dotCom.restURL("/user").absoluteString == "https://api.github.com/user", "github.com endpoints")
     check(GitHubHost("").name == "github.com" && GitHubHost("api.github.com").name == "github.com", "empty and API host normalize to github.com")
+    check(["github.com@evil.example", "evil.example:8443", "github.com?x", "-oProxy", "bad host.com", "localhost", "a..b", "-a.com"]
+            .allSatisfy { !GitHubHost.isValid($0) && GitHubHost.normalize($0) == "github.com" }
+          && GitHubHost.isValid("") && GitHubHost.isValid("https://GitHub.Acme.com/x") && GitHubHost.isValid("my-ghe.acme.co"),
+          "only plain host names are accepted; anything else falls back to github.com")
     let ghes = GitHubHost(" https://github.acme.com/some/path ")
     check(ghes.name == "github.acme.com" && ghes.graphQLURL.absoluteString == "https://github.acme.com/api/graphql"
             && ghes.restURL("/user").absoluteString == "https://github.acme.com/api/v3/user", "GHES endpoints")
     let ghe = GitHubHost("acme.ghe.com")
     check(ghe.graphQLURL.absoluteString == "https://api.acme.ghe.com/graphql"
             && ghe.restURL("/user").absoluteString == "https://api.acme.ghe.com/user", "GHE.com endpoints")
-    check(ghes.newTokenURL.absoluteString.hasPrefix("https://github.acme.com/settings/tokens/new?scopes=repo,read:org"),
+    check(ghes.newClassicTokenURL.absoluteString == "https://github.acme.com/settings/tokens/new?scopes=repo&description=GHNotif"
+          && ghes.newTokenURL.absoluteString.hasPrefix("https://github.acme.com/settings/personal-access-tokens/new?")
+          && ghes.newTokenURL.absoluteString.contains("pull_requests=read") && !ghes.newTokenURL.absoluteString.contains("write"),
           "PAT link points to the configured host")
     check(dotCom.ssoSettingsURL(usingGitHubCLI: true).path.contains("178c6fc778ccc68e1d6a")
             && ghes.ssoSettingsURL(usingGitHubCLI: true).absoluteString == "https://github.acme.com/settings/applications",
@@ -85,9 +91,13 @@ do {
 do {
     check(ConnectionDiagnosis.scopes(from: "repo, read:org,  workflow") == ["repo", "read:org", "workflow"], "scope header parsed")
     check(ConnectionDiagnosis.scopes(from: nil) == nil, "missing scope header means fine-grained token")
-    check(ConnectionDiagnosis(login: "me", scopes: ["project", "read:packages"], organizations: []).missingScopes == ["repo", "read:org"],
+    check(ConnectionDiagnosis(login: "me", scopes: ["repo"], organizations: []).lacksOrgScope
+          && !ConnectionDiagnosis(login: "me", scopes: ["repo"], organizations: []).hasProblems, "read:org is optional")
+    check(ConnectionDiagnosis(login: "me", scopes: ["repo", "read:org", "gist", "workflow"], organizations: []).unneededScopes == ["gist", "workflow"],
+          "unneeded scopes reported")
+    check(ConnectionDiagnosis(login: "me", scopes: ["project", "read:packages"], organizations: []).missingScopes == ["repo"],
           "unrelated scopes reported as missing")
-    check(ConnectionDiagnosis(login: "me", scopes: ["repo", "admin:org"], organizations: []).missingScopes.isEmpty,
+    check(!ConnectionDiagnosis(login: "me", scopes: ["repo", "admin:org"], organizations: []).lacksOrgScope,
           "broader org scope implies read:org")
     check(ConnectionDiagnosis(login: "me", scopes: nil, organizations: []).missingScopes.isEmpty, "fine-grained tokens have no scope list")
     let sso = ConnectionDiagnosis.orgStatus(

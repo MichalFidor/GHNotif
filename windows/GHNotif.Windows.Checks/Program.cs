@@ -251,9 +251,14 @@ internal static class Program
             for (var i = 0; i < 100 && app.Config.Host == "github.com"; i++) await Task.Delay(10);
             Check(app.Config.Host == "github.acme.com" && app.Client.Host.GraphQLUrl == "https://github.acme.com/api/graphql"
                 && app.Tokens.Host == "github.acme.com" && app.ConnectionReport.Count == 0, "Host change applies to client and token");
+            app.Tokens.Save("ghes-token");
+            Check(await app.Tokens.ResolveAsync() == "ghes-token" && File.Exists(Path.Combine(folder, "token-github.acme.com.dat")),
+                "PAT is stored per host");
+            app.Tokens.Delete();
             var dotCom = app.Config.Copy();
             dotCom.Host = "github.com";
             await app.SaveConfigAsync(dotCom);
+            Check(await app.Tokens.ResolveAsync() == "fixture-token", "github.com PAT is used again after switching back");
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");

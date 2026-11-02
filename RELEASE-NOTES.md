@@ -1,3 +1,15 @@
+# GHNotif 0.7.6
+
+Security hardening and smaller token permissions.
+
+- **Read-only token**: Settings → Token now recommends a read-only fine-grained PAT (Pull requests: read, Commit statuses: read, optional Members: read) with a link that presets these permissions. The classic PAT link asks only for `repo`; `read:org` is optional (team import).
+- **Check connection** no longer treats a missing `read:org` as a problem and flags scopes GHNotif doesn't need (e.g. `gist`, `workflow`).
+- A saved PAT is bound to the GitHub server it was saved for, so changing the server never sends it to another host. Tokens saved for github.com keep working.
+- The GitHub server field accepts only a plain host name (no port, login or special characters).
+- macOS: API requests refuse redirects to another host, and only `https` links are opened.
+- Windows: `gh` is looked up in the standard install folders and absolute `PATH` entries only, not in the working directory.
+- Windows: PRs are still shown when GitHub returns partial results (e.g. a fine-grained token without access to CI checks).
+
 # GHNotif 0.7.5
 
 - **Get started** in settings opens on first launch (and while nobody is watched): a checklist with the token, people and optional settings, plus a **Set up** button in the empty PR list.

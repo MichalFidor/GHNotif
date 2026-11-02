@@ -10,7 +10,22 @@ public sealed record GitHubHost
     public GitHubHost(string? raw) => Name = Normalize(raw);
 
     /// Strips the scheme, path and trailing slashes; empty input means github.com.
+    /// Anything that isn't a plain DNS hostname (userinfo, port, query, odd characters) falls back to github.com,
+    /// so the token can't be redirected to an unexpected server.
     public static string Normalize(string? raw)
+    {
+        var value = Stripped(raw);
+        return IsHostname(value) ? value : DotCom;
+    }
+
+    /// True when the input names a host GHNotif will talk to (empty means github.com).
+    public static bool IsValid(string? raw)
+    {
+        var value = Stripped(raw);
+        return value.Length == 0 || IsHostname(value);
+    }
+
+    private static string Stripped(string? raw)
     {
         var value = (raw ?? "").Trim().ToLowerInvariant();
         foreach (var scheme in new[] { "https://", "http://" })
@@ -19,7 +34,15 @@ public sealed record GitHubHost
         if (slash >= 0) value = value[..slash];
         if (value.StartsWith("api.", StringComparison.Ordinal) && (value == "api.github.com" || value.EndsWith(".ghe.com", StringComparison.Ordinal)))
             value = value["api.".Length..];
-        return value.Length == 0 ? DotCom : value;
+        return value;
+    }
+
+    private static bool IsHostname(string value)
+    {
+        var labels = value.Split('.');
+        return value.Length <= 253 && labels.Length >= 2 && labels.All(label =>
+            label.Length is >= 1 and <= 63 && label.All(ch => ch is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-')
+            && label[0] != '-' && label[^1] != '-');
     }
 
     public bool IsDotCom => Name == DotCom;
@@ -33,7 +56,12 @@ public sealed record GitHubHost
     public string WebUrl(string path = "") => $"https://{Name}{path}";
 
     /// Page creating a classic PAT with the scopes GHNotif needs preselected.
-    public string NewTokenUrl => WebUrl("/settings/tokens/new?scopes=repo,read:org&description=GHNotif");
+    /// Page creating a read-only fine-grained PAT with the permissions GHNotif needs preselected.
+    public string NewTokenUrl => WebUrl("/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif"
+        + "&pull_requests=read&statuses=read&members=read&expires_in=90");
+
+    /// Page creating a classic PAT with only the repo scope (classic tokens have no read-only private repo scope).
+    public string NewClassicTokenUrl => WebUrl("/settings/tokens/new?scopes=repo&description=GHNotif");
     public string TokensUrl => WebUrl("/settings/tokens");
 
     /// Where the user authorizes the token for SAML SSO organizations.

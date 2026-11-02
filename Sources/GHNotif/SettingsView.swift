@@ -427,22 +427,27 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Text(LocalizedStringKey(L("1. Zainstaluj GitHub CLI: `brew install gh`.\n2. W terminalu uruchom `gh auth login` (GitHub.com, logowanie przez przeglądarkę) i autoryzuj organizacje z SSO, jeśli GitHub o to poprosi (później: `gh auth refresh`).\n3. Sprawdź `gh auth status` - na liście scope'ów powinny być `repo` i `read:org` (są domyślnie).\n4. Jeśli poniżej zapisany jest PAT, usuń go - PAT ma pierwszeństwo przed `gh`.", "1. Install GitHub CLI: `brew install gh`.\n2. In a terminal run `gh auth login` (GitHub.com, sign in with the browser) and authorize SSO organizations if GitHub asks (later: `gh auth refresh`).\n3. Check `gh auth status` - the scopes should include `repo` and `read:org` (granted by default).\n4. If a PAT is saved below, remove it - a PAT takes precedence over `gh`.")))
+                Text(LocalizedStringKey(L("1. Zainstaluj GitHub CLI: `brew install gh`.\n2. W terminalu uruchom `gh auth login` (GitHub.com, logowanie przez przeglądarkę) i autoryzuj organizacje z SSO, jeśli GitHub o to poprosi (później: `gh auth refresh`).\n3. Jeśli poniżej zapisany jest PAT, usuń go - PAT ma pierwszeństwo przed `gh`.", "1. Install GitHub CLI: `brew install gh`.\n2. In a terminal run `gh auth login` (GitHub.com, sign in with the browser) and authorize SSO organizations if GitHub asks (later: `gh auth refresh`).\n3. If a PAT is saved below, remove it - a PAT takes precedence over `gh`.")))
                     .font(.callout)
                     .textSelection(.enabled)
             } header: {
-                Text(L("Opcja 1: GitHub CLI (zalecana)", "Option 1: GitHub CLI (recommended)"))
+                Text(L("Opcja 1: GitHub CLI (najprostsza)", "Option 1: GitHub CLI (simplest)"))
             } footer: {
-                Text(LocalizedStringKey(L("Nie trzeba tworzyć ani wklejać tokenu - GHNotif pobiera go przez `gh auth token`. Szukane jest `gh` w /opt/homebrew/bin, /usr/local/bin i /usr/bin.", "No token to create or paste - GHNotif gets it with `gh auth token`. `gh` is looked up in /opt/homebrew/bin, /usr/local/bin and /usr/bin.")))
+                Text(LocalizedStringKey(L("Nie trzeba tworzyć ani wklejać tokenu - GHNotif pobiera go przez `gh auth token` (szuka `gh` w /opt/homebrew/bin, /usr/local/bin i /usr/bin). Uwaga: token `gh` ma szerokie uprawnienia (domyślnie `repo`, `read:org`, `gist`, także zapis). Jeśli zależy Ci na minimalnym dostępie, użyj fine-grained PAT tylko do odczytu.", "No token to create or paste - GHNotif gets it with `gh auth token` (looking for `gh` in /opt/homebrew/bin, /usr/local/bin and /usr/bin). Note: the `gh` token is broad (by default `repo`, `read:org`, `gist`, including write access). For minimal access use a read-only fine-grained PAT.")))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Text(LocalizedStringKey(L("Classic PAT - zaznacz scope'y:\n• `repo` - PR-y z prywatnych repozytoriów (bez niego widać tylko publiczne),\n• `read:org` - import członków zespołu.\nInne scope'y (np. `project`, `read:packages`) nie dają dostępu do PR-ów.\nOrganizacje z SAML SSO: przy tokenie kliknij Configure SSO → Authorize.", "Classic PAT - select the scopes:\n• `repo` - PRs from private repositories (without it only public ones are visible),\n• `read:org` - importing team members.\nOther scopes (e.g. `project`, `read:packages`) don't grant access to PRs.\nSAML SSO organizations: next to the token click Configure SSO → Authorize.")))
+                Text(LocalizedStringKey(L("Fine-grained PAT tylko do odczytu (najbezpieczniejszy):\n• Resource owner - organizacja z PR-ami,\n• Repository access - All repositories,\n• Permissions (link je ustawia): Pull requests - read, Commit statuses - read, Members - read (opcjonalnie, import zespołów).\nJeden token obejmuje jednego właściciela - PR-y z innych organizacji nie będą widoczne. Organizacja może wymagać zatwierdzenia tokenu przez admina.", "Read-only fine-grained PAT (most secure):\n• Resource owner - the organization with the PRs,\n• Repository access - All repositories,\n• Permissions (the link sets them): Pull requests - read, Commit statuses - read, Members - read (optional, team import).\nOne token covers one owner - PRs from other organizations won't show. The organization may require an admin to approve the token.")))
                     .font(.callout)
                     .textSelection(.enabled)
-                Link(L("Utwórz classic PAT z tymi scope'ami", "Create a classic PAT with these scopes"),
+                Link(L("Utwórz fine-grained PAT tylko do odczytu", "Create a read-only fine-grained PAT"),
                      destination: model.config.gitHubHost.newTokenURL)
-                SecureField("Personal access token", text: $form.pat, prompt: Text(L("ghp_… (opcjonalnie)", "ghp_… (optional)")))
+                Text(LocalizedStringKey(L("Classic PAT (gdy potrzebujesz kilku organizacji): scope `repo` - daje też zapis, bo GitHub nie ma scope'u tylko do odczytu dla prywatnych repozytoriów. `read:org` jest opcjonalny (import zespołów). Organizacje z SAML SSO: przy tokenie kliknij Configure SSO → Authorize.", "Classic PAT (when you need several organizations): the `repo` scope - it also grants write access, because GitHub has no read-only scope for private repositories. `read:org` is optional (team import). SAML SSO organizations: next to the token click Configure SSO → Authorize.")))
+                    .font(.callout)
+                    .textSelection(.enabled)
+                Link(L("Utwórz classic PAT (tylko repo)", "Create a classic PAT (repo only)"),
+                     destination: model.config.gitHubHost.newClassicTokenURL)
+                SecureField("Personal access token", text: $form.pat, prompt: Text(L("github_pat_… lub ghp_… (opcjonalnie)", "github_pat_… or ghp_… (optional)")))
                 HStack {
                     Button(L("Zapisz PAT", "Save PAT")) {
                         model.setPersonalAccessToken(form.pat)
@@ -454,7 +459,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Opcja 2: personal access token", "Option 2: personal access token"))
             } footer: {
-                Text(LocalizedStringKey(L("PAT ma pierwszeństwo przed `gh` i jest przechowywany w Keychain. Fine-grained PAT: Pull requests - read i Members - read; obejmuje tylko jednego właściciela zasobów (organizację lub konto), więc PR-y z innych organizacji nie będą widoczne.", "A PAT takes precedence over `gh` and is stored in Keychain. Fine-grained PAT: Pull requests - read and Members - read; it covers only one resource owner (organization or account), so PRs from other organizations won't be visible.")))
+                Text(LocalizedStringKey(L("PAT ma pierwszeństwo przed `gh`, jest przechowywany w Keychain i przypisany do serwera z sekcji poniżej - po zmianie serwera zapisz PAT utworzony na nowym serwerze. Ustaw datę wygaśnięcia tokenu.", "A PAT takes precedence over `gh`, is stored in Keychain and bound to the server below - after changing the server save a PAT created on the new one. Set an expiration date on the token.")))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -463,12 +468,17 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onSubmit(applyHost)
                     Button(L("Zastosuj", "Apply"), action: applyHost)
-                        .disabled(GitHubHost.normalize(form.host) == model.config.host)
+                        .disabled(!GitHubHost.isValid(form.host) || GitHubHost.normalize(form.host) == model.config.host)
+                }
+                if !GitHubHost.isValid(form.host) {
+                    Text(L("Wpisz samą nazwę hosta, np. github.firma.pl (bez portu, loginu i znaków specjalnych).",
+                           "Enter just the host name, e.g. github.company.com (no port, login or special characters)."))
+                        .font(.caption).foregroundStyle(.red)
                 }
             } header: {
                 Text(L("Serwer GitHub", "GitHub server"))
             } footer: {
-                Text(LocalizedStringKey(L("Zostaw `github.com`, chyba że firma używa GitHub Enterprise Server lub GHE.com - wtedy wpisz jego host, np. `github.firma.pl`. Dla GitHub CLI zaloguj się poleceniem `gh auth login --hostname HOST`; PAT utwórz na tym serwerze.", "Keep `github.com` unless your company uses GitHub Enterprise Server or GHE.com - then enter its host, e.g. `github.company.com`. For GitHub CLI sign in with `gh auth login --hostname HOST`; create the PAT on that server.")))
+                Text(LocalizedStringKey(L("Zostaw `github.com`, chyba że firma używa GitHub Enterprise Server lub GHE.com - wtedy wpisz jego host, np. `github.firma.pl`. Token jest wysyłany tylko do tego serwera, więc wpisuj wyłącznie zaufany adres firmowy. Dla GitHub CLI zaloguj się poleceniem `gh auth login --hostname HOST`; PAT utwórz na tym serwerze.", "Keep `github.com` unless your company uses GitHub Enterprise Server or GHE.com - then enter its host, e.g. `github.company.com`. The token is sent only to this server, so enter a trusted company address only. For GitHub CLI sign in with `gh auth login --hostname HOST`; create the PAT on that server.")))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -503,6 +513,7 @@ struct SettingsView: View {
     }
 
     private func applyHost() {
+        guard GitHubHost.isValid(form.host) else { return }
         model.config.host = GitHubHost.normalize(form.host)
         form.host = model.config.host
     }

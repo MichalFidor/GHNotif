@@ -13,9 +13,9 @@ struct ResolvedToken {
 }
 
 enum TokenProvider {
-    /// A PAT saved in Keychain wins; otherwise the token of the logged-in `gh` CLI user is used.
+    /// A PAT saved in Keychain for this host wins; otherwise the token of the logged-in `gh` CLI user is used.
     static func resolve(host: String = GitHubHost.dotCom) -> ResolvedToken? {
-        if let pat = Keychain.readPAT(), !pat.isEmpty {
+        if let pat = Keychain.readPAT(host: host), !pat.isEmpty {
             return ResolvedToken(value: pat, source: .personalAccessToken)
         }
         if let token = ghCLIToken(host: host) {
@@ -50,16 +50,21 @@ enum TokenProvider {
 
 enum Keychain {
     private static let service = "GHNotif"
-    private static let account = "github-pat"
 
-    private static var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+    /// Each PAT is bound to the host it was saved for, so changing the host never sends it to another server.
+    /// github.com keeps the original account name, so tokens saved by older versions still work.
+    static func account(host: String) -> String {
+        host == GitHubHost.dotCom ? "github-pat" : "github-pat@\(host)"
     }
 
-    static func readPAT() -> String? {
-        var query = baseQuery
+    private static func baseQuery(host: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account(host: host)]
+    }
+
+    static func readPAT(host: String) -> String? {
+        var query = baseQuery(host: host)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
@@ -70,15 +75,15 @@ enum Keychain {
     }
 
     @discardableResult
-    static func savePAT(_ token: String) -> Bool {
-        deletePAT()
-        var query = baseQuery
+    static func savePAT(_ token: String, host: String) -> Bool {
+        deletePAT(host: host)
+        var query = baseQuery(host: host)
         query[kSecValueData as String] = Data(token.utf8)
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
 
-    static func deletePAT() {
-        SecItemDelete(baseQuery as CFDictionary)
+    static func deletePAT(host: String) {
+        SecItemDelete(baseQuery(host: host) as CFDictionary)
     }
 }

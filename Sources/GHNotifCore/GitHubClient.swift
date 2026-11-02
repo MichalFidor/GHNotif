@@ -15,6 +15,16 @@ public enum GitHubError: LocalizedError, Equatable {
     }
 }
 
+/// Refuses redirects that leave the original HTTPS host, so the Authorization header never reaches another server.
+final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let target = request.url, target.scheme == "https",
+              target.host?.lowercased() == task.originalRequest?.url?.host?.lowercased() else { return nil }
+        return request
+    }
+}
+
 public struct GitHubClient: Sendable {
     public let token: String
     public let host: GitHubHost
@@ -119,7 +129,7 @@ public struct GitHubClient: Sendable {
         request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: RedirectGuard())
         guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
         if http.statusCode == 401 { throw GitHubError.unauthorized }
         return (data, http)
@@ -132,7 +142,7 @@ public struct GitHubClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: RedirectGuard())
         guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
         if http.statusCode == 401 { throw GitHubError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {

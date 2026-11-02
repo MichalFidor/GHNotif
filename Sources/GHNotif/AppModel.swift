@@ -147,7 +147,7 @@ final class AppModel: ObservableObject {
     func markRead(_ pr: PullRequest) { inbox.markRead(pr) }
 
     func openPullRequest(_ pr: PullRequest) {
-        guard urlOpener(pr.url) else {
+        guard pr.url.scheme == "https", urlOpener(pr.url) else {
             lastError = L("Nie udało się otworzyć PR-a w przeglądarce.",
                           "Could not open the PR in the browser.")
             return
@@ -453,9 +453,9 @@ final class AppModel: ObservableObject {
 
     func setPersonalAccessToken(_ value: String?) {
         if let value, !value.trimmingCharacters(in: .whitespaces).isEmpty {
-            Keychain.savePAT(value.trimmingCharacters(in: .whitespacesAndNewlines))
+            Keychain.savePAT(value.trimmingCharacters(in: .whitespacesAndNewlines), host: config.gitHubHost.name)
         } else {
-            Keychain.deletePAT()
+            Keychain.deletePAT(host: config.gitHubHost.name)
         }
         token = nil
         tokenSource = nil

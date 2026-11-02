@@ -32,14 +32,23 @@ public struct ConnectionDiagnosis: Equatable, Sendable {
         self.organizations = organizations
     }
 
-    /// Required scopes missing from a classic token; broader scopes that imply them count as present.
+    /// Required scopes missing from a classic token. Only `repo` is required; `read:org` is optional.
     public var missingScopes: [String] {
         guard let scopes else { return [] }
-        let granted = Set(scopes.map { $0.lowercased() })
-        var missing: [String] = []
-        if !granted.contains("repo") { missing.append("repo") }
-        if granted.isDisjoint(with: ["read:org", "write:org", "admin:org"]) { missing.append("read:org") }
-        return missing
+        return Set(scopes.map { $0.lowercased() }).contains("repo") ? [] : ["repo"]
+    }
+
+    /// True when a classic token can't read organization membership (team import, organization list).
+    public var lacksOrgScope: Bool {
+        guard let scopes else { return false }
+        return Set(scopes.map { $0.lowercased() }).isDisjoint(with: ["read:org", "write:org", "admin:org"])
+    }
+
+    /// Classic scopes GHNotif never uses; they widen what a leaked token could do.
+    public var unneededScopes: [String] {
+        guard let scopes else { return [] }
+        let used: Set<String> = ["repo", "read:org", "repo:status", "public_repo", "repo_deployment", "repo:invite", "security_events"]
+        return scopes.filter { !used.contains($0.lowercased()) }
     }
 
     public var hasProblems: Bool {
@@ -52,19 +61,22 @@ public struct ConnectionDiagnosis: Equatable, Sendable {
         if let scopes {
             let list = scopes.isEmpty ? L("(brak)", "(none)") : scopes.joined(separator: ", ")
             result.append(L("Uprawnienia tokena: \(list)", "Token scopes: \(list)"))
-            for scope in missingScopes {
-                switch scope {
-                case "repo":
-                    result.append(L("✗ Brak uprawnienia repo - nie zobaczysz PR-ów z prywatnych repozytoriów.",
-                                    "✗ Missing repo scope - PRs from private repositories won't show."))
-                default:
-                    result.append(L("✗ Brak uprawnienia read:org - lista organizacji i import zespołów mogą być niepełne.",
-                                    "✗ Missing read:org scope - the organization list and team import may be incomplete."))
-                }
+            if !missingScopes.isEmpty {
+                result.append(L("✗ Brak uprawnienia repo - nie zobaczysz PR-ów z prywatnych repozytoriów.",
+                                "✗ Missing repo scope - PRs from private repositories won't show."))
+            }
+            if lacksOrgScope {
+                result.append(L("? Brak read:org (opcjonalne) - import zespołów i lista organizacji mogą nie działać.",
+                                "? No read:org (optional) - team import and the organization list may not work."))
+            }
+            if !unneededScopes.isEmpty {
+                let extra = unneededScopes.joined(separator: ", ")
+                result.append(L("? Uprawnienia niepotrzebne GHNotif: \(extra). Bezpieczniej użyć fine-grained PAT tylko do odczytu.",
+                                "? Scopes GHNotif doesn't need: \(extra). A read-only fine-grained PAT is safer."))
             }
         } else {
-            result.append(L("Token fine-grained lub GitHub App - upewnij się, że ma dostęp do repozytoriów organizacji (Pull requests: read).",
-                            "Fine-grained token or GitHub App - make sure it can read the organization's repositories (Pull requests: read)."))
+            result.append(L("Token fine-grained lub GitHub App - upewnij się, że obejmuje organizację z PR-ami (All repositories, Pull requests: read, Commit statuses: read).",
+                            "Fine-grained token or GitHub App - make sure it covers the organization with the PRs (All repositories, Pull requests: read, Commit statuses: read)."))
         }
         if organizations.isEmpty {
             result.append(L("Nie widać żadnej organizacji - jeśli należysz do jakiejś, sprawdź read:org i autoryzację SSO.",
@@ -147,7 +159,7 @@ extension GitHubClient {
             for org in orgLogins {
                 group.addTask {
                     do {
-                        let (data, response) = try await get("/orgs/\(org)/repos?per_page=1")
+                        let (data, response) = try await get("/orgs/\(org.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? org)/repos?per_page=1")
                         return .init(login: org, status: ConnectionDiagnosis.orgStatus(
                             statusCode: response.statusCode,
                             ssoHeader: response.value(forHTTPHeaderField: "X-GitHub-SSO"), body: data))

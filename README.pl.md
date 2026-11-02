@@ -32,7 +32,7 @@ Budowanie ze źródeł:
 
 Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można włączyć w GHNotif → Ustawienia → Ogólne.
 
-Przy pierwszym uruchomieniu zaloguj się przez `gh auth login` albo zapisz PAT ze scope'em `repo` (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+Przy pierwszym uruchomieniu zaloguj się przez `gh auth login` albo zapisz PAT tylko do odczytu (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
 
 ## Instalacja Windows
 
@@ -41,7 +41,7 @@ Wymaga Windows 10/11. Wersja portable zawiera .NET - użytkownik nie musi go ins
 1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
 3. Kliknij ikonę przy zegarku (może być schowana pod strzałką). Prawy przycisk: ustawienia, odświeżanie lub zakończenie.
-4. Zaloguj się przez `gh auth login` albo zapisz PAT ze scope'em `repo` (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+4. Zaloguj się przez `gh auth login` albo zapisz PAT tylko do odczytu (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
 
 Aplikacja nie jest podpisana certyfikatem wydawcy; Windows SmartScreen może pokazać ostrzeżenie. Uruchamiaj wyłącznie buildy z zaufanego źródła.
 Zamknięcie panelu ukrywa go w zasobniku. Autostart można włączyć w ustawieniach aplikacji.
@@ -57,30 +57,40 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Autoryzacja
 
-GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Jeśli lista pokazuje tylko PR-y z publicznych repozytoriów (np. obserwujesz kilkanaście osób, a widzisz jeden PR), token nie ma scope'u `repo` albo nie jest autoryzowany dla organizacji z SSO. Wybierz jedną z dwóch opcji; opisuje je też zakładka Ustawienia → Token. Potem kliknij **Sprawdź połączenie** (Ustawienia → Pierwsze kroki lub Token) - pokaże uprawnienia tokenu oraz dla każdej Twojej organizacji, czy token ma do niej dostęp (SSO, zablokowane PAT), z linkiem **Autoryzuj SSO**.
+GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Jeśli lista pokazuje tylko PR-y z publicznych repozytoriów (np. obserwujesz kilkanaście osób, a widzisz jeden PR), token nie ma dostępu do prywatnych repozytoriów (`repo` dla classic PAT, **All repositories** + **Pull requests: read** dla fine-grained) albo nie jest autoryzowany dla organizacji z SSO. Wybierz jedną z dwóch opcji; opisuje je też zakładka Ustawienia → Token. Potem kliknij **Sprawdź połączenie** (Ustawienia → Pierwsze kroki lub Token) - pokaże uprawnienia tokenu oraz dla każdej Twojej organizacji, czy token ma do niej dostęp (SSO, zablokowane PAT), z linkiem **Autoryzuj SSO**.
 
-### Opcja 1: GitHub CLI (zalecana)
+### Opcja 1: GitHub CLI (najprostsza)
 
-Nie trzeba tworzyć ani wklejać tokenu - aplikacja wywołuje `gh auth token`.
+Nie trzeba tworzyć ani wklejać tokenu - aplikacja uruchamia `gh auth token`.
 
 1. Zainstaluj GitHub CLI: `brew install gh` (macOS) lub `winget install GitHub.cli` (Windows).
 2. Uruchom `gh auth login`, wybierz GitHub.com i zaloguj się przez przeglądarkę. Autoryzuj organizacje z SSO, jeśli GitHub o to poprosi.
-3. Sprawdź `gh auth status` - na liście scope'ów powinny być `repo` i `read:org` (są domyślnie).
-4. Jeśli w GHNotif zapisany jest PAT, usuń go (Ustawienia → Token → Usuń PAT i użyj gh CLI) - PAT ma pierwszeństwo przed `gh`.
+3. Jeśli w GHNotif zapisany jest PAT, usuń go (Ustawienia → Token → Usuń PAT i użyj gh CLI) - PAT ma pierwszeństwo przed `gh`.
 
-Na macOS aplikacja szuka `gh` w `/opt/homebrew/bin`, `/usr/local/bin` i `/usr/bin`. Na Windowsie `gh` musi być dostępne w `PATH`; po jego instalacji uruchom GHNotif ponownie.
+Token `gh` ma szerokie uprawnienia: domyślnie `repo`, `read:org` i `gist`, także zapis, i korzystają z niego też inne narzędzia na Twoim komputerze. Jeśli GHNotif ma mieć minimalny dostęp, użyj fine-grained PAT tylko do odczytu (opcja 2).
+
+Na macOS aplikacja szuka `gh` w `/opt/homebrew/bin`, `/usr/local/bin` i `/usr/bin`. Na Windowsie szuka w standardowych folderach instalacji (`Program Files\GitHub CLI`, scoop) i w bezwzględnych ścieżkach z `PATH`; po instalacji uruchom GHNotif ponownie.
 
 ### Opcja 2: personal access token (PAT)
 
-- **Classic PAT** ([utwórz z zaznaczonymi scope'ami](https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif)):
-  - `repo` - wymagany dla PR-ów z prywatnych repozytoriów; bez niego widać tylko publiczne,
-  - `read:org` - potrzebny do importu członków zespołu.
+GHNotif tylko odczytuje dane, więc token nie potrzebuje żadnych uprawnień do zapisu.
 
-  Inne scope'y (np. `project`, `read:packages`) nie dają dostępu do PR-ów.
-- **Fine-grained PAT**: Pull requests - read (oraz Members - read do importu zespołu). Obejmuje tylko jednego właściciela zasobów (organizację lub Twoje konto), więc PR-y z innych organizacji nie będą widoczne - zwykle prościej użyć classic PAT albo `gh`.
+- **Fine-grained PAT tylko do odczytu (najbezpieczniejszy)** - [utwórz z ustawionymi uprawnieniami](https://github.com/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif&pull_requests=read&statuses=read&members=read&expires_in=90):
+  - Resource owner - organizacja z PR-ami,
+  - Repository access - **All repositories**,
+  - Repository permissions - **Pull requests: read** (wymagane) i **Commit statuses: read** (stan CI); Metadata: read dodaje się automatycznie,
+  - Organization permissions - **Members: read**, opcjonalne, tylko do importu zespołów.
+
+  Ograniczenia: jeden token obejmuje jednego właściciela zasobów, więc PR-y z innych organizacji nie będą widoczne, a organizacja może wymagać zatwierdzenia tokenu przez admina. Stan CI może być niepełny, bo tokeny fine-grained nie odczytują check runów GitHub Actions.
+- **Classic PAT** - gdy potrzebujesz kilku organizacji w jednym tokenie ([utwórz z zaznaczonym `repo`](https://github.com/settings/tokens/new?scopes=repo&description=GHNotif)):
+  - `repo` - wymagany dla PR-ów z prywatnych repozytoriów. GitHub nie ma scope'u tylko do odczytu dla prywatnych repozytoriów, więc `repo` daje też zapis.
+  - `read:org` - opcjonalny, tylko do importu zespołów i listy organizacji w **Sprawdź połączenie**.
+
+  Inne scope'y (np. `project`, `read:packages`) nie dają dostępu do PR-ów, a **Sprawdź połączenie** wskazuje scope'y niepotrzebne GHNotif.
 - Organizacje z SAML SSO: na stronie tokenów kliknij przy tokenie **Configure SSO → Authorize**. Inaczej GitHub ukrywa ich PR-y; aplikacja pokazuje wtedy ostrzeżenie z linkiem do autoryzacji.
+- Ustaw datę wygaśnięcia i utwórz token tylko dla GHNotif, żeby móc go unieważnić bez wpływu na inne narzędzia.
 
-PAT zapisz w Ustawieniach → Token. Na macOS trafia do Keychain, na Windowsie jest szyfrowany przez DPAPI dla bieżącego użytkownika i nie trafia do konfiguracji JSON. Zapisany PAT ma pierwszeństwo przed `gh`.
+PAT zapisz w Ustawieniach → Token. Na macOS trafia do Keychain, na Windowsie jest szyfrowany przez DPAPI dla bieżącego użytkownika i nie trafia do konfiguracji JSON. Zapisany PAT ma pierwszeństwo przed `gh`. Każdy PAT jest przypisany do serwera GitHub, dla którego go zapisano - po zmianie serwera zapisz PAT utworzony na nowym serwerze.
 
 ### Widać tylko PR-y z własnych repozytoriów
 
@@ -102,13 +112,13 @@ Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak
 - **Przypomnienia** - dni i godziny okna z przypomnieniem o review (patrz niżej).
 - **Powiadomienia** - włączanie powiadomień, które zdarzenia powiadamiają, ciche godziny (patrz niżej).
 - **Ogólne** - język, interwał odświeżania, wyróżnianie PR-ów otwartych od N dni (domyślnie 7, 0 = wyłączone), sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
-- **Token** - aktualne źródło tokenu, **Sprawdź połączenie**, instrukcja dla GitHub CLI i PAT (z wymaganymi scope'ami), zapisywanie lub usuwanie PAT oraz host serwera GitHub (patrz niżej).
+- **Token** - aktualne źródło tokenu, **Sprawdź połączenie**, instrukcja dla GitHub CLI i PAT (fine-grained tylko do odczytu lub classic `repo`), zapisywanie lub usuwanie PAT oraz host serwera GitHub (patrz niżej).
 
 Nowa instalacja zaczyna z pustą listą osób; pusta lista PR-ów ma przycisk **Skonfiguruj**, który otwiera Pierwsze kroki.
 
 ## GitHub Enterprise
 
-Domyślnie GHNotif używa github.com. Jeśli firma używa GitHub Enterprise Server lub GHE.com, wpisz jego host (np. `github.firma.pl`) w **Ustawienia → Token → Serwer GitHub** i kliknij **Zastosuj**. Aplikacja użyje wtedy API tego serwera, `gh auth token --hostname HOST` (zaloguj się przez `gh auth login --hostname HOST`) i linków do tego serwera dla PAT i SSO. Sprawdzanie aktualizacji dalej korzysta z github.com.
+Domyślnie GHNotif używa github.com. Jeśli firma używa GitHub Enterprise Server lub GHE.com, wpisz jego host (np. `github.firma.pl`) w **Ustawienia → Token → Serwer GitHub** i kliknij **Zastosuj**. Aplikacja użyje wtedy API tego serwera, `gh auth token --hostname HOST` (zaloguj się przez `gh auth login --hostname HOST`) i linków do tego serwera dla PAT i SSO. Akceptowana jest tylko sama nazwa hosta (bez portu, loginu i znaków specjalnych), a token jest wysyłany wyłącznie do tego serwera - wpisuj tylko zaufany adres firmowy. Sprawdzanie aktualizacji dalej korzysta z github.com.
 
 ## Wzmianki i prośby o review
 

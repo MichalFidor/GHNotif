@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,9 +10,14 @@ namespace GHNotif.Windows;
 
 internal sealed class TokenStore(string directory)
 {
-    private string Path => System.IO.Path.Combine(directory, "token.dat");
+    // Each PAT is bound to the host it was saved for, so changing the host never sends it to another server.
+    // github.com keeps the original file name, so tokens saved by older versions still work.
+    private string Path => System.IO.Path.Combine(directory,
+        Host == GHNotif.Core.GitHubHost.DotCom ? "token.dat" : $"token-{Host}.dat");
     public string Source { get; private set; } = "brak";
-    public string Host { get; set; } = GHNotif.Core.GitHubHost.DotCom;
+
+    private string host = GHNotif.Core.GitHubHost.DotCom;
+    public string Host { get => host; set => host = GHNotif.Core.GitHubHost.Normalize(value); }
 
     public async Task<string> ResolveAsync()
     {
@@ -22,7 +28,9 @@ internal sealed class TokenStore(string directory)
             Source = "PAT (Windows DPAPI)";
             return Encoding.UTF8.GetString(data);
         }
-        var start = new ProcessStartInfo("gh")
+        var gh = FindGitHubCli()
+            ?? throw new InvalidOperationException(L("Nie znaleziono GitHub CLI (gh). Zainstaluj go lub dodaj PAT w Ustawieniach → Token.", "GitHub CLI (gh) was not found. Install it or add a PAT in Settings → Token."));
+        var start = new ProcessStartInfo(gh)
         {
             RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true
@@ -43,9 +51,29 @@ internal sealed class TokenStore(string directory)
         var token = (await output).Trim();
         await error;
         if (process.ExitCode != 0 || token.Length == 0)
-            throw new InvalidOperationException(L("Brak tokenu. Wykonaj gh auth login albo dodaj PAT (scope repo) - szczegóły w Ustawieniach → Token.", "No token. Run gh auth login or add a PAT (repo scope) - see Settings → Token."));
+            throw new InvalidOperationException(L("Brak tokenu. Wykonaj gh auth login albo dodaj PAT - szczegóły w Ustawieniach → Token.", "No token. Run gh auth login or add a PAT - see Settings → Token."));
         Source = "gh CLI";
         return token;
+    }
+
+    /// Resolves gh.exe from known install folders and absolute PATH entries only, so a gh.exe dropped into the
+    /// working directory or a relative PATH entry can't receive the token request.
+    internal static string? FindGitHubCli()
+    {
+        var known = new[]
+        {
+            (Environment.SpecialFolder.ProgramFiles, @"GitHub CLI\gh.exe"),
+            (Environment.SpecialFolder.ProgramFilesX86, @"GitHub CLI\gh.exe"),
+            (Environment.SpecialFolder.LocalApplicationData, @"Programs\GitHub CLI\gh.exe"),
+            (Environment.SpecialFolder.UserProfile, @"scoop\shims\gh.exe")
+        }.Select(entry => (Root: Environment.GetFolderPath(entry.Item1), entry.Item2))
+            .Where(entry => entry.Root.Length > 0)
+            .Select(entry => System.IO.Path.Combine(entry.Root, entry.Item2));
+        var fromPath = (Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(System.IO.Path.IsPathFullyQualified)
+            .Select(folder => System.IO.Path.Combine(folder, "gh.exe"));
+        return known.Concat(fromPath).FirstOrDefault(File.Exists);
     }
 
     public void Save(string token)

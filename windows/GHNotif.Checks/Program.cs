@@ -217,13 +217,23 @@ var ghes = new GitHubHost(" https://github.acme.com/path ");
 Check(ghes.Name == "github.acme.com" && ghes.GraphQLUrl == "https://github.acme.com/api/graphql"
     && ghes.RestUrl("/user") == "https://github.acme.com/api/v3/user", "GHES endpoints");
 Check(new GitHubHost("acme.ghe.com").GraphQLUrl == "https://api.acme.ghe.com/graphql" && new GitHubHost("").IsDotCom, "GHE.com and empty host");
+Check(new[] { "github.com@evil.example", "evil.example:8443", "github.com?x", "-oProxy", "bad host.com", "localhost", "a..b", "-a.com" }
+    .All(raw => !GitHubHost.IsValid(raw) && GitHubHost.Normalize(raw) == GitHubHost.DotCom)
+    && GitHubHost.IsValid("") && GitHubHost.IsValid("https://GitHub.Acme.com/x") && GitHubHost.IsValid("my-ghe.acme.co"),
+    "Only plain host names are accepted; anything else falls back to github.com");
 Check(ghes.Owns("https://github.acme.com/o/r/pull/1") && !ghes.Owns("https://evil.com/") && !ghes.Owns("http://github.acme.com/"), "Host ownership");
 Check(ghes.SsoSettingsUrl(true) == "https://github.acme.com/settings/applications"
     && dotCom.SsoSettingsUrl(true).Contains("178c6fc778ccc68e1d6a"), "SSO settings follow host");
 
 Check(ConnectionDiagnosis.ParseScopes("repo, read:org") is ["repo", "read:org"] && ConnectionDiagnosis.ParseScopes(null) is null, "Scope header");
-Check(new ConnectionDiagnosis("me", ["project", "read:packages"], []).MissingScopes is ["repo", "read:org"], "Unrelated scopes are missing");
-Check(new ConnectionDiagnosis("me", ["repo", "admin:org"], []).MissingScopes.Count == 0, "Broader org scope implies read:org");
+Check(new ConnectionDiagnosis("me", ["project", "read:packages"], []).MissingScopes is ["repo"], "Only repo is required");
+Check(new ConnectionDiagnosis("me", ["repo"], []) is { MissingScopes.Count: 0, LacksOrgScope: true, HasProblems: false }, "read:org is optional");
+Check(!new ConnectionDiagnosis("me", ["repo", "admin:org"], []).LacksOrgScope, "Broader org scope implies read:org");
+Check(new ConnectionDiagnosis("me", ["repo", "read:org", "gist", "workflow"], []).UnneededScopes is ["gist", "workflow"]
+    && new ConnectionDiagnosis("me", ["repo", "gist"], []).Lines().Any(l => l.StartsWith("? Uprawnienia niepotrzebne GHNotif: gist")), "Unneeded scopes reported");
+Check(new GitHubHost("github.com").NewTokenUrl.StartsWith("https://github.com/settings/personal-access-tokens/new?")
+    && new GitHubHost("github.com").NewTokenUrl.Contains("pull_requests=read") && !new GitHubHost("github.com").NewTokenUrl.Contains("write")
+    && new GitHubHost("github.com").NewClassicTokenUrl.EndsWith("scopes=repo&description=GHNotif"), "Token links ask for read-only or minimal scopes");
 var ssoStatus = ConnectionDiagnosis.ClassifyOrg(403, "required; url=https://github.com/orgs/acme/sso?x=1", "{\"message\":\"SAML\"}");
 Check(ssoStatus == new OrgStatus(OrgAccess.SsoRequired, "https://github.com/orgs/acme/sso?x=1"), "SSO requirement");
 Check(ConnectionDiagnosis.ClassifyOrg(403, null, "{\"message\":\"forbids classic\"}") == new OrgStatus(OrgAccess.Blocked, "forbids classic"), "Org policy block");
@@ -275,6 +285,13 @@ using var partial = new HttpClient(new FakeHandler(_ => Task.FromResult(new Http
 })));
 await ThrowsAsync<InvalidOperationException>(() =>
     new GitHubClient(partial).SearchAsync("bad", new Config { Users = ["example"] }), "GraphQL errors cannot look successful");
+
+using var partialData = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+{
+    Content = new StringContent(Page(Node("one"), false).TrimEnd()[..^1] + ""","errors":[{"message":"Resource not accessible by personal access token"}]}""")
+})));
+var partialResult = await new GitHubClient(partialData).SearchAsync("fine-grained", new Config { Users = ["example"] });
+Check(partialResult.PullRequests.Count == 1, "Partial GraphQL errors keep the returned PRs");
 
 using var capped = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
 {

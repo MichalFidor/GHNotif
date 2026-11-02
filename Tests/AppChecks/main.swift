@@ -13,8 +13,8 @@ enum TokenProvider {
     static func resolve(host: String) -> ResolvedToken? { ResolvedToken(value: "test", source: .ghCLI) }
 }
 enum Keychain {
-    static func savePAT(_ value: String) {}
-    static func deletePAT() {}
+    static func savePAT(_ value: String, host: String) {}
+    static func deletePAT(host: String) {}
 }
 final class Notifier {
     var onUpdateNow: (() -> Void)?
