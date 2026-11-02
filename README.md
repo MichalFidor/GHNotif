@@ -250,6 +250,10 @@ Instead of one query joined with `OR` (GitHub search allows at most 5 logical op
 
 In the macOS menu bar the logo and the counter are drawn as a single image, because a `MenuBarExtra` label made of several views only shows some of them.
 
+## Security
+
+GHNotif only reads from GitHub, runs entirely on your machine and has no server or telemetry. The [threat model](docs/THREAT-MODEL.md) describes the assets, trust boundaries, mitigated threats, accepted risks (e.g. unsigned builds) and recommendations.
+
 ## Tests
 
 ```bash

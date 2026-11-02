@@ -251,6 +251,10 @@ Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 oper
 
 Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `MenuBarExtra` złożona z kilku widoków pokazuje tylko ich część.
 
+## Bezpieczeństwo
+
+GHNotif tylko odczytuje dane z GitHuba, działa w całości na Twoim komputerze i nie ma serwera ani telemetrii. [Threat model](docs/THREAT-MODEL.md) (po angielsku) opisuje chronione zasoby, granice zaufania, zabezpieczone zagrożenia, zaakceptowane ryzyka (np. niepodpisane buildy) i rekomendacje.
+
 ## Testy
 
 ```bash
