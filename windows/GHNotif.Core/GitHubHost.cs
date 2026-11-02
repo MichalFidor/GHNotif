@@ -58,7 +58,7 @@ public sealed record GitHubHost
     /// Page creating a classic PAT with the scopes GHNotif needs preselected.
     /// Page creating a read-only fine-grained PAT with the permissions GHNotif needs preselected.
     public string NewTokenUrl => WebUrl("/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif"
-        + "&pull_requests=read&statuses=read&members=read&expires_in=90");
+        + "&pull_requests=read&statuses=read&expires_in=90");
 
     /// Page creating a classic PAT with only the repo scope (classic tokens have no read-only private repo scope).
     public string NewClassicTokenUrl => WebUrl("/settings/tokens/new?scopes=repo&description=GHNotif");

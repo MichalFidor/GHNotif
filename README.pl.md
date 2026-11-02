@@ -75,11 +75,11 @@ Na macOS aplikacja szuka `gh` w `/opt/homebrew/bin`, `/usr/local/bin` i `/usr/bi
 
 GHNotif tylko odczytuje dane, więc token nie potrzebuje żadnych uprawnień do zapisu.
 
-- **Fine-grained PAT tylko do odczytu (najbezpieczniejszy)** - [utwórz z ustawionymi uprawnieniami](https://github.com/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif&pull_requests=read&statuses=read&members=read&expires_in=90):
+- **Fine-grained PAT tylko do odczytu (najbezpieczniejszy)** - [utwórz z ustawionymi uprawnieniami](https://github.com/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif&pull_requests=read&statuses=read&expires_in=90):
   - Resource owner - organizacja z PR-ami,
   - Repository access - **All repositories**,
   - Repository permissions - **Pull requests: read** (wymagane) i **Commit statuses: read** (stan CI); Metadata: read dodaje się automatycznie,
-  - Organization permissions - **Members: read**, opcjonalne, tylko do importu zespołów.
+  - Organization permissions - **Members: read**, opcjonalne, tylko do importu zespołów; dodaj je ręcznie po wybraniu organizacji.
 
   Ograniczenia: jeden token obejmuje jednego właściciela zasobów, więc PR-y z innych organizacji nie będą widoczne, a organizacja może wymagać zatwierdzenia tokenu przez admina. Stan CI może być niepełny, bo tokeny fine-grained nie odczytują check runów GitHub Actions.
 - **Classic PAT** - gdy potrzebujesz kilku organizacji w jednym tokenie ([utwórz z zaznaczonym `repo`](https://github.com/settings/tokens/new?scopes=repo&description=GHNotif)):

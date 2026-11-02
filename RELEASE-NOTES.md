@@ -2,7 +2,7 @@
 
 Security hardening and smaller token permissions.
 
-- **Read-only token**: Settings → Token now recommends a read-only fine-grained PAT (Pull requests: read, Commit statuses: read, optional Members: read) with a link that presets these permissions. The classic PAT link asks only for `repo`; `read:org` is optional (team import).
+- **Read-only token**: Settings → Token now recommends a read-only fine-grained PAT (Pull requests: read, Commit statuses: read, optional Members: read for team import) with a link that presets the repository permissions. The classic PAT link asks only for `repo`; `read:org` is optional (team import).
 - **Check connection** no longer treats a missing `read:org` as a problem and flags scopes GHNotif doesn't need (e.g. `gist`, `workflow`).
 - A saved PAT is bound to the GitHub server it was saved for, so changing the server never sends it to another host. Tokens saved for github.com keep working.
 - The GitHub server field accepts only a plain host name (no port, login or special characters).
