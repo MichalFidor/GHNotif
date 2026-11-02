@@ -10,7 +10,7 @@ enum AppResources {
 enum TokenSource { case ghCLI }
 struct ResolvedToken { let value: String; let source: TokenSource }
 enum TokenProvider {
-    static func resolve() -> ResolvedToken? { ResolvedToken(value: "test", source: .ghCLI) }
+    static func resolve(host: String) -> ResolvedToken? { ResolvedToken(value: "test", source: .ghCLI) }
 }
 enum Keychain {
     static func savePAT(_ value: String) {}
@@ -44,12 +44,16 @@ struct Outcome {
 }
 struct GitHubClient {
     let token: String
+    let host: GitHubHost
     static var results: [PullRequest] = []
     func searchPullRequests(config: AppConfig) async throws -> Outcome {
         Outcome(pullRequests: Self.results.filter(config.includes))
     }
     func canonicalLogin(for login: String) async throws -> String? { login }
     func teamMembers(organization: String, team: String) async throws -> [String] { ["member1", "member2"] }
+    func diagnose() async throws -> ConnectionDiagnosis {
+        ConnectionDiagnosis(login: "me", scopes: ["repo"], organizations: [.init(login: "acme", status: .ssoRequired(nil))])
+    }
 }
 
 @MainActor
@@ -117,6 +121,18 @@ func runChecks() async throws {
         try await Task.sleep(for: .milliseconds(10))
     }
     precondition(model.pullRequests.map(\.id) == [pr.id], "Initial PR is visible")
+    precondition(!model.consumeFirstLaunch(), "An existing config file is not a first launch")
+    let freshStore = ConfigStore(fileURL: directory.appendingPathComponent("fresh/config.json"))
+    let fresh = AppModel(store: freshStore, preferences: preferences)
+    Localization.language = .polish
+    precondition(fresh.consumeFirstLaunch() && !fresh.consumeFirstLaunch(), "First launch is reported once")
+    await model.checkConnection()
+    precondition(model.connectionReport.first?.hasSuffix(" me") == true && model.connectionHasProblems,
+                 "Connection check reports the login and problems")
+    model.config.host = "github.acme.com"
+    precondition(model.connectionReport.isEmpty && model.ssoSettingsURL.host == "github.acme.com",
+                 "Changing the host clears the report and moves GitHub links")
+    model.config.host = "github.com"
     precondition(model.inbox.entries[pr.id]?.isUnread == false, "Initial list establishes a read baseline")
     let activeReview = Activity(login: "reviewer", date: Date(), kind: .approved, id: "review-active")
     GitHubClient.results = [makePR(activity: [activeReview])]

@@ -1,4 +1,5 @@
 import Foundation
+import GHNotifCore
 import Security
 
 enum TokenSource: String {
@@ -13,11 +14,11 @@ struct ResolvedToken {
 
 enum TokenProvider {
     /// A PAT saved in Keychain wins; otherwise the token of the logged-in `gh` CLI user is used.
-    static func resolve() -> ResolvedToken? {
+    static func resolve(host: String = GitHubHost.dotCom) -> ResolvedToken? {
         if let pat = Keychain.readPAT(), !pat.isEmpty {
             return ResolvedToken(value: pat, source: .personalAccessToken)
         }
-        if let token = ghCLIToken() {
+        if let token = ghCLIToken(host: host) {
             return ResolvedToken(value: token, source: .ghCLI)
         }
         return nil
@@ -26,11 +27,11 @@ enum TokenProvider {
     // Apps launched from Finder/Dock don't inherit the shell PATH, so common install locations are probed directly.
     private static let ghCandidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
 
-    private static func ghCLIToken() -> String? {
+    private static func ghCLIToken(host: String) -> String? {
         guard let path = ghCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["auth", "token", "--hostname", "github.com"]
+        process.arguments = ["auth", "token", "--hostname", host]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

@@ -30,12 +30,14 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(190)
             .toolbar(removing: .sidebarToggle)
         } detail: {
-            detail(for: form.pane ?? .people)
-                .navigationTitle((form.pane ?? .people).title)
+            detail(for: form.pane ?? .start)
+                .navigationTitle((form.pane ?? .start).title)
         }
         .frame(width: 680, height: 480)
         .environment(\.locale, Localization.language.locale)
         .onAppear {
+            if model.consumeFirstLaunch() || !model.config.hasSearches { form.pane = .start }
+            form.host = model.config.host
             form.extraQualifiers = model.config.extraQualifiers
             form.excludedRepositories = model.config.excludedRepositories.joined(separator: ", ")
             form.excludedLabels = model.config.excludedLabels.joined(separator: ", ")
@@ -45,6 +47,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func detail(for pane: SettingsPane) -> some View {
         switch pane {
+        case .start: startTab
         case .people: peopleTab
         case .search: searchTab
         case .reminders: remindersTab
@@ -167,7 +170,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Dodaj osobę", "Add person"))
             } footer: {
-                Text(L("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu.", "Shows open PRs (no drafts) by these people in any repository visible to the token."))
+                Text(L("Pokazywane są otwarte PR-y tych osób (drafty - zależnie od ustawienia w Wyszukiwaniu), w dowolnym repozytorium widocznym dla tokenu.", "Shows open PRs by these people (drafts - depending on the Search setting) in any repository visible to the token."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -229,7 +232,7 @@ struct SettingsView: View {
 
     private func personRow(_ login: String) -> some View {
         HStack {
-            Link(login, destination: URL(string: "https://github.com/\(login)")!)
+            Link(login, destination: model.config.gitHubHost.webURL("/\(login)"))
             Spacer()
             Button(role: .destructive) {
                 model.removeUser(login)
@@ -248,10 +251,23 @@ struct SettingsView: View {
             Section {
                 Toggle(L("PR-y, w których ktoś mnie wspomniał (@)", "PRs where someone mentioned me (@)"), isOn: $model.config.includeMentions)
                 Toggle(L("PR-y z prośbą o moje review", "PRs requesting my review"), isOn: $model.config.includeReviewRequests)
+                Toggle(L("…także prośby do moich zespołów", "…also requests to my teams"), isOn: $model.config.includeTeamReviewRequests)
+                    .padding(.leading, 20)
+                    .disabled(!model.config.includeReviewRequests)
             } header: {
                 Text(L("Dodatkowo pokazuj", "Also show"))
             } footer: {
-                Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu - mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team - they can still make the list much longer, so they're off by default."))
+                Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review domyślnie obejmują tylko te skierowane do Ciebie osobiście. Prośby do zespołów (np. gdy ktoś doda cały zespół QA jako reviewera) są oznaczone ikoną zespołu - mogą mocno wydłużyć listę, dlatego obie opcje są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally by default. Team requests (e.g. when someone adds the whole QA team as reviewer) are marked with a team icon - they can make the list much longer, so both options are off by default."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle(L("Pokazuj drafty", "Show drafts"), isOn: $model.config.includeDrafts)
+                Toggle(L("Ukrywaj zatwierdzone PR-y", "Hide approved PRs"), isOn: $model.config.hideApproved)
+            } header: {
+                Text(L("Widoczność", "Visibility"))
+            } footer: {
+                Text(L("Drafty są oznaczone etykietą Draft. Zatwierdzone = decyzja review „Approved” na GitHubie - takie PR-y zwykle nie potrzebują już Twojej uwagi.", "Drafts are marked with a Draft label. Approved = the \"Approved\" review decision on GitHub - such PRs usually don't need your attention anymore."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -364,6 +380,12 @@ struct SettingsView: View {
             Section("Workflow") {
                 Toggle(L("Oznaczaj jako załatwione po moim review bieżącego commita", "Mark as done after I review the current commit"),
                        isOn: $model.config.autoDismissReviewed)
+                Stepper(value: $model.config.staleAfterDays, in: 0...60) {
+                    Text(model.config.staleAfterDays == 0
+                         ? L("Wyróżnianie starych PR-ów: wyłączone", "Highlighting old PRs: off")
+                         : L("Wyróżniaj PR-y otwarte od \(model.config.staleAfterDays) dni", "Highlight PRs open for \(model.config.staleAfterDays) days"))
+                }
+                .help(L("Data utworzenia takich PR-ów jest na liście pomarańczowa, z ikoną zegara. 0 wyłącza wyróżnianie.", "Such PRs show their creation date in orange with a clock icon. 0 turns it off."))
                 Picker(L("Sortowanie PR-ów", "PR sorting"), selection: $model.config.sortOrder) {
                     Text(L("Ostatnio aktualizowane", "Recently updated")).tag(AppConfig.SortOrder.recentlyUpdated)
                     Text(L("Najstarsze najpierw", "Oldest first")).tag(AppConfig.SortOrder.oldestFirst)
@@ -399,6 +421,7 @@ struct SettingsView: View {
         Form {
             Section {
                 LabeledContent(L("Aktualne źródło", "Current source"), value: model.tokenSource?.rawValue ?? L("brak", "none"))
+                connectionCheck
             } footer: {
                 Text(LocalizedStringKey(L("GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Brak PR-ów z prywatnych repozytoriów = brak scope'u `repo`. Widać tylko PR-y z własnych repozytoriów = token nie jest autoryzowany przez SSO dla organizacji albo organizacja blokuje classic PAT lub nie zatwierdziła GitHub CLI (wtedy GitHub ukrywa wyniki bez ostrzeżenia).", "GHNotif only sees PRs from repositories the token can access. PRs from private repositories missing = no `repo` scope. Only PRs from your own repositories = the token is not SSO-authorized for the organization, or the organization blocks classic PATs or hasn't approved GitHub CLI (GitHub then hides results without a warning).")))
                     .font(.caption).foregroundStyle(.secondary)
@@ -418,7 +441,7 @@ struct SettingsView: View {
                     .font(.callout)
                     .textSelection(.enabled)
                 Link(L("Utwórz classic PAT z tymi scope'ami", "Create a classic PAT with these scopes"),
-                     destination: URL(string: "https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif")!)
+                     destination: model.config.gitHubHost.newTokenURL)
                 SecureField("Personal access token", text: $form.pat, prompt: Text(L("ghp_… (opcjonalnie)", "ghp_… (optional)")))
                 HStack {
                     Button(L("Zapisz PAT", "Save PAT")) {
@@ -434,8 +457,114 @@ struct SettingsView: View {
                 Text(LocalizedStringKey(L("PAT ma pierwszeństwo przed `gh` i jest przechowywany w Keychain. Fine-grained PAT: Pull requests - read i Members - read; obejmuje tylko jednego właściciela zasobów (organizację lub konto), więc PR-y z innych organizacji nie będą widoczne.", "A PAT takes precedence over `gh` and is stored in Keychain. Fine-grained PAT: Pull requests - read and Members - read; it covers only one resource owner (organization or account), so PRs from other organizations won't be visible.")))
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                HStack {
+                    TextField(L("Host", "Host"), text: $form.host, prompt: Text("github.com"))
+                        .labelsHidden()
+                        .onSubmit(applyHost)
+                    Button(L("Zastosuj", "Apply"), action: applyHost)
+                        .disabled(GitHubHost.normalize(form.host) == model.config.host)
+                }
+            } header: {
+                Text(L("Serwer GitHub", "GitHub server"))
+            } footer: {
+                Text(LocalizedStringKey(L("Zostaw `github.com`, chyba że firma używa GitHub Enterprise Server lub GHE.com - wtedy wpisz jego host, np. `github.firma.pl`. Dla GitHub CLI zaloguj się poleceniem `gh auth login --hostname HOST`; PAT utwórz na tym serwerze.", "Keep `github.com` unless your company uses GitHub Enterprise Server or GHE.com - then enter its host, e.g. `github.company.com`. For GitHub CLI sign in with `gh auth login --hostname HOST`; create the PAT on that server.")))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .task { await model.loadTokenSource() }
+    }
+
+    @ViewBuilder
+    private var connectionCheck: some View {
+        HStack {
+            Button(L("Sprawdź połączenie", "Check connection")) {
+                Task { await model.checkConnection() }
+            }
+            .disabled(model.checkingConnection)
+            if model.checkingConnection { ProgressView().controlSize(.small) }
+            Spacer()
+            if let url = model.connectionSSOURL {
+                Link(L("Autoryzuj SSO", "Authorize SSO"), destination: url)
+            }
+        }
+        if !model.connectionReport.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(model.connectionReport.enumerated()), id: \.offset) { _, line in
+                    Text(LocalizedStringKey(line))
+                        .font(.caption)
+                        .foregroundStyle(line.hasPrefix("✗") ? .red : line.hasPrefix("?") ? .orange : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .textSelection(.enabled)
+        }
+    }
+
+    private func applyHost() {
+        model.config.host = GitHubHost.normalize(form.host)
+        form.host = model.config.host
+    }
+
+    private var startTab: some View {
+        Form {
+            Section {
+                Text(L("GHNotif pokazuje w pasku menu otwarte PR-y wybranych osób. Do działania potrzebuje tokenu GitHub i listy obserwowanych osób - reszta jest opcjonalna.", "GHNotif shows open PRs by chosen people in the menu bar. It needs a GitHub token and a list of watched people - everything else is optional."))
+                    .font(.callout)
+            }
+            Section {
+                setupStep(done: model.tokenSource != nil, title: L("1. Token GitHub", "1. GitHub token"),
+                          detail: model.tokenSource.map { L("Źródło: \($0.rawValue). Sprawdź, czy widzi Twoje organizacje.", "Source: \($0.rawValue). Check that it can see your organizations.") }
+                            ?? L("Brak tokenu - zaloguj się przez GitHub CLI (`gh auth login`) albo zapisz PAT.", "No token - sign in with GitHub CLI (`gh auth login`) or save a PAT."),
+                          action: L("Ustawienia tokenu", "Token settings"), pane: .token)
+                connectionCheck
+            }
+            Section {
+                setupStep(done: !model.config.users.isEmpty, title: L("2. Obserwowane osoby", "2. Watched people"),
+                          detail: model.config.users.isEmpty
+                            ? L("Dodaj loginy pojedynczo albo zaimportuj cały zespół z organizacji.", "Add logins one by one or import a whole team from an organization.")
+                            : L("Obserwowane osoby: \(model.config.users.count).", "Watched people: \(model.config.users.count)."),
+                          action: L("Dodaj osoby", "Add people"), pane: .people)
+            }
+            Section {
+                setupStep(done: nil, title: L("3. Co pokazywać (opcjonalnie)", "3. What to show (optional)"),
+                          detail: searchSummary, action: L("Wyszukiwanie", "Search"), pane: .search)
+                setupStep(done: nil, title: L("4. Powiadomienia i przypomnienia (opcjonalnie)", "4. Notifications and reminders (optional)"),
+                          detail: model.config.notify
+                            ? L("Powiadomienia włączone - możesz wysłać testowe i ustawić ciszę nocną.", "Notifications on - you can send a test one and set quiet hours.")
+                            : L("Powiadomienia wyłączone.", "Notifications off."),
+                          action: L("Powiadomienia", "Notifications"), pane: .notifications)
+            }
+        }
+        .formStyle(.grouped)
+        .task { await model.loadTokenSource() }
+    }
+
+    private var searchSummary: String {
+        var parts: [String] = []
+        if model.config.includeMentions { parts.append(L("wzmianki", "mentions")) }
+        if model.config.includeReviewRequests { parts.append(L("prośby o review", "review requests")) }
+        if model.config.includeReviewRequests && model.config.includeTeamReviewRequests { parts.append(L("review zespołów", "team reviews")) }
+        if model.config.includeDrafts { parts.append(L("drafty", "drafts")) }
+        if model.config.hideApproved { parts.append(L("bez zatwierdzonych", "no approved")) }
+        let list = parts.isEmpty ? L("tylko PR-y obserwowanych osób", "only PRs by watched people") : parts.joined(separator: ", ")
+        return L("Teraz: \(list). Możesz też ograniczyć zakres do organizacji i wykluczyć repozytoria lub etykiety.", "Now: \(list). You can also limit the scope to an organization and exclude repositories or labels.")
+    }
+
+    private func setupStep(done: Bool?, title: String, detail: String, action: String, pane: SettingsPane) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: done == true ? "checkmark.circle.fill" : done == false ? "exclamationmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(done == true ? .green : done == false ? .orange : .secondary)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(LocalizedStringKey(detail)).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(action) { form.pane = pane }
+        }
     }
 
     private func addUser() {
@@ -493,12 +622,13 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case people, search, reminders, notifications, general, token
+    case start, people, search, reminders, notifications, general, token
 
     var id: Self { self }
 
     var title: String {
         switch self {
+        case .start: L("Pierwsze kroki", "Get started")
         case .people: L("Osoby", "People")
         case .search: L("Wyszukiwanie", "Search")
         case .reminders: L("Przypomnienia", "Reminders")
@@ -510,6 +640,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .start: "flag.checkered"
         case .people: "person.2.fill"
         case .search: "magnifyingglass"
         case .reminders: "alarm.fill"
@@ -521,6 +652,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var tint: Color {
         switch self {
+        case .start: .green
         case .people: .blue
         case .search: .purple
         case .reminders: .red
@@ -551,6 +683,7 @@ struct SidebarLabel: View {
 
 private final class FormState: ObservableObject {
     @Published var pane: SettingsPane? = .people
+    @Published var host = ""
     @Published var newLogin = ""
     @Published var isAdding = false
     @Published var addError: String?

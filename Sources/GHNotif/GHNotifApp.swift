@@ -10,12 +10,7 @@ struct GHNotifApp: App {
             MenuContentView()
                 .environmentObject(model)
         } label: {
-            let icon = MenuBarIcon.image(
-                count: model.pullRequests.count, hasError: model.lastError != nil,
-                isReady: model.lastRefresh != nil && model.config.hasSearches && model.ssoBlockedOrgCount == 0
-            )
-            Image(nsImage: icon)
-                .help(icon.accessibilityDescription ?? "GHNotif")
+            MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.window)
 
@@ -25,5 +20,25 @@ struct GHNotifApp: App {
         }
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
+    }
+}
+
+private struct MenuBarLabel: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        let icon = MenuBarIcon.image(
+            count: model.pullRequests.count, hasError: model.lastError != nil,
+            isReady: model.lastRefresh != nil && model.config.hasSearches && model.ssoBlockedOrgCount == 0
+        )
+        Image(nsImage: icon)
+            .help(icon.accessibilityDescription ?? "GHNotif")
+            .task {
+                // The label is the only view rendered at launch, so first-run setup opens from here.
+                guard model.isFirstLaunch else { return }
+                NSApp.activate()
+                openWindow(id: SettingsView.windowID)
+            }
     }
 }

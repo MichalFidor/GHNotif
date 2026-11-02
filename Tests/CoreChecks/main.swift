@@ -43,6 +43,73 @@ do {
     check(AppConfig(users: []).hasSearches, "mentions alone still search")
 }
 
+do {
+    var config = AppConfig(users: ["alice"], extraQualifiers: "org:acme", includeMentions: false)
+    config.includeTeamReviewRequests = true
+    check(SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor],
+          "team review requests need personal review requests enabled")
+    config.includeReviewRequests = true
+    check(SearchQueryBuilder.searches(for: config).map(\.query).last == "is:pr is:open draft:false review-requested:@me -author:@me org:acme",
+          "team review query matches requests to the user's teams")
+    check(SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor, .reviewRequested, .teamReviewRequested],
+          "personal and team review searches both run")
+    config.includeDrafts = true
+    check(SearchQueryBuilder.searches(for: config).allSatisfy { $0.query.hasPrefix("is:pr is:open ") && !$0.query.contains("draft:") },
+          "drafts setting drops draft:false from every query")
+}
+
+// MARK: GitHubHost
+
+do {
+    let dotCom = GitHubHost("https://GitHub.com/")
+    check(dotCom.isDotCom && dotCom.graphQLURL.absoluteString == "https://api.github.com/graphql"
+            && dotCom.restURL("/user").absoluteString == "https://api.github.com/user", "github.com endpoints")
+    check(GitHubHost("").name == "github.com" && GitHubHost("api.github.com").name == "github.com", "empty and API host normalize to github.com")
+    let ghes = GitHubHost(" https://github.acme.com/some/path ")
+    check(ghes.name == "github.acme.com" && ghes.graphQLURL.absoluteString == "https://github.acme.com/api/graphql"
+            && ghes.restURL("/user").absoluteString == "https://github.acme.com/api/v3/user", "GHES endpoints")
+    let ghe = GitHubHost("acme.ghe.com")
+    check(ghe.graphQLURL.absoluteString == "https://api.acme.ghe.com/graphql"
+            && ghe.restURL("/user").absoluteString == "https://api.acme.ghe.com/user", "GHE.com endpoints")
+    check(ghes.newTokenURL.absoluteString.hasPrefix("https://github.acme.com/settings/tokens/new?scopes=repo,read:org"),
+          "PAT link points to the configured host")
+    check(dotCom.ssoSettingsURL(usingGitHubCLI: true).path.contains("178c6fc778ccc68e1d6a")
+            && ghes.ssoSettingsURL(usingGitHubCLI: true).absoluteString == "https://github.acme.com/settings/applications",
+          "SSO settings follow host")
+    check(ghes.owns(URL(string: "https://github.acme.com/o/r/pull/1")!) && !ghes.owns(URL(string: "https://evil.com/")!)
+            && !ghes.owns(URL(string: "http://github.acme.com/")!), "host ownership check")
+}
+
+// MARK: Connection diagnosis
+
+do {
+    check(ConnectionDiagnosis.scopes(from: "repo, read:org,  workflow") == ["repo", "read:org", "workflow"], "scope header parsed")
+    check(ConnectionDiagnosis.scopes(from: nil) == nil, "missing scope header means fine-grained token")
+    check(ConnectionDiagnosis(login: "me", scopes: ["project", "read:packages"], organizations: []).missingScopes == ["repo", "read:org"],
+          "unrelated scopes reported as missing")
+    check(ConnectionDiagnosis(login: "me", scopes: ["repo", "admin:org"], organizations: []).missingScopes.isEmpty,
+          "broader org scope implies read:org")
+    check(ConnectionDiagnosis(login: "me", scopes: nil, organizations: []).missingScopes.isEmpty, "fine-grained tokens have no scope list")
+    let sso = ConnectionDiagnosis.orgStatus(
+        statusCode: 403, ssoHeader: "required; url=https://github.com/orgs/acme/sso?authorization_request=x",
+        body: Data(#"{"message":"Resource protected by organization SAML enforcement."}"#.utf8))
+    check(sso == .ssoRequired(URL(string: "https://github.com/orgs/acme/sso?authorization_request=x")), "SSO requirement detected")
+    let blocked = ConnectionDiagnosis.orgStatus(statusCode: 403, ssoHeader: nil,
+                                                body: Data(#"{"message":"`acme` forbids access via a personal access token (classic)."}"#.utf8))
+    check(blocked == .blocked("`acme` forbids access via a personal access token (classic)."), "org policy block detected")
+    check(ConnectionDiagnosis.orgStatus(statusCode: 200, ssoHeader: nil, body: Data()) == .ok, "accessible org")
+    check(ConnectionDiagnosis.orgStatus(statusCode: 500, ssoHeader: nil, body: Data("oops".utf8)) == .error("HTTP 500: oops"), "other errors")
+    let report = ConnectionDiagnosis(login: "me", scopes: ["read:packages"], organizations: [
+        .init(login: "acme", status: sso), .init(login: "open", status: .ok),
+    ])
+    check(report.hasProblems && report.ssoAuthorizationURL != nil, "problems and SSO link surfaced")
+    check(report.lines.first == "✓ Zalogowano jako me" && report.lines.contains { $0.hasPrefix("✗ Brak uprawnienia repo") }
+            && report.lines.contains { $0.hasPrefix("✗ acme - wymaga autoryzacji SSO") } && report.lines.contains("✓ open - dostęp OK"),
+          "report lines describe each finding")
+    check(!ConnectionDiagnosis(login: "me", scopes: ["repo", "read:org"], organizations: [.init(login: "a", status: .ok)]).hasProblems,
+          "healthy token has no problems")
+}
+
 // MARK: GitHubClient parsing
 
 do {
@@ -62,7 +129,7 @@ do {
                            {"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}},
       {},
       {"id":"PR_2","number":3,"title":"No CI","url":"https://github.com/o/r/pull/3",
-       "createdAt":"2026-10-20T10:00:00Z","updatedAt":"2026-10-20T10:00:00Z","reviewDecision":null,
+       "createdAt":"2026-10-20T10:00:00Z","updatedAt":"2026-10-20T10:00:00Z","reviewDecision":null,"isDraft":true,
        "author":null,"repository":{"nameWithOwner":"o/r"},
        "commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]}}
     ]}}}
@@ -75,6 +142,7 @@ do {
     check(first.reviewDecision == .approved && first.checks == .failure, "review decision and CI state parsed")
     check(page.pullRequests[1].author == "ghost" && page.pullRequests[1].checks == nil, "missing author / CI tolerated")
     check(page.viewerLogin == "me", "viewer login parsed")
+    check(!first.isDraft && page.pullRequests[1].isDraft, "draft flag parsed, missing means ready")
     check(first.headCommitOID == "abc123", "head commit parsed")
     check(first.additions == 14 && first.deletions == 3 && first.labels == ["bug", "triage"],
           "change size and labels parsed")
@@ -158,6 +226,17 @@ do {
     check(!config.includes(pr), "label exclusion ignores case")
     config.excludedLabels = ["wip"]
     check(config.includes(pr), "unmatched exclusions keep PR visible")
+    let approved = PullRequest(id: "ok", number: 3, title: "t", url: URL(string: "https://github.com/o/r/pull/3")!,
+        repository: "o/r", author: "a", authorAvatarURL: nil, createdAt: Date(timeIntervalSince1970: 0),
+        updatedAt: Date(), reviewDecision: .approved, checks: nil)
+    check(config.includes(approved), "approved PRs shown by default")
+    config.hideApproved = true
+    check(!config.includes(approved) && config.includes(pr), "hide approved filters only approved PRs")
+    let now = Date(timeIntervalSince1970: 10 * 86_400)
+    check(config.isStale(approved, now: now) && !config.isStale(approved, now: Date(timeIntervalSince1970: 6 * 86_400)),
+          "stale after 7 days by default")
+    config.staleAfterDays = 0
+    check(!config.isStale(approved, now: now), "0 disables stale highlighting")
 }
 
 check(GitHubClient.ssoBlockedOrgIDs(from: "partial-results; organizations=21955855,20582480") == ["21955855", "20582480"],
@@ -178,6 +257,12 @@ do {
     ])
     let reasons = Dictionary(uniqueKeysWithValues: merged.pullRequests.map { ($0.id, $0.reasons) })
     check(reasons == ["A": [.watchedAuthor], "B": [.watchedAuthor, .mention], "C": [.mention]], "reasons merged per PR")
+    var personal = pr("D")
+    personal.reasons = [.reviewRequested, .teamReviewRequested]
+    var team = pr("E")
+    team.reasons = [.teamReviewRequested]
+    check(!personal.isTeamReviewRequestOnly && team.isTeamReviewRequestOnly, "personal review request wins over team")
+    check(PullRequestAlert.new(team).details == ["◉ Prośba o review do Twojego zespołu"], "team review alert text")
     check(merged.ssoBlockedOrgIDs == ["1", "2"] && merged.viewerLogin == "me", "SSO and viewer merged")
 }
 
@@ -237,6 +322,10 @@ do {
     let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":["a"],"extraQualifiers":"","refreshMinutes":7,"notify":false}"#.utf8))
     check(legacy.refreshMinutes == 7 && !legacy.notify && legacy.includeMentions && !legacy.includeReviewRequests,
           "config from an older version gets new defaults")
+    check(!legacy.includeTeamReviewRequests && !legacy.includeDrafts && !legacy.hideApproved
+            && legacy.staleAfterDays == 7 && legacy.host == "github.com", "new options default for old configs")
+    let custom = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":[],"host":"https://GitHub.Acme.com/","staleAfterDays":-3}"#.utf8))
+    check(custom.host == "github.acme.com" && custom.staleAfterDays == 0, "host normalized and negative stale days clamped")
 } catch {
     check(false, "legacy config threw \(error)")
 }

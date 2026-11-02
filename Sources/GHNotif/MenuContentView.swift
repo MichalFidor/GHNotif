@@ -140,6 +140,10 @@ struct MenuContentView: View {
                 }
                 Text(emptyStateText)
                     .foregroundStyle(.secondary)
+                if !model.config.hasSearches {
+                    Button(L("Skonfiguruj", "Set up"), action: openSettings)
+                        .controlSize(.small)
+                }
             }
             .frame(maxWidth: .infinity, minHeight: 80)
         } else {
@@ -353,9 +357,10 @@ struct PullRequestRow: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(pr.title).lineLimit(2)
-                        Text("#" + String(pr.number) + " · " + "\(pr.author) · \(pr.createdAt.formatted(.relative(presentation: .named).locale(Localization.language.locale))) · +\(pr.additions)/−\(pr.deletions)")
+                        caption
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .help(isStale ? L("Otwarty od ponad \(model.config.staleAfterDays) dni", "Open for over \(model.config.staleAfterDays) days") : "")
                         if let entry = model.inbox.entries[pr.id], entry.isUnread {
                             Text(entry.isNew ? L("Nowy PR", "New PR") : L("Od ostatniego przeczytania", "Since last read"))
                                 .font(.caption.weight(.semibold))
@@ -370,7 +375,15 @@ struct PullRequestRow: View {
                         }
                     }
                     .frame(maxWidth: 250, alignment: .leading)
-                    ReasonBadges(reasons: pr.reasons)
+                    if pr.isDraft {
+                        Text("Draft")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .background(Capsule().fill(.quaternary))
+                            .help(L("PR w wersji roboczej", "Draft pull request"))
+                    }
+                    ReasonBadges(pr: pr)
                     ReviewBadge(decision: pr.reviewDecision)
                     ChecksIndicator(state: pr.checks)
                 }
@@ -412,6 +425,16 @@ struct PullRequestRow: View {
         .background(hover.isHovered ? Color.accentColor.opacity(0.15) : .clear)
         .onHover { hover.isHovered = $0 }
     }
+
+    private var isStale: Bool { model.config.isStale(pr) }
+
+    private var caption: Text {
+        let created = pr.createdAt.formatted(.relative(presentation: .named).locale(Localization.language.locale))
+        let date = isStale
+            ? Text("\(Image(systemName: "clock")) \(Text(verbatim: created))").foregroundStyle(.orange)
+            : Text(verbatim: created)
+        return Text("\(Text(verbatim: "#\(pr.number) · \(pr.author) · "))\(date)\(Text(verbatim: " · +\(pr.additions)/−\(pr.deletions)"))")
+    }
 }
 
 private final class HoverState: ObservableObject {
@@ -419,10 +442,10 @@ private final class HoverState: ObservableObject {
 }
 
 private struct ReasonBadges: View {
-    let reasons: Set<MatchReason>
+    let pr: PullRequest
 
     var body: some View {
-        if reasons.contains(.mention) {
+        if pr.reasons.contains(.mention) {
             Text("@")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
@@ -430,10 +453,14 @@ private struct ReasonBadges: View {
                 .background(Circle().fill(Color.purple))
                 .help(L("Ktoś wspomniał Cię w tym PR-ze", "Someone mentioned you in this PR"))
         }
-        if reasons.contains(.reviewRequested) {
+        if pr.reasons.contains(.reviewRequested) {
             Image(systemName: "person.crop.circle.badge.questionmark")
                 .foregroundStyle(.purple)
                 .help(L("Poproszono Cię o review", "Your review was requested"))
+        } else if pr.isTeamReviewRequestOnly {
+            Image(systemName: "person.3.fill")
+                .foregroundStyle(.purple)
+                .help(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
         }
     }
 }

@@ -17,11 +17,12 @@ public enum GitHubError: LocalizedError, Equatable {
 
 public struct GitHubClient: Sendable {
     public let token: String
-    private let endpoint = URL(string: "https://api.github.com/graphql")!
-    private let session: URLSession
+    public let host: GitHubHost
+    let session: URLSession
 
-    public init(token: String, session: URLSession = .shared) {
+    public init(token: String, host: GitHubHost = GitHubHost(GitHubHost.dotCom), session: URLSession = .shared) {
         self.token = token
+        self.host = host
         self.session = session
     }
 
@@ -100,17 +101,7 @@ public struct GitHubClient: Sendable {
         }
         var members: [String] = []
         for page in 1...10 {
-            var components = URLComponents(string: "https://api.github.com/orgs/\(organization)/teams/\(team)/members")!
-            components.queryItems = [URLQueryItem(name: "per_page", value: "100"),
-                                     URLQueryItem(name: "page", value: String(page))]
-            var request = URLRequest(url: components.url!)
-            request.httpMethod = "GET"
-            request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
-            if http.statusCode == 401 { throw GitHubError.unauthorized }
+            let (data, http) = try await get("/orgs/\(organization)/teams/\(team)/members?per_page=100&page=\(page)")
             guard (200..<300).contains(http.statusCode) else {
                 throw GitHubError.http(http.statusCode, String(decoding: data, as: UTF8.self))
             }
@@ -121,8 +112,21 @@ public struct GitHubClient: Sendable {
         throw GitHubError.graphQL(L("Zespół ma ponad 1000 członków; ogranicz import.", "The team has over 1000 members; narrow the import."))
     }
 
+    /// REST GET relative to the host's API root; only 401 throws, other statuses are left to the caller.
+    func get(_ path: String) async throws -> (Data, HTTPURLResponse) {
+        var request = URLRequest(url: host.restURL(path))
+        request.httpMethod = "GET"
+        request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw GitHubError.http(0, L("Brak odpowiedzi HTTP", "No HTTP response")) }
+        if http.statusCode == 401 { throw GitHubError.unauthorized }
+        return (data, http)
+    }
+
     private func post(query: String, variables: [String: String]) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: host.graphQLURL)
         request.httpMethod = "POST"
         request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -180,7 +184,7 @@ public struct GitHubClient: Sendable {
         pageInfo { hasNextPage endCursor }
         nodes {
           ... on PullRequest {
-            id number title url createdAt updatedAt reviewDecision
+            id number title url createdAt updatedAt reviewDecision isDraft
             author { login avatarUrl }
             repository { nameWithOwner }
             additions deletions
@@ -300,6 +304,7 @@ private struct PRNode: Decodable {
     let createdAt: Date
     let updatedAt: Date
     let reviewDecision: ReviewDecision?
+    let isDraft: Bool?
     let author: Author?
     let repository: Repository
     let commits: Commits?
@@ -338,7 +343,8 @@ private struct PRNode: Decodable {
                 guard let review = node.value, let login = review.author?.login else { return nil }
                 return PullRequestReview(login: login, commitOID: review.commit?.oid, submittedAt: review.submittedAt)
             } ?? [],
-            headCommitAuthor: commits?.nodes.last?.commit.author?.user?.login
+            headCommitAuthor: commits?.nodes.last?.commit.author?.user?.login,
+            isDraft: isDraft ?? false
         )
     }
 }

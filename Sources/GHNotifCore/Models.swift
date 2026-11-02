@@ -18,6 +18,8 @@ public enum MatchReason: String, Hashable, Sendable, CaseIterable {
     case watchedAuthor
     case mention
     case reviewRequested
+    /// Review requested from a team the user belongs to.
+    case teamReviewRequested
 }
 
 public struct PullRequestReview: Hashable, Sendable {
@@ -51,6 +53,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
     public let deletions: Int
     public let labels: [String]
     public let reviews: [PullRequestReview]
+    public let isDraft: Bool
     /// Recent comments and reviews by humans (bots excluded).
     public let activity: [Activity]
     /// Why the PR is listed; a PR can match several searches.
@@ -62,7 +65,7 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         reviewDecision: ReviewDecision?, checks: CheckState?,
         headCommitOID: String? = nil, activity: [Activity] = [], reasons: Set<MatchReason> = [.watchedAuthor],
         additions: Int = 0, deletions: Int = 0, labels: [String] = [], reviews: [PullRequestReview] = [],
-        headCommitAuthor: String? = nil
+        headCommitAuthor: String? = nil, isDraft: Bool = false
     ) {
         self.id = id
         self.number = number
@@ -83,6 +86,12 @@ public struct PullRequest: Identifiable, Hashable, Sendable {
         self.deletions = deletions
         self.labels = labels
         self.reviews = reviews
+        self.isDraft = isDraft
+    }
+
+    /// Team requests are only worth showing when the user wasn't asked personally.
+    public var isTeamReviewRequestOnly: Bool {
+        reasons.contains(.teamReviewRequested) && !reasons.contains(.reviewRequested)
     }
 
     /// True when, since the dismissal, someone pushed commits or someone other than `viewer` commented/reviewed.
@@ -288,6 +297,7 @@ public struct PullRequestAlert: Sendable {
 
     public static func new(_ pr: PullRequest) -> PullRequestAlert {
         let detail = pr.reasons.contains(.reviewRequested) ? AlertEvent.reviewRequested.line(L("Poproszono Cię o review", "Your review was requested"))
+            : pr.reasons.contains(.teamReviewRequested) ? AlertEvent.reviewRequested.line(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
             : pr.reasons.contains(.mention) ? AlertEvent.mention.line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
             : AlertEvent.newPullRequest.line(L("Nowy PR od \(pr.author)", "New PR by \(pr.author)"))
         return PullRequestAlert(pullRequest: pr, details: [detail])

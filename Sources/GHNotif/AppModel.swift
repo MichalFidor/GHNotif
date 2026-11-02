@@ -59,6 +59,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var installingUpdate = false
     @Published private(set) var notificationStatus = ""
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Published private(set) var checkingConnection = false
+    /// Findings of the last "Check connection"; empty until the user runs it.
+    @Published private(set) var connectionReport: [String] = []
+    @Published private(set) var connectionHasProblems = false
+    @Published private(set) var connectionSSOURL: URL?
+    /// True when no config file existed at launch; Settings opens on the "Get started" pane once.
+    private(set) var isFirstLaunch = false
 
     var installedVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
@@ -208,7 +215,7 @@ final class AppModel: ObservableObject {
         guard let token = await currentToken() else {
             throw GitHubError.graphQL(L("Brak tokenu GitHub.", "No GitHub token."))
         }
-        let members = try await GitHubClient(token: token.value).teamMembers(organization: organization, team: team)
+        let members = try await client(token).teamMembers(organization: organization, team: team)
         config.users = SearchQueryBuilder.normalizeLogins(config.users + members)
     }
 
@@ -228,6 +235,7 @@ final class AppModel: ObservableObject {
         self.preferences = preferences
         self.releaseLoader = releaseLoader
         self.urlOpener = urlOpener
+        isFirstLaunch = !FileManager.default.fileExists(atPath: store.fileURL.path)
         inbox = PullRequestInbox()
         if let data = preferences.data(forKey: Self.inboxKey) {
             do {
@@ -317,9 +325,48 @@ final class AppModel: ObservableObject {
     }
 
     var ssoSettingsURL: URL {
-        tokenSource == .ghCLI
-            ? URL(string: "https://github.com/settings/connections/applications/178c6fc778ccc68e1d6a")!
-            : URL(string: "https://github.com/settings/tokens")!
+        config.gitHubHost.ssoSettingsURL(usingGitHubCLI: tokenSource == .ghCLI)
+    }
+
+    /// Returns true once, on the first launch without a config file.
+    func consumeFirstLaunch() -> Bool {
+        defer { isFirstLaunch = false }
+        return isFirstLaunch
+    }
+
+    /// Resolves the token so Settings can show its source before the first search runs.
+    func loadTokenSource() async {
+        _ = await currentToken()
+    }
+
+    func checkConnection() async {
+        guard !checkingConnection else { return }
+        checkingConnection = true
+        defer { checkingConnection = false }
+        connectionSSOURL = nil
+        guard let token = await currentToken() else {
+            connectionReport = [L("✗ Brak tokenu - zaloguj się przez `gh auth login` albo zapisz PAT poniżej.",
+                                  "✗ No token - sign in with `gh auth login` or save a PAT below.")]
+            connectionHasProblems = true
+            return
+        }
+        do {
+            let diagnosis = try await client(token).diagnose()
+            connectionReport = diagnosis.lines
+            connectionHasProblems = diagnosis.hasProblems
+            connectionSSOURL = diagnosis.ssoAuthorizationURL
+        } catch GitHubError.unauthorized {
+            self.token = nil
+            connectionReport = ["✗ " + (GitHubError.unauthorized.errorDescription ?? "")]
+            connectionHasProblems = true
+        } catch {
+            connectionReport = ["✗ " + error.localizedDescription]
+            connectionHasProblems = true
+        }
+    }
+
+    private func client(_ token: ResolvedToken) -> GitHubClient {
+        GitHubClient(token: token.value, host: config.gitHubHost)
     }
 
     func refresh() async {
@@ -346,7 +393,7 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            let outcome = try await GitHubClient(token: token.value)
+            let outcome = try await client(token)
                 .searchPullRequests(config: config)
             let now = Date()
             let wokeFromSnooze = outcome.pullRequests.filter {
@@ -388,7 +435,7 @@ final class AppModel: ObservableObject {
         }
         guard let token = await currentToken() else { return L("Brak tokenu GitHub.", "No GitHub token.") }
         do {
-            guard let canonical = try await GitHubClient(token: token.value).canonicalLogin(for: login) else {
+            guard let canonical = try await client(token).canonicalLogin(for: login) else {
                 return L("Nie znaleziono użytkownika \(login).", "User \(login) not found.")
             }
             if !config.users.contains(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
@@ -412,13 +459,15 @@ final class AppModel: ObservableObject {
         }
         token = nil
         tokenSource = nil
+        connectionReport = []
         suppressNextNotifications = true
         Task { await refresh() }
     }
 
     private func currentToken() async -> ResolvedToken? {
         if let token { return token }
-        let resolved = await Task.detached { TokenProvider.resolve() }.value
+        let host = config.gitHubHost.name
+        let resolved = await Task.detached { TokenProvider.resolve(host: host) }.value
         token = resolved
         tokenSource = resolved?.source
         return resolved
@@ -501,8 +550,16 @@ final class AppModel: ObservableObject {
             lastError = L("Nie udało się zapisać konfiguracji: \(error.localizedDescription)", "Could not save the configuration: \(error.localizedDescription)")
         }
         if config.notify && !old.notify { notifier.requestAuthorization() }
+        if config.host != old.host {
+            token = nil
+            tokenSource = nil
+            connectionReport = []
+        }
         if config.users != old.users || config.extraQualifiers != old.extraQualifiers
             || config.includeMentions != old.includeMentions || config.includeReviewRequests != old.includeReviewRequests
+            || config.includeTeamReviewRequests != old.includeTeamReviewRequests
+            || config.includeDrafts != old.includeDrafts || config.hideApproved != old.hideApproved
+            || config.host != old.host
             || config.excludedRepositories != old.excludedRepositories || config.excludedLabels != old.excludedLabels
             || config.autoDismissReviewed != old.autoDismissReviewed {
             suppressNextNotifications = true
