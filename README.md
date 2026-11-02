@@ -32,6 +32,8 @@ Building from source:
 
 Requires macOS 15+ and Swift 6 (Command Line Tools are enough). Launch at login can be enabled in GHNotif → Settings → General.
 
+On first launch, sign in with `gh auth login` or save a PAT with the `repo` scope (see [Authentication](#authentication)), then add people in the settings.
+
 ## Installing on Windows
 
 Requires Windows 10/11. The portable build bundles .NET, so nothing else needs to be installed.
@@ -39,7 +41,7 @@ Requires Windows 10/11. The portable build bundles .NET, so nothing else needs t
 1. Download `GHNotif-win-x64.zip` (typical PC) or `GHNotif-win-arm64.zip` from [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Extract the whole ZIP to a permanent folder and run `GHNotif.Windows.exe`; keep `GHNotif.ico` next to it.
 3. Click the icon next to the clock (it may be hidden under the arrow). Right-click for settings, refresh or quit.
-4. Add people in the settings and either run `gh auth login` or save your own PAT.
+4. Sign in with `gh auth login` or save a PAT with the `repo` scope (see [Authentication](#authentication)), then add people in the settings.
 
 The app is not signed with a publisher certificate, so Windows SmartScreen may show a warning. Only run builds from a trusted source.
 Closing the panel hides it to the tray. Launch at login can be enabled in the app settings.
@@ -55,10 +57,40 @@ The Windows version has a light panel grouped by repository, with avatars, revie
 
 ## Authentication
 
-- By default the token from `gh auth login` is used (the app runs `gh auth token`).
-- Optionally, save a PAT in the settings (stored in the Keychain). It takes precedence over `gh`.
-- On Windows the PAT is encrypted with DPAPI for the current user and never written to the JSON config. `gh` must be on `PATH`; restart GHNotif after installing it.
-- Organizations with SAML SSO: if the token is not authorized for them, GitHub hides their PRs. The app then shows a warning with a link to authorize the token.
+GHNotif only sees PRs from repositories its token can access. If the list shows only PRs from public repositories (e.g. you follow a dozen people and see one PR), the token lacks the `repo` scope or isn't authorized for an SSO organization. Pick one of the two options; Settings → Token describes them too.
+
+### Option 1: GitHub CLI (recommended)
+
+No token to create or paste - the app runs `gh auth token`.
+
+1. Install GitHub CLI: `brew install gh` (macOS) or `winget install GitHub.cli` (Windows).
+2. Run `gh auth login`, choose GitHub.com and sign in with the browser. Authorize SSO organizations if GitHub asks.
+3. Check `gh auth status` - the token scopes should include `repo` and `read:org` (granted by default).
+4. If a PAT is saved in GHNotif, remove it (Settings → Token → Remove PAT and use gh CLI) - a PAT takes precedence over `gh`.
+
+On macOS the app looks for `gh` in `/opt/homebrew/bin`, `/usr/local/bin` and `/usr/bin`. On Windows `gh` must be on `PATH`; restart GHNotif after installing it.
+
+### Option 2: personal access token (PAT)
+
+- **Classic PAT** ([create one with the scopes preselected](https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif)):
+  - `repo` - required for PRs from private repositories; without it only public ones are visible,
+  - `read:org` - needed to import team members.
+
+  Other scopes (e.g. `project`, `read:packages`) don't grant access to PRs.
+- **Fine-grained PAT**: Pull requests - read (and Members - read for team import). It covers only one resource owner (an organization or your account), so PRs from other organizations won't be visible - a classic PAT or `gh` is usually simpler.
+- Organizations with SAML SSO: on the tokens page click **Configure SSO → Authorize** next to the token. Otherwise GitHub hides their PRs; the app then shows a warning with a link to authorize the token.
+
+Save the PAT in Settings → Token. On macOS it is stored in the Keychain; on Windows it is encrypted with DPAPI for the current user and never written to the JSON config. A saved PAT takes precedence over `gh`.
+
+### Only PRs from your own repositories are visible
+
+If the token already has `repo` but PRs from organization repositories are still missing:
+
+1. **SAML SSO** - on [github.com/settings/tokens](https://github.com/settings/tokens) click **Configure SSO → Authorize** next to the token for that organization. With `gh`, run `gh auth refresh` and authorize the organization in the browser.
+2. **Organization token policy** - an organization can block classic PATs or require approval of fine-grained PATs. GitHub then hides its PRs without any warning. Use `gh` or ask an organization admin.
+3. **OAuth app restrictions** - with `gh`, the organization must allow the GitHub CLI app. If it doesn't, request access on the authorization page or ask an admin.
+
+To check, open `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` in the browser (it uses your browser session, not the token). If the PRs appear there but not in GHNotif, the problem is the token's access to the organization.
 
 ## Configuration
 
@@ -69,7 +101,7 @@ Settings (the gear icon in the panel header) have a sidebar on the left (like Sy
 - **Reminders** - days and times of the review reminder window (see below).
 - **Notifications** - notifications on/off, which events notify, quiet hours (see below).
 - **General** - language, refresh interval, sorting, auto-dismiss after your own review, launch at login, version and updates.
-- **Token** - token source and an optional PAT.
+- **Token** - current token source, setup steps for GitHub CLI and a PAT (with the required scopes) and saving or removing a PAT.
 
 A new installation starts with an empty list of people.
 

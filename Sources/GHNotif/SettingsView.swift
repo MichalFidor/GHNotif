@@ -399,8 +399,26 @@ struct SettingsView: View {
         Form {
             Section {
                 LabeledContent(L("Aktualne źródło", "Current source"), value: model.tokenSource?.rawValue ?? L("brak", "none"))
+            } footer: {
+                Text(LocalizedStringKey(L("GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Brak PR-ów z prywatnych repozytoriów = brak scope'u `repo`. Widać tylko PR-y z własnych repozytoriów = token nie jest autoryzowany przez SSO dla organizacji albo organizacja blokuje classic PAT lub nie zatwierdziła GitHub CLI (wtedy GitHub ukrywa wyniki bez ostrzeżenia).", "GHNotif only sees PRs from repositories the token can access. PRs from private repositories missing = no `repo` scope. Only PRs from your own repositories = the token is not SSO-authorized for the organization, or the organization blocks classic PATs or hasn't approved GitHub CLI (GitHub then hides results without a warning).")))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
+                Text(LocalizedStringKey(L("1. Zainstaluj GitHub CLI: `brew install gh`.\n2. W terminalu uruchom `gh auth login` (GitHub.com, logowanie przez przeglądarkę) i autoryzuj organizacje z SSO, jeśli GitHub o to poprosi (później: `gh auth refresh`).\n3. Sprawdź `gh auth status` - na liście scope'ów powinny być `repo` i `read:org` (są domyślnie).\n4. Jeśli poniżej zapisany jest PAT, usuń go - PAT ma pierwszeństwo przed `gh`.", "1. Install GitHub CLI: `brew install gh`.\n2. In a terminal run `gh auth login` (GitHub.com, sign in with the browser) and authorize SSO organizations if GitHub asks (later: `gh auth refresh`).\n3. Check `gh auth status` - the scopes should include `repo` and `read:org` (granted by default).\n4. If a PAT is saved below, remove it - a PAT takes precedence over `gh`.")))
+                    .font(.callout)
+                    .textSelection(.enabled)
+            } header: {
+                Text(L("Opcja 1: GitHub CLI (zalecana)", "Option 1: GitHub CLI (recommended)"))
+            } footer: {
+                Text(LocalizedStringKey(L("Nie trzeba tworzyć ani wklejać tokenu - GHNotif pobiera go przez `gh auth token`. Szukane jest `gh` w /opt/homebrew/bin, /usr/local/bin i /usr/bin.", "No token to create or paste - GHNotif gets it with `gh auth token`. `gh` is looked up in /opt/homebrew/bin, /usr/local/bin and /usr/bin.")))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Text(LocalizedStringKey(L("Classic PAT - zaznacz scope'y:\n• `repo` - PR-y z prywatnych repozytoriów (bez niego widać tylko publiczne),\n• `read:org` - import członków zespołu.\nInne scope'y (np. `project`, `read:packages`) nie dają dostępu do PR-ów.\nOrganizacje z SAML SSO: przy tokenie kliknij Configure SSO → Authorize.", "Classic PAT - select the scopes:\n• `repo` - PRs from private repositories (without it only public ones are visible),\n• `read:org` - importing team members.\nOther scopes (e.g. `project`, `read:packages`) don't grant access to PRs.\nSAML SSO organizations: next to the token click Configure SSO → Authorize.")))
+                    .font(.callout)
+                    .textSelection(.enabled)
+                Link(L("Utwórz classic PAT z tymi scope'ami", "Create a classic PAT with these scopes"),
+                     destination: URL(string: "https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif")!)
                 SecureField("Personal access token", text: $form.pat, prompt: Text(L("ghp_… (opcjonalnie)", "ghp_… (optional)")))
                 HStack {
                     Button(L("Zapisz PAT", "Save PAT")) {
@@ -410,8 +428,10 @@ struct SettingsView: View {
                     .disabled(form.pat.trimmingCharacters(in: .whitespaces).isEmpty)
                     Button(L("Usuń PAT i użyj gh CLI", "Remove PAT and use gh CLI")) { model.setPersonalAccessToken(nil) }
                 }
+            } header: {
+                Text(L("Opcja 2: personal access token", "Option 2: personal access token"))
             } footer: {
-                Text(L("Domyślnie używany jest token z `gh auth login`. PAT (classic: scope `repo`; fine-grained: Pull requests - read) ma pierwszeństwo i jest przechowywany w Keychain.", "By default the token from `gh auth login` is used. A PAT (classic: `repo` scope; fine-grained: Pull requests - read) takes precedence and is stored in Keychain."))
+                Text(LocalizedStringKey(L("PAT ma pierwszeństwo przed `gh` i jest przechowywany w Keychain. Fine-grained PAT: Pull requests - read i Members - read; obejmuje tylko jednego właściciela zasobów (organizację lub konto), więc PR-y z innych organizacji nie będą widoczne.", "A PAT takes precedence over `gh` and is stored in Keychain. Fine-grained PAT: Pull requests - read and Members - read; it covers only one resource owner (organization or account), so PRs from other organizations won't be visible.")))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

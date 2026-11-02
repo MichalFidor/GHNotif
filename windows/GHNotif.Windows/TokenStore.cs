@@ -42,7 +42,7 @@ internal sealed class TokenStore(string directory)
         var token = (await output).Trim();
         await error;
         if (process.ExitCode != 0 || token.Length == 0)
-            throw new InvalidOperationException(L("Brak tokenu. Wykonaj gh auth login albo dodaj PAT w ustawieniach.", "No token. Run gh auth login or add a PAT in settings."));
+            throw new InvalidOperationException(L("Brak tokenu. Wykonaj gh auth login albo dodaj PAT (scope repo) - szczegóły w Ustawieniach → Token.", "No token. Run gh auth login or add a PAT (repo scope) - see Settings → Token."));
         Source = "gh CLI";
         return token;
     }

@@ -342,7 +342,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard let token = await currentToken() else {
-            lastError = L("Brak tokenu GitHub. Zaloguj się przez `gh auth login` albo dodaj PAT w ustawieniach.", "No GitHub token. Sign in with `gh auth login` or add a PAT in settings.")
+            lastError = L("Brak tokenu GitHub. Zaloguj się przez `gh auth login` albo dodaj PAT (scope `repo`) - szczegóły w Ustawieniach → Token.", "No GitHub token. Sign in with `gh auth login` or add a PAT (`repo` scope) - see Settings → Token.")
             return
         }
         do {

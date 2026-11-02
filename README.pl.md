@@ -32,6 +32,8 @@ Budowanie ze źródeł:
 
 Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można włączyć w GHNotif → Ustawienia → Ogólne.
 
+Przy pierwszym uruchomieniu zaloguj się przez `gh auth login` albo zapisz PAT ze scope'em `repo` (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+
 ## Instalacja Windows
 
 Wymaga Windows 10/11. Wersja portable zawiera .NET - użytkownik nie musi go instalować.
@@ -39,7 +41,7 @@ Wymaga Windows 10/11. Wersja portable zawiera .NET - użytkownik nie musi go ins
 1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
 3. Kliknij ikonę przy zegarku (może być schowana pod strzałką). Prawy przycisk: ustawienia, odświeżanie lub zakończenie.
-4. Dodaj osoby w ustawieniach i użyj `gh auth login` lub zapisz własny PAT.
+4. Zaloguj się przez `gh auth login` albo zapisz PAT ze scope'em `repo` (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
 
 Aplikacja nie jest podpisana certyfikatem wydawcy; Windows SmartScreen może pokazać ostrzeżenie. Uruchamiaj wyłącznie buildy z zaufanego źródła.
 Zamknięcie panelu ukrywa go w zasobniku. Autostart można włączyć w ustawieniach aplikacji.
@@ -55,10 +57,40 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Autoryzacja
 
-- Domyślnie używany jest token z `gh auth login` (aplikacja wywołuje `gh auth token`).
-- Opcjonalnie w ustawieniach możesz zapisać PAT (Keychain). Ma pierwszeństwo przed `gh`.
-- Na Windowsie PAT jest szyfrowany przez DPAPI dla bieżącego użytkownika; nie trafia do konfiguracji JSON. `gh` musi być dostępne w `PATH`; po jego instalacji uruchom GHNotif ponownie.
-- Organizacje z SAML SSO: jeśli token nie jest dla nich autoryzowany, GitHub ukrywa ich PR-y. Aplikacja pokazuje wtedy ostrzeżenie z linkiem do autoryzacji.
+GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Jeśli lista pokazuje tylko PR-y z publicznych repozytoriów (np. obserwujesz kilkanaście osób, a widzisz jeden PR), token nie ma scope'u `repo` albo nie jest autoryzowany dla organizacji z SSO. Wybierz jedną z dwóch opcji; opisuje je też zakładka Ustawienia → Token.
+
+### Opcja 1: GitHub CLI (zalecana)
+
+Nie trzeba tworzyć ani wklejać tokenu - aplikacja wywołuje `gh auth token`.
+
+1. Zainstaluj GitHub CLI: `brew install gh` (macOS) lub `winget install GitHub.cli` (Windows).
+2. Uruchom `gh auth login`, wybierz GitHub.com i zaloguj się przez przeglądarkę. Autoryzuj organizacje z SSO, jeśli GitHub o to poprosi.
+3. Sprawdź `gh auth status` - na liście scope'ów powinny być `repo` i `read:org` (są domyślnie).
+4. Jeśli w GHNotif zapisany jest PAT, usuń go (Ustawienia → Token → Usuń PAT i użyj gh CLI) - PAT ma pierwszeństwo przed `gh`.
+
+Na macOS aplikacja szuka `gh` w `/opt/homebrew/bin`, `/usr/local/bin` i `/usr/bin`. Na Windowsie `gh` musi być dostępne w `PATH`; po jego instalacji uruchom GHNotif ponownie.
+
+### Opcja 2: personal access token (PAT)
+
+- **Classic PAT** ([utwórz z zaznaczonymi scope'ami](https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif)):
+  - `repo` - wymagany dla PR-ów z prywatnych repozytoriów; bez niego widać tylko publiczne,
+  - `read:org` - potrzebny do importu członków zespołu.
+
+  Inne scope'y (np. `project`, `read:packages`) nie dają dostępu do PR-ów.
+- **Fine-grained PAT**: Pull requests - read (oraz Members - read do importu zespołu). Obejmuje tylko jednego właściciela zasobów (organizację lub Twoje konto), więc PR-y z innych organizacji nie będą widoczne - zwykle prościej użyć classic PAT albo `gh`.
+- Organizacje z SAML SSO: na stronie tokenów kliknij przy tokenie **Configure SSO → Authorize**. Inaczej GitHub ukrywa ich PR-y; aplikacja pokazuje wtedy ostrzeżenie z linkiem do autoryzacji.
+
+PAT zapisz w Ustawieniach → Token. Na macOS trafia do Keychain, na Windowsie jest szyfrowany przez DPAPI dla bieżącego użytkownika i nie trafia do konfiguracji JSON. Zapisany PAT ma pierwszeństwo przed `gh`.
+
+### Widać tylko PR-y z własnych repozytoriów
+
+Jeśli token ma już `repo`, a PR-ów z repozytoriów organizacji dalej brakuje:
+
+1. **SAML SSO** - na [github.com/settings/tokens](https://github.com/settings/tokens) kliknij przy tokenie **Configure SSO → Authorize** dla tej organizacji. Przy `gh` uruchom `gh auth refresh` i autoryzuj organizację w przeglądarce.
+2. **Polityka tokenów organizacji** - organizacja może blokować classic PAT lub wymagać zatwierdzenia fine-grained PAT. GitHub ukrywa wtedy jej PR-y bez żadnego ostrzeżenia. Użyj `gh` albo zapytaj administratora organizacji.
+3. **Ograniczenia aplikacji OAuth** - przy `gh` organizacja musi dopuszczać aplikację GitHub CLI. Jeśli nie dopuszcza, poproś o dostęp na stronie autoryzacji albo zapytaj administratora.
+
+Sprawdzenie: otwórz w przeglądarce `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` (używa sesji przeglądarki, nie tokenu). Jeśli tam PR-y są, a w GHNotif nie, problemem jest dostęp tokenu do organizacji.
 
 ## Konfiguracja
 
@@ -69,7 +101,7 @@ Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak
 - **Przypomnienia** - dni i godziny okna z przypomnieniem o review (patrz niżej).
 - **Powiadomienia** - włączanie powiadomień, które zdarzenia powiadamiają, ciche godziny (patrz niżej).
 - **Ogólne** - język, interwał odświeżania, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
-- **Token** - źródło tokenu i opcjonalny PAT.
+- **Token** - aktualne źródło tokenu, instrukcja dla GitHub CLI i PAT (z wymaganymi scope'ami) oraz zapisywanie lub usuwanie PAT.
 
 Nowa instalacja zaczyna z pustą listą osób.
 
