@@ -8,9 +8,21 @@ enum AppResources {
 
 // Compile with AppModel and isolated collaborators: no GitHub requests, notifications, or real preferences.
 enum TokenSource { case ghCLI }
-struct ResolvedToken { let value: String; let source: TokenSource }
+struct ResolvedToken { let value: String; let source: TokenSource; let host: String }
 enum TokenProvider {
-    static func resolve(host: String) -> ResolvedToken? { ResolvedToken(value: "test", source: .ghCLI) }
+    static var tokens: [String: String] = [:]
+    /// When set, resolving the github.com token waits for it, so a test can change the host meanwhile.
+    static var gate: DispatchSemaphore?
+    private static let lock = NSLock()
+    private static var resolvingDotCom = false
+    static var isResolvingDotCom: Bool { lock.withLock { resolvingDotCom } }
+    static func resolve(host: String) -> ResolvedToken? {
+        if host == GitHubHost.dotCom, let gate {
+            lock.withLock { resolvingDotCom = true }
+            gate.wait()
+        }
+        return ResolvedToken(value: tokens[host] ?? "test", source: .ghCLI, host: host)
+    }
 }
 enum Keychain {
     static func savePAT(_ value: String, host: String) {}
@@ -46,8 +58,10 @@ struct GitHubClient {
     let token: String
     let host: GitHubHost
     static var results: [PullRequest] = []
+    static var requests: [(token: String, host: String)] = []
     func searchPullRequests(config: AppConfig) async throws -> Outcome {
-        Outcome(pullRequests: Self.results.filter(config.includes))
+        Self.requests.append((token, host.name))
+        return Outcome(pullRequests: Self.results.filter(config.includes))
     }
     func canonicalLogin(for login: String) async throws -> String? { login }
     func teamMembers(organization: String, team: String) async throws -> [String] { ["member1", "member2"] }
@@ -374,6 +388,40 @@ func runChecks() async throws {
     precondition(savedLanguage == .english, "Language choice is saved")
     model.config.language = .polish
     precondition(L("Odśwież", "Refresh") == "Odśwież", "Choosing Polish switches texts back")
+
+    // A host change while a token is being resolved must never send that token to the new host, now or later.
+    func settle() async throws {
+        for _ in 0..<3 {
+            var waited = 0
+            while model.isLoading && waited < 300 {
+                try await Task.sleep(for: .milliseconds(10))
+                waited += 1
+            }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+    }
+    if model.config.users.isEmpty { model.config.users = ["test-user"] }
+    try await settle()
+    TokenProvider.tokens = ["github.com": "dotcom-token", "github.acme.com": "acme-token"]
+    TokenProvider.gate = DispatchSemaphore(value: 0)
+    GitHubClient.requests = []
+    model.setPersonalAccessToken(nil)
+    for _ in 0..<300 where !TokenProvider.isResolvingDotCom {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    precondition(TokenProvider.isResolvingDotCom, "The github.com token is being resolved")
+    model.config.host = "github.acme.com"
+    let gate = TokenProvider.gate
+    TokenProvider.gate = nil
+    gate?.signal()
+    try await settle()
+    await model.refresh()
+    precondition(!GitHubClient.requests.isEmpty
+                 && GitHubClient.requests.allSatisfy { $0.token == "acme-token" && $0.host == "github.acme.com" },
+                 "A token resolved for the previous host is never sent to the new one")
+    TokenProvider.tokens = [:]
+    model.config.host = "github.com"
+    try await settle()
     print("All app checks passed (dismiss, refresh, reactivation, persistence, migration, collapse, restore, notifications, review reminder, language)")
 }
 

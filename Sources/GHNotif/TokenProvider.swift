@@ -7,19 +7,21 @@ enum TokenSource: String {
     case ghCLI = "gh CLI"
 }
 
+/// A token and the host it was resolved for; it is only ever sent to that host.
 struct ResolvedToken {
     let value: String
     let source: TokenSource
+    let host: String
 }
 
 enum TokenProvider {
     /// A PAT saved in Keychain for this host wins; otherwise the token of the logged-in `gh` CLI user is used.
     static func resolve(host: String = GitHubHost.dotCom) -> ResolvedToken? {
         if let pat = Keychain.readPAT(host: host), !pat.isEmpty {
-            return ResolvedToken(value: pat, source: .personalAccessToken)
+            return ResolvedToken(value: pat, source: .personalAccessToken, host: host)
         }
         if let token = ghCLIToken(host: host) {
-            return ResolvedToken(value: token, source: .ghCLI)
+            return ResolvedToken(value: token, source: .ghCLI, host: host)
         }
         return nil
     }
@@ -32,6 +34,7 @@ enum TokenProvider {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = ["auth", "token", "--hostname", host]
+        process.environment = GitHubHost(host).gitHubCLIEnvironment(ProcessInfo.processInfo.environment)
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

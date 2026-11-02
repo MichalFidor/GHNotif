@@ -55,7 +55,6 @@ public sealed record GitHubHost
     public string RestUrl(string path) => RestBaseUrl + path;
     public string WebUrl(string path = "") => $"https://{Name}{path}";
 
-    /// Page creating a classic PAT with the scopes GHNotif needs preselected.
     /// Page creating a read-only fine-grained PAT with the permissions GHNotif needs preselected.
     public string NewTokenUrl => WebUrl("/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif"
         + "&pull_requests=read&statuses=read&expires_in=90");
@@ -70,6 +69,13 @@ public sealed record GitHubHost
         usingGitHubCli
             ? IsDotCom ? WebUrl("/settings/connections/applications/178c6fc778ccc68e1d6a") : WebUrl("/settings/applications")
             : TokensUrl;
+
+    /// Environment variables gh reads a token from without knowing which server it was issued for:
+    /// `gh auth token --hostname` returns GH_ENTERPRISE_TOKEN for any host other than github.com and GH_TOKEN
+    /// for any GHE.com host. They are removed from the gh process unless they can only belong to github.com.
+    public IReadOnlyList<string> GitHubCliVariablesToClear => IsDotCom
+        ? ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+        : ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
     /// True for https links on this host, e.g. PR URLs opened from the list.
     public bool Owns(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)

@@ -84,6 +84,12 @@ do {
           "SSO settings follow host")
     check(ghes.owns(URL(string: "https://github.acme.com/o/r/pull/1")!) && !ghes.owns(URL(string: "https://evil.com/")!)
             && !ghes.owns(URL(string: "http://github.acme.com/")!), "host ownership check")
+    let ghEnvironment = ["GH_TOKEN": "a", "GITHUB_TOKEN": "b", "GH_ENTERPRISE_TOKEN": "c", "GITHUB_ENTERPRISE_TOKEN": "d",
+                         "PATH": "/usr/bin"]
+    check(dotCom.gitHubCLIEnvironment(ghEnvironment) == ["GH_TOKEN": "a", "GITHUB_TOKEN": "b", "PATH": "/usr/bin"]
+            && ghes.gitHubCLIEnvironment(ghEnvironment) == ["PATH": "/usr/bin"]
+            && ghe.gitHubCLIEnvironment(ghEnvironment) == ["PATH": "/usr/bin"],
+          "gh gets no token variables it would hand to an unrelated host")
 }
 
 // MARK: Connection diagnosis
@@ -104,6 +110,9 @@ do {
         statusCode: 403, ssoHeader: "required; url=https://github.com/orgs/acme/sso?authorization_request=x",
         body: Data(#"{"message":"Resource protected by organization SAML enforcement."}"#.utf8))
     check(sso == .ssoRequired(URL(string: "https://github.com/orgs/acme/sso?authorization_request=x")), "SSO requirement detected")
+    check(ConnectionDiagnosis.ssoURL(from: "required; url=file:///System/Applications/Calculator.app") == nil
+            && ConnectionDiagnosis.ssoURL(from: "required; url=x-apple.systempreferences:com.apple.preference") == nil,
+          "only https SSO links are kept")
     let blocked = ConnectionDiagnosis.orgStatus(statusCode: 403, ssoHeader: nil,
                                                 body: Data(#"{"message":"`acme` forbids access via a personal access token (classic)."}"#.utf8))
     check(blocked == .blocked("`acme` forbids access via a personal access token (classic)."), "org policy block detected")

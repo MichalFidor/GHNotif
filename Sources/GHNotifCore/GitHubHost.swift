@@ -88,4 +88,17 @@ public struct GitHubHost: Equatable, Sendable {
     public func owns(_ url: URL) -> Bool {
         url.scheme == "https" && url.host?.lowercased() == name
     }
+
+    /// Environment variables `gh` reads a token from without knowing which server it was issued for:
+    /// `gh auth token --hostname` returns `GH_ENTERPRISE_TOKEN` for any host other than github.com and `GH_TOKEN`
+    /// for any GHE.com host. They are removed from the `gh` process unless they can only belong to github.com.
+    public var gitHubCLIVariablesToClear: [String] {
+        isDotCom ? ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+            : ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+    }
+
+    /// The environment for `gh auth token --hostname`, without tokens `gh` would hand to an unrelated host.
+    public func gitHubCLIEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.filter { !gitHubCLIVariablesToClear.contains($0.key) }
+    }
 }

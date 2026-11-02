@@ -4,9 +4,10 @@ Security hardening and smaller token permissions.
 
 - **Read-only token**: Settings → Token now recommends a read-only fine-grained PAT (Pull requests: read, Commit statuses: read, optional Members: read for team import) with a link that presets the repository permissions. The classic PAT link asks only for `repo`; `read:org` is optional (team import).
 - **Check connection** no longer treats a missing `read:org` as a problem and flags scopes GHNotif doesn't need (e.g. `gist`, `workflow`).
-- A saved PAT is bound to the GitHub server it was saved for, so changing the server never sends it to another host. Tokens saved for github.com keep working.
+- A token is bound to the GitHub server it was resolved for. A saved PAT is stored per server, and changing the server while a refresh, connection check or team import is running never sends the token to the new host. Tokens saved for github.com keep working.
+- `gh` no longer receives token environment variables it would hand to any host: `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, and for servers other than github.com also `GH_TOKEN` and `GITHUB_TOKEN`. For GitHub Enterprise sign in with `gh auth login --hostname HOST` or save a PAT.
 - The GitHub server field accepts only a plain host name (no port, login or special characters).
-- macOS: API requests refuse redirects to another host, and only `https` links are opened.
+- macOS: API requests refuse redirects to another host, and only `https` links are opened, including the **Authorize SSO** link.
 - Windows: `gh` is looked up in the standard install folders and absolute `PATH` entries only, not in the working directory.
 - Windows: PRs are still shown when GitHub returns partial results (e.g. a fine-grained token without access to CI checks).
 

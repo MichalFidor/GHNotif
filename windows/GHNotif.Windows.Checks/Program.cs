@@ -40,7 +40,7 @@ internal static class Program
             new JsonStore<Config>(Path.Combine(folder, "config.json")).Save(new Config { Users = ["example"] });
             app.InitializeStores(folder, http);
             app.Tokens.Save("fixture-token");
-            Check(await app.Tokens.ResolveAsync() == "fixture-token", "DPAPI token round trip");
+            Check((await app.Tokens.ResolveAsync()).Token == "fixture-token", "DPAPI token round trip");
             Check(!File.ReadAllText(Path.Combine(folder, "token.dat")).Contains("fixture-token"),
                 "Token must not be stored in plaintext");
             await app.RefreshAsync();
@@ -249,16 +249,51 @@ internal static class Program
             Descendants<TextBox>(settings).Single(box => Equals(box.ToolTip, "Host GitHub, np. github.com lub github.firma.pl")).Text = "https://GitHub.Acme.com/";
             Buttons(settings).Single(b => Equals(b.Content, "Zastosuj")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             for (var i = 0; i < 100 && app.Config.Host == "github.com"; i++) await Task.Delay(10);
-            Check(app.Config.Host == "github.acme.com" && app.Client.Host.GraphQLUrl == "https://github.acme.com/api/graphql"
-                && app.Tokens.Host == "github.acme.com" && app.ConnectionReport.Count == 0, "Host change applies to client and token");
+            Check(app.Config.Host == "github.acme.com" && app.Tokens.Host == "github.acme.com" && app.ConnectionReport.Count == 0,
+                "Host change applies to the token store");
             app.Tokens.Save("ghes-token");
-            Check(await app.Tokens.ResolveAsync() == "ghes-token" && File.Exists(Path.Combine(folder, "token-github.acme.com.dat")),
-                "PAT is stored per host");
-            app.Tokens.Delete();
+            var ghesCredential = await app.Tokens.ResolveAsync();
+            Check(ghesCredential.Token == "ghes-token" && ghesCredential.Host.GraphQLUrl == "https://github.acme.com/api/graphql"
+                && File.Exists(Path.Combine(folder, "token-github.acme.com.dat")), "PAT is stored per host and bound to it");
             var dotCom = app.Config.Copy();
             dotCom.Host = "github.com";
+            dotCom.IncludeMentions = true;
             await app.SaveConfigAsync(dotCom);
-            Check(await app.Tokens.ResolveAsync() == "fixture-token", "github.com PAT is used again after switching back");
+            Check((await app.Tokens.ResolveAsync()).Token == "fixture-token", "github.com PAT is used again after switching back");
+            // Switch servers while a refresh is waiting for GitHub: its remaining requests must keep their own host.
+            for (var i = 0; i < 200 && app.IsRefreshing; i++) await Task.Delay(25);
+            fixture.Requests.Clear();
+            fixture.GraphQLDelay = TimeSpan.FromMilliseconds(300);
+            var inFlight = app.RefreshAsync();
+            var acme = app.Config.Copy();
+            acme.Host = "github.acme.com";
+            await app.SaveConfigAsync(acme);
+            await inFlight;
+            fixture.GraphQLDelay = TimeSpan.Zero;
+            var sent = fixture.Requests.ToList();
+            Check(sent.Count(r => r.Host == "api.github.com") > 1 && sent.Any(r => r.Host == "github.acme.com")
+                && sent.All(r => r.Token == (r.Host == "github.acme.com" ? "ghes-token" : "fixture-token")),
+                "A host change during a refresh never sends a token to another server");
+            app.Tokens.Delete();
+            var back = app.Config.Copy();
+            back.Host = "github.com";
+            await app.SaveConfigAsync(back);
+            Environment.SetEnvironmentVariable("GH_TOKEN", "dummy-dotcom");
+            Environment.SetEnvironmentVariable("GH_ENTERPRISE_TOKEN", "dummy-ghes");
+            try
+            {
+                var enterpriseCli = TokenStore.GitHubCliStartInfo("gh.exe", new GitHubHost("evil.example"));
+                var dotComCli = TokenStore.GitHubCliStartInfo("gh.exe", new GitHubHost("github.com"));
+                Check(enterpriseCli.ArgumentList.SequenceEqual(["auth", "token", "--hostname", "evil.example"])
+                    && !enterpriseCli.Environment.ContainsKey("GH_ENTERPRISE_TOKEN") && !enterpriseCli.Environment.ContainsKey("GH_TOKEN")
+                    && dotComCli.Environment.ContainsKey("GH_TOKEN") && !dotComCli.Environment.ContainsKey("GH_ENTERPRISE_TOKEN"),
+                    "gh gets no token variables it would hand to an unrelated host");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("GH_TOKEN", null);
+                Environment.SetEnvironmentVariable("GH_ENTERPRISE_TOKEN", null);
+            }
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");
@@ -363,6 +398,9 @@ internal static class Program
     {
         public string HeadCommitOid { get; set; } = "c1";
         public bool Showcase { get; set; }
+        /// Every request's host and bearer token, to check that a token never reaches another server.
+        public System.Collections.Concurrent.ConcurrentQueue<(string Host, string? Token)> Requests { get; } = new();
+        public TimeSpan GraphQLDelay { get; set; }
 
         private static string Node(string id, int number, string title, string author, string repository, string review,
             string checks, string oid, int days, int additions, int deletions) => $$$$"""
@@ -395,6 +433,8 @@ internal static class Program
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            Requests.Enqueue((request.RequestUri?.Host ?? "", request.Headers.Authorization?.Parameter));
+            if (request.Method == HttpMethod.Post && GraphQLDelay > TimeSpan.Zero) await Task.Delay(GraphQLDelay, ct);
             if (Showcase && request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") != true)
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {

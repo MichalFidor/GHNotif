@@ -117,11 +117,15 @@ public struct ConnectionDiagnosis: Equatable, Sendable {
         header?.lowercased().hasPrefix("required") ?? false
     }
 
+    /// Only https links are kept; the link is opened in the browser from Settings.
     public static func ssoURL(from header: String?) -> URL? {
         guard let header else { return nil }
         for part in header.split(separator: ";") {
             let trimmed = part.trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased().hasPrefix("url=") { return URL(string: String(trimmed.dropFirst(4))) }
+            if trimmed.lowercased().hasPrefix("url=") {
+                guard let url = URL(string: String(trimmed.dropFirst(4))), url.scheme?.lowercased() == "https" else { return nil }
+                return url
+            }
         }
         return nil
     }

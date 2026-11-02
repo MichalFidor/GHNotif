@@ -352,6 +352,8 @@ final class AppModel: ObservableObject {
         }
         do {
             let diagnosis = try await client(token).diagnose()
+            // A report for a server the user has switched away from in the meantime is dropped.
+            guard token.host == config.gitHubHost.name else { return }
             connectionReport = diagnosis.lines
             connectionHasProblems = diagnosis.hasProblems
             connectionSSOURL = diagnosis.ssoAuthorizationURL
@@ -366,7 +368,7 @@ final class AppModel: ObservableObject {
     }
 
     private func client(_ token: ResolvedToken) -> GitHubClient {
-        GitHubClient(token: token.value, host: config.gitHubHost)
+        GitHubClient(token: token.value, host: GitHubHost(token.host))
     }
 
     func refresh() async {
@@ -395,6 +397,8 @@ final class AppModel: ObservableObject {
         do {
             let outcome = try await client(token)
                 .searchPullRequests(config: config)
+            // Results from a server the user has switched away from are dropped; the queued refresh loads the new one.
+            guard token.host == config.gitHubHost.name else { return }
             let now = Date()
             let wokeFromSnooze = outcome.pullRequests.filter {
                 snoozedPullRequests[$0.id].map { $0 <= now } == true
@@ -465,12 +469,17 @@ final class AppModel: ObservableObject {
     }
 
     private func currentToken() async -> ResolvedToken? {
-        if let token { return token }
-        let host = config.gitHubHost.name
-        let resolved = await Task.detached { TokenProvider.resolve(host: host) }.value
-        token = resolved
-        tokenSource = resolved?.source
-        return resolved
+        // A token is cached and used only for the host it was resolved for. If the host changes while resolving,
+        // the result is dropped and the token for the new host is resolved instead.
+        while true {
+            let host = config.gitHubHost.name
+            if let token, token.host == host { return token }
+            let resolved = await Task.detached { TokenProvider.resolve(host: host) }.value
+            guard config.gitHubHost.name == host else { continue }
+            token = resolved
+            tokenSource = resolved?.source
+            return resolved
+        }
     }
 
     /// Un-dismisses PRs with new activity and returns them with a description of what changed.

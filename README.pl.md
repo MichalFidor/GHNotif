@@ -118,7 +118,7 @@ Nowa instalacja zaczyna z pustą listą osób; pusta lista PR-ów ma przycisk **
 
 ## GitHub Enterprise
 
-Domyślnie GHNotif używa github.com. Jeśli firma używa GitHub Enterprise Server lub GHE.com, wpisz jego host (np. `github.firma.pl`) w **Ustawienia → Token → Serwer GitHub** i kliknij **Zastosuj**. Aplikacja użyje wtedy API tego serwera, `gh auth token --hostname HOST` (zaloguj się przez `gh auth login --hostname HOST`) i linków do tego serwera dla PAT i SSO. Akceptowana jest tylko sama nazwa hosta (bez portu, loginu i znaków specjalnych), a token jest wysyłany wyłącznie do tego serwera - wpisuj tylko zaufany adres firmowy. Sprawdzanie aktualizacji dalej korzysta z github.com.
+Domyślnie GHNotif używa github.com. Jeśli firma używa GitHub Enterprise Server lub GHE.com, wpisz jego host (np. `github.firma.pl`) w **Ustawienia → Token → Serwer GitHub** i kliknij **Zastosuj**. Aplikacja użyje wtedy API tego serwera, `gh auth token --hostname HOST` (zaloguj się przez `gh auth login --hostname HOST`) i linków do tego serwera dla PAT i SSO. Akceptowana jest tylko sama nazwa hosta (bez portu, loginu i znaków specjalnych), a token jest wysyłany wyłącznie do tego serwera - wpisuj tylko zaufany adres firmowy. GHNotif nie przekazuje do `gh` zmiennych `GH_ENTERPRISE_TOKEN` i `GITHUB_ENTERPRISE_TOKEN`, a przy serwerze innym niż github.com także `GH_TOKEN` i `GITHUB_TOKEN`, bo `gh` zwraca je dla dowolnego hosta. Na takim serwerze zaloguj się przez `gh auth login --hostname HOST` albo zapisz PAT. Sprawdzanie aktualizacji dalej korzysta z github.com.
 
 ## Wzmianki i prośby o review
 

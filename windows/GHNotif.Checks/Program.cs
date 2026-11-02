@@ -41,6 +41,7 @@ string Page(string nodes, bool more, string cursor = "cursor") => $$$$"""
     {"data":{"viewer":{"login":"me"},"search":{"issueCount":2,"pageInfo":{"hasNextPage":{{{{more.ToString().ToLowerInvariant()}}}},"endCursor":"{{{{cursor}}}}"},
     "nodes":[{{{{nodes}}}}]}}}
     """;
+GitHubCredential Credential(string token, string host = GitHubHost.DotCom) => new(new GitHubHost(host), token);
 using (var document = JsonDocument.Parse(Node("legacy-id", true)))
 {
     var pr = GitHubClient.ParsePullRequest(document.RootElement);
@@ -156,7 +157,7 @@ using var http = new HttpClient(new FakeHandler(async request =>
     return response;
 }));
 var client = new GitHubClient(http);
-var result = await client.SearchAsync("test-token", new Config { Users = ["example"], IncludeMentions = false });
+var result = await client.SearchAsync(Credential("test-token"), new Config { Users = ["example"], IncludeMentions = false });
 Check(requests.Count == 2 && requests[1].Contains("cursor"), "Pagination passes cursor");
 Check(result.PullRequests.Count == 2, "Deduplicate across pages");
 Check(result.BlockedOrganizations.SetEquals(["123"]), "SSO surfaced with search results");
@@ -260,7 +261,7 @@ using var diagnoseHttp = new HttpClient(new FakeHandler(request =>
     if (path.Contains("/acme/")) response.Headers.TryAddWithoutValidation("X-GitHub-SSO", "required; url=https://github.acme.com/orgs/acme/sso");
     return Task.FromResult(response);
 }));
-var diagnosed = await new GitHubClient(diagnoseHttp) { Host = ghes }.DiagnoseAsync("t");
+var diagnosed = await new GitHubClient(diagnoseHttp).DiagnoseAsync(new GitHubCredential(ghes, "t"));
 Check(diagnoseRequests.All(url => url.StartsWith("https://github.acme.com/api/v3/")), "Diagnosis uses the configured host");
 Check(diagnosed.Login == "me" && diagnosed.MissingScopes.Count == 0
     && diagnosed.Organizations.Select(o => o.Status.Access).SequenceEqual([OrgAccess.SsoRequired, OrgAccess.Ok]), "Diagnosis end to end");
@@ -270,35 +271,54 @@ using var mergeHttp = new HttpClient(new FakeHandler(_ => Task.FromResult(new Ht
 {
     Content = new StringContent(++merging == 1 ? Page(Node("one"), false) : Page(Node("one") + "," + Node("three"), false))
 })));
-var merged = await new GitHubClient(mergeHttp).SearchAsync("t", new Config { Users = ["example"] });
+var merged = await new GitHubClient(mergeHttp).SearchAsync(Credential("t"), new Config { Users = ["example"] });
 Check(merged.PullRequests.Single(pr => pr.Id == "one").Reasons.SetEquals([MatchReason.WatchedAuthor, MatchReason.Mention])
     && merged.PullRequests.Single(pr => pr.Id == "three").Reasons.SetEquals([MatchReason.Mention]), "Reasons merged across searches");
 
 using var unauthorized = new HttpClient(new FakeHandler(_ =>
     Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))));
 await ThrowsAsync<HttpRequestException>(() =>
-    new GitHubClient(unauthorized).SearchAsync("bad", new Config { Users = ["example"] }), "Unauthorized must fail");
+    new GitHubClient(unauthorized).SearchAsync(Credential("bad"), new Config { Users = ["example"] }), "Unauthorized must fail");
 
 using var partial = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
 {
     Content = new StringContent("""{"data":{"search":null},"errors":[{"message":"Missing permission"}]}""")
 })));
 await ThrowsAsync<InvalidOperationException>(() =>
-    new GitHubClient(partial).SearchAsync("bad", new Config { Users = ["example"] }), "GraphQL errors cannot look successful");
+    new GitHubClient(partial).SearchAsync(Credential("bad"), new Config { Users = ["example"] }), "GraphQL errors cannot look successful");
 
 using var partialData = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
 {
     Content = new StringContent(Page(Node("one"), false).TrimEnd()[..^1] + ""","errors":[{"message":"Resource not accessible by personal access token"}]}""")
 })));
-var partialResult = await new GitHubClient(partialData).SearchAsync("fine-grained", new Config { Users = ["example"] });
+var partialResult = await new GitHubClient(partialData).SearchAsync(Credential("fine-grained"), new Config { Users = ["example"] });
 Check(partialResult.PullRequests.Count == 1, "Partial GraphQL errors keep the returned PRs");
+
+var pinnedRequests = new List<(string Url, string? Token)>();
+using var pinnedHttp = new HttpClient(new FakeHandler(request =>
+{
+    pinnedRequests.Add((request.RequestUri!.ToString(), request.Headers.Authorization?.Parameter));
+    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent(Page(Node("one"), pinnedRequests.Count == 1))
+    });
+}));
+var pinned = Credential("ghes-token", "github.acme.com");
+await new GitHubClient(pinnedHttp).SearchAsync(pinned, new Config { Users = ["example"] });
+Check(pinnedRequests.Count > 2 && pinnedRequests.All(r => r.Url == "https://github.acme.com/api/graphql" && r.Token == "ghes-token"),
+    "Every page and search goes to the host the token was resolved for");
+Check(!pinned.ToString().Contains("ghes-token") && pinned.ToString().Contains("github.acme.com"), "Credential text never includes the token");
+Check(new GitHubHost("github.com").GitHubCliVariablesToClear is ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+    && new[] { "github.acme.com", "acme.ghe.com" }.All(host => new GitHubHost(host).GitHubCliVariablesToClear
+        .ToHashSet().SetEquals(["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"])),
+    "gh gets no token variables it would hand to an unrelated host");
 
 using var capped = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
 {
     Content = new StringContent(Page(Node("one"), false).Replace("\"issueCount\":2", "\"issueCount\":1001"))
 })));
 await ThrowsAsync<InvalidOperationException>(() =>
-    new GitHubClient(capped).SearchAsync("test", new Config { Users = ["example"] }), "Search truncation must be reported");
+    new GitHubClient(capped).SearchAsync(Credential("test"), new Config { Users = ["example"] }), "Search truncation must be reported");
 
 var prs = result.PullRequests;
 var state = new LocalState();

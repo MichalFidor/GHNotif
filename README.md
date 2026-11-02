@@ -118,7 +118,7 @@ A new installation starts with an empty list of people; the empty PR list has a 
 
 ## GitHub Enterprise
 
-By default GHNotif uses github.com. If your company uses GitHub Enterprise Server or GHE.com, enter its host (e.g. `github.company.com`) in **Settings → Token → GitHub server** and click **Apply**. The app then uses that server's API, `gh auth token --hostname HOST` (sign in with `gh auth login --hostname HOST`) and links to that server for PATs and SSO. Only a plain host name is accepted (no port, login or special characters), and the token is sent only to that server - enter a trusted company address only. Update checks still use github.com.
+By default GHNotif uses github.com. If your company uses GitHub Enterprise Server or GHE.com, enter its host (e.g. `github.company.com`) in **Settings → Token → GitHub server** and click **Apply**. The app then uses that server's API, `gh auth token --hostname HOST` (sign in with `gh auth login --hostname HOST`) and links to that server for PATs and SSO. Only a plain host name is accepted (no port, login or special characters), and the token is sent only to that server - enter a trusted company address only. GHNotif doesn't pass `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` to `gh` - nor `GH_TOKEN` and `GITHUB_TOKEN` for servers other than github.com - because `gh` returns them for any host. On such a server sign in with `gh auth login --hostname HOST` or save a PAT. Update checks still use github.com.
 
 ## Mentions and review requests
 

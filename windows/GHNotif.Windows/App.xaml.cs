@@ -204,7 +204,7 @@ public partial class App : Application
         State = stateStore.Load();
         State.Migrate(DateTimeOffset.UtcNow);
         Tokens = new(folder) { Host = Config.Host };
-        Client = new(client ?? http) { Host = Config.GitHubHost };
+        Client = new(client ?? http);
         updateHttp = client ?? http;
     }
 
@@ -460,7 +460,7 @@ public partial class App : Application
         Config = config;
         if (hostChanged)
         {
-            Client.Host = config.GitHubHost;
+            // Operations already running keep the credential they resolved, which carries its own host.
             Tokens.Host = config.Host;
             ClearConnectionReport();
         }
@@ -520,12 +520,15 @@ public partial class App : Application
         Changed?.Invoke();
         try
         {
-            var diagnosis = await Client.DiagnoseAsync(await Tokens.ResolveAsync());
+            var credential = await Tokens.ResolveAsync();
+            var diagnosis = await Client.DiagnoseAsync(credential);
+            // A report for a server the user has switched away from in the meantime is dropped.
+            if (credential.Host != Config.GitHubHost) return;
             ConnectionReport = [L($"Źródło tokenu: {Tokens.Source}", $"Token source: {Tokens.Source}"), .. diagnosis.Lines()];
             ConnectionHasProblems = diagnosis.HasProblems;
             ConnectionSsoUrl = diagnosis.SsoAuthorizationUrl
                 ?? (diagnosis.Organizations.Any(org => org.Status.Access == OrgAccess.SsoRequired)
-                    ? Config.GitHubHost.SsoSettingsUrl(Tokens.Source == "gh CLI") : null);
+                    ? credential.Host.SsoSettingsUrl(Tokens.Source == "gh CLI") : null);
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
             or Win32Exception or IOException or CryptographicException or OperationCanceledException)

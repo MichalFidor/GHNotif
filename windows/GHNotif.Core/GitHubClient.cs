@@ -8,11 +8,15 @@ namespace GHNotif.Core;
 public sealed record SearchResult(List<PullRequest> PullRequests, HashSet<string> BlockedOrganizations,
     string? ViewerLogin = null);
 
+/// A token together with the server it was resolved for. Every request made with it goes to that server,
+/// so changing the host while an operation is running can't pair the token with another host.
+public sealed record GitHubCredential(GitHubHost Host, string Token)
+{
+    public override string ToString() => $"GitHubCredential {{ Host = {Host.Name} }}";
+}
+
 public sealed class GitHubClient(HttpClient http)
 {
-    /// API host; set from the config before each request batch.
-    public GitHubHost Host { get; set; } = new(GitHubHost.DotCom);
-
     private const string SearchQuery = """
         query($q: String!, $after: String) {
           viewer { login }
@@ -31,7 +35,7 @@ public sealed class GitHubClient(HttpClient http)
         }
         """;
 
-    public async Task<SearchResult> SearchAsync(string token, Config config, CancellationToken ct = default)
+    public async Task<SearchResult> SearchAsync(GitHubCredential credential, Config config, CancellationToken ct = default)
     {
         var prs = new Dictionary<string, PullRequest>();
         var blocked = new HashSet<string>();
@@ -41,7 +45,7 @@ public sealed class GitHubClient(HttpClient http)
             string? cursor = null;
             for (var page = 0; ; page++)
             {
-                using var response = await PostAsync(token, SearchQuery, new { q = query, after = cursor }, ct);
+                using var response = await PostAsync(credential, SearchQuery, new { q = query, after = cursor }, ct);
                 if (response.Headers.TryGetValues("X-GitHub-SSO", out var headers))
                     blocked.UnionWith(ParseSso(string.Join(";", headers)));
                 using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
@@ -71,9 +75,9 @@ public sealed class GitHubClient(HttpClient http)
         return new(filtered, blocked, viewer);
     }
 
-    public async Task<string> CanonicalLoginAsync(string token, string login, CancellationToken ct = default)
+    public async Task<string> CanonicalLoginAsync(GitHubCredential credential, string login, CancellationToken ct = default)
     {
-        using var response = await PostAsync(token,
+        using var response = await PostAsync(credential,
             "query($login:String!){user(login:$login){login}}", new { login }, ct);
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct),
             cancellationToken: ct);
@@ -82,7 +86,7 @@ public sealed class GitHubClient(HttpClient http)
         return Text(user, "login") ?? throw new InvalidOperationException(L("Nie znaleziono użytkownika.", "User not found."));
     }
 
-    public async Task<List<string>> TeamMembersAsync(string token, string organization, string team,
+    public async Task<List<string>> TeamMembersAsync(GitHubCredential credential, string organization, string team,
         CancellationToken ct = default)
     {
         static bool SafeSlug(string value) => value.Length > 0
@@ -92,7 +96,7 @@ public sealed class GitHubClient(HttpClient http)
         var members = new List<string>();
         for (var page = 1; page <= 10; page++)
         {
-            using var response = await GetAsync(token, $"/orgs/{organization}/teams/{team}/members?per_page=100&page={page}", ct);
+            using var response = await GetAsync(credential, $"/orgs/{organization}/teams/{team}/members?per_page=100&page={page}", ct);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
                 throw new HttpRequestException(L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired."));
             if (!response.IsSuccessStatusCode)
@@ -110,11 +114,11 @@ public sealed class GitHubClient(HttpClient http)
     }
 
     /// Checks the token, its scopes and access to each organization the user belongs to.
-    public async Task<ConnectionDiagnosis> DiagnoseAsync(string token, CancellationToken ct = default)
+    public async Task<ConnectionDiagnosis> DiagnoseAsync(GitHubCredential credential, CancellationToken ct = default)
     {
         string login;
         List<string>? scopes;
-        using (var user = await GetAsync(token, "/user", ct))
+        using (var user = await GetAsync(credential, "/user", ct))
         {
             if (user.StatusCode == HttpStatusCode.Unauthorized)
                 throw new HttpRequestException(L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired."));
@@ -126,7 +130,7 @@ public sealed class GitHubClient(HttpClient http)
                 ? string.Join(",", values) : null);
         }
         var orgLogins = new List<string>();
-        using (var orgs = await GetAsync(token, "/user/orgs?per_page=100", ct))
+        using (var orgs = await GetAsync(credential, "/user/orgs?per_page=100", ct))
         {
             if (orgs.IsSuccessStatusCode)
             {
@@ -139,7 +143,7 @@ public sealed class GitHubClient(HttpClient http)
         {
             try
             {
-                using var response = await GetAsync(token, $"/orgs/{Uri.EscapeDataString(org)}/repos?per_page=1", ct);
+                using var response = await GetAsync(credential, $"/orgs/{Uri.EscapeDataString(org)}/repos?per_page=1", ct);
                 var sso = response.Headers.TryGetValues("X-GitHub-SSO", out var values) ? string.Join(";", values) : null;
                 return new OrganizationDiagnosis(org, ConnectionDiagnosis.ClassifyOrg(
                     (int)response.StatusCode, sso, await response.Content.ReadAsStringAsync(ct)));
@@ -152,19 +156,19 @@ public sealed class GitHubClient(HttpClient http)
         return new(login, scopes, organizations.OrderBy(org => org.Login, StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    private async Task<HttpResponseMessage> GetAsync(string token, string path, CancellationToken ct)
+    private async Task<HttpResponseMessage> GetAsync(GitHubCredential credential, string path, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, Host.RestUrl(path));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var request = new HttpRequestMessage(HttpMethod.Get, credential.Host.RestUrl(path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.Token);
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
         return await http.SendAsync(request, ct);
     }
 
-    private async Task<HttpResponseMessage> PostAsync(string token, string query, object variables, CancellationToken ct)
+    private async Task<HttpResponseMessage> PostAsync(GitHubCredential credential, string query, object variables, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, Host.GraphQLUrl);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var request = new HttpRequestMessage(HttpMethod.Post, credential.Host.GraphQLUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.Token);
         request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
         request.Content = JsonContent.Create(new { query, variables });
         var response = await http.SendAsync(request, ct);
