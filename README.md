@@ -4,7 +4,7 @@
 
 **English** | [Polski](README.pl.md)
 
-A macOS menu bar / Windows system tray app that shows open (non-draft) pull requests from the people you follow, across every repository your GitHub token can see. Each platform has its own native UI.
+A macOS menu bar / Windows system tray app that shows open pull requests (drafts optional) from the people you follow, across every repository your GitHub token can see. Each platform has its own native UI.
 
 ## Installing on macOS
 
@@ -57,7 +57,7 @@ The Windows version has a light panel grouped by repository, with avatars, revie
 
 ## Authentication
 
-GHNotif only sees PRs from repositories its token can access. If the list shows only PRs from public repositories (e.g. you follow a dozen people and see one PR), the token lacks the `repo` scope or isn't authorized for an SSO organization. Pick one of the two options; Settings → Token describes them too.
+GHNotif only sees PRs from repositories its token can access. If the list shows only PRs from public repositories (e.g. you follow a dozen people and see one PR), the token lacks the `repo` scope or isn't authorized for an SSO organization. Pick one of the two options; Settings → Token describes them too. Then click **Check connection** (Settings → Get started or Token) - it shows the token's scopes and, for each of your organizations, whether the token can access it (SSO, blocked PATs) with an **Authorize SSO** link.
 
 ### Option 1: GitHub CLI (recommended)
 
@@ -90,27 +90,35 @@ If the token already has `repo` but PRs from organization repositories are still
 2. **Organization token policy** - an organization can block classic PATs or require approval of fine-grained PATs. GitHub then hides its PRs without any warning. Use `gh` or ask an organization admin.
 3. **OAuth app restrictions** - with `gh`, the organization must allow the GitHub CLI app. If it doesn't, request access on the authorization page or ask an admin.
 
-To check, open `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` in the browser (it uses your browser session, not the token). If the PRs appear there but not in GHNotif, the problem is the token's access to the organization.
+**Check connection** in settings points out which organization is the problem. You can also open `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` in the browser (it uses your browser session, not the token). If the PRs appear there but not in GHNotif, the problem is the token's access to the organization.
 
 ## Configuration
 
 Settings (the gear icon in the panel header) have a sidebar on the left (like System Settings) and show the selected section on the right:
 
+- **Get started** - opens on first launch and when nobody is watched yet: a checklist (token, people, optional search and notification settings) with shortcuts to each section and **Check connection**.
 - **People** - add people to follow (logins are verified on GitHub); the list is collapsed by default, with a counter and a filter. You can import/export the list as JSON or import members of a GitHub team (requires organization membership access: `read:org` for classic tokens or `Members: read` for fine-grained ones).
-- **Search** - mentions and review requests (see below), extra qualifiers (e.g. `org:my-org`) and excluded repositories and labels.
+- **Search** - mentions and review requests (see below), drafts, hiding approved PRs, extra qualifiers (e.g. `org:my-org`) and excluded repositories and labels.
 - **Reminders** - days and times of the review reminder window (see below).
 - **Notifications** - notifications on/off, which events notify, quiet hours (see below).
-- **General** - language, refresh interval, sorting, auto-dismiss after your own review, launch at login, version and updates.
-- **Token** - current token source, setup steps for GitHub CLI and a PAT (with the required scopes) and saving or removing a PAT.
+- **General** - language, refresh interval, highlighting PRs open for N days (7 by default, 0 = off), sorting, auto-dismiss after your own review, launch at login, version and updates.
+- **Token** - current token source, **Check connection**, setup steps for GitHub CLI and a PAT (with the required scopes), saving or removing a PAT and the GitHub server host (see below).
 
-A new installation starts with an empty list of people.
+A new installation starts with an empty list of people; the empty PR list has a **Set up** button that opens Get started.
+
+## GitHub Enterprise
+
+By default GHNotif uses github.com. If your company uses GitHub Enterprise Server or GHE.com, enter its host (e.g. `github.company.com`) in **Settings → Token → GitHub server** and click **Apply**. The app then uses that server's API, `gh auth token --hostname HOST` (sign in with `gh auth login --hostname HOST`) and links to that server for PATs and SSO. Update checks still use github.com.
 
 ## Mentions and review requests
 
 PRs from the people you follow come first, but the list can also include:
 
 - **mentions** (`mentions:@me`, on by default) - open PRs by any author where someone mentioned you; marked with a purple `@`,
-- **review requests** (`user-review-requested:@me`, off by default) - only requests addressed to you personally, not to your team; marked with a person icon with a question mark.
+- **review requests** (`user-review-requested:@me`, off by default) - requests addressed to you personally; marked with a person icon with a question mark,
+- **team review requests** (`review-requested:@me`, off by default, available with review requests on) - also requests sent to your teams, e.g. when someone adds the whole QA team as a reviewer; marked with a team icon when only the team was asked.
+
+Under **Visibility** you can also **show drafts** (marked with a Draft label; hidden by default) and **hide approved PRs** (review decision "Approved" on GitHub). PRs open for at least the number of days set in General show their age in orange with a clock icon.
 
 Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications - only new ones do.
 
@@ -169,7 +177,7 @@ The UI is available in English and Polish. In **Settings → General → Languag
 
 ## Icons and tooltips
 
-Hover over an icon to see what it means. A purple `@` marks a mention, a person icon with a question mark a review request for you. A green check mark means an approved review, a speech bubble/exclamation mark requested changes, an eye a required review. CI dot: green = success, red = failure, yellow = in progress. The separate check mark at the end of a row marks the PR as locally done.
+Hover over an icon to see what it means. A purple `@` marks a mention, a person icon with a question mark a review request for you, a team icon a review request for your team only. A grey Draft label marks a draft and an orange age with a clock a PR open for longer than the configured number of days. A green check mark means an approved review, a speech bubble/exclamation mark requested changes, an eye a required review. CI dot: green = success, red = failure, yellow = in progress. The separate check mark at the end of a row marks the PR as locally done.
 
 The logo shows a PR branch with a notification dot. The colored app icons (`.icns`/`.ico`), the menu bar logo and its monochrome variant are generated from a shared source:
 
@@ -228,7 +236,7 @@ protected by rulesets. Only a repository administrator can bypass them.
 
 ## How it works
 
-Instead of one query joined with `OR` (GitHub search allows at most 5 logical operators), authors are split into batches of 10; repeated `author:` qualifiers act as OR. Each batch is a GraphQL query `is:pr is:open draft:false author:… author:…`, and the results are merged and deduplicated. Mentions and review requests are separate queries; a PR found by several of them carries all their markers.
+Instead of one query joined with `OR` (GitHub search allows at most 5 logical operators), authors are split into batches of 10; repeated `author:` qualifiers act as OR. Each batch is a GraphQL query `is:pr is:open draft:false author:… author:…` (without `draft:false` when drafts are on), and the results are merged and deduplicated. Mentions, review requests and team review requests are separate queries; a PR found by several of them carries all their markers.
 
 In the macOS menu bar the logo and the counter are drawn as a single image, because a `MenuBarExtra` label made of several views only shows some of them.
 

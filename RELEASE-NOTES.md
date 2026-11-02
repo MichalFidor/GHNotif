@@ -1,3 +1,12 @@
+# GHNotif 0.7.5
+
+- **Get started** in settings opens on first launch (and while nobody is watched): a checklist with the token, people and optional settings, plus a **Set up** button in the empty PR list.
+- **Check connection** (Get started and Token) shows the token's scopes and, per organization, whether the token can access it - including missing SSO authorization with an **Authorize SSO** link and organizations that block the token.
+- Optional **team review requests** - PRs where your team (e.g. QA) was asked for review, marked with a team icon.
+- Optional **drafts** (marked with a Draft label) and **hiding approved PRs**.
+- PRs open for at least N days (7 by default, configurable in General, 0 = off) show their age in orange with a clock.
+- **GitHub Enterprise** - set the GitHub server host in Settings → Token (GHES or GHE.com); `gh` is asked for a token for that host.
+
 # GHNotif 0.7.4
 
 - Settings → Token now explains both sign-in options step by step: GitHub CLI (recommended) and a personal access token with the required scopes (`repo`, `read:org`), with a link that creates a classic PAT with these scopes preselected.

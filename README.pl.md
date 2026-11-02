@@ -4,7 +4,7 @@
 
 [English](README.md) | **Polski**
 
-Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje otwarte (nie-draft) PR-y wybranych osób ze wszystkich repozytoriów widocznych dla Twojego tokenu GitHub. Obie wersje mają osobny, natywny interfejs.
+Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje otwarte PR-y wybranych osób (drafty opcjonalnie) ze wszystkich repozytoriów widocznych dla Twojego tokenu GitHub. Obie wersje mają osobny, natywny interfejs.
 
 ## Instalacja macOS
 
@@ -57,7 +57,7 @@ Wersja Windows ma jasny panel z grupowaniem po repo, awatarami, stanem review i 
 
 ## Autoryzacja
 
-GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Jeśli lista pokazuje tylko PR-y z publicznych repozytoriów (np. obserwujesz kilkanaście osób, a widzisz jeden PR), token nie ma scope'u `repo` albo nie jest autoryzowany dla organizacji z SSO. Wybierz jedną z dwóch opcji; opisuje je też zakładka Ustawienia → Token.
+GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Jeśli lista pokazuje tylko PR-y z publicznych repozytoriów (np. obserwujesz kilkanaście osób, a widzisz jeden PR), token nie ma scope'u `repo` albo nie jest autoryzowany dla organizacji z SSO. Wybierz jedną z dwóch opcji; opisuje je też zakładka Ustawienia → Token. Potem kliknij **Sprawdź połączenie** (Ustawienia → Pierwsze kroki lub Token) - pokaże uprawnienia tokenu oraz dla każdej Twojej organizacji, czy token ma do niej dostęp (SSO, zablokowane PAT), z linkiem **Autoryzuj SSO**.
 
 ### Opcja 1: GitHub CLI (zalecana)
 
@@ -90,27 +90,35 @@ Jeśli token ma już `repo`, a PR-ów z repozytoriów organizacji dalej brakuje:
 2. **Polityka tokenów organizacji** - organizacja może blokować classic PAT lub wymagać zatwierdzenia fine-grained PAT. GitHub ukrywa wtedy jej PR-y bez żadnego ostrzeżenia. Użyj `gh` albo zapytaj administratora organizacji.
 3. **Ograniczenia aplikacji OAuth** - przy `gh` organizacja musi dopuszczać aplikację GitHub CLI. Jeśli nie dopuszcza, poproś o dostęp na stronie autoryzacji albo zapytaj administratora.
 
-Sprawdzenie: otwórz w przeglądarce `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` (używa sesji przeglądarki, nie tokenu). Jeśli tam PR-y są, a w GHNotif nie, problemem jest dostęp tokenu do organizacji.
+**Sprawdź połączenie** w ustawieniach wskaże, która organizacja jest problemem. Możesz też otworzyć w przeglądarce `https://github.com/pulls?q=is:pr+is:open+author:LOGIN` (używa sesji przeglądarki, nie tokenu). Jeśli tam PR-y są, a w GHNotif nie, problemem jest dostęp tokenu do organizacji.
 
 ## Konfiguracja
 
 Ustawienia (ikona zębatki w nagłówku panelu) mają menu po lewej stronie (jak Ustawienia systemowe), a wybrana sekcja wyświetla się po prawej:
 
+- **Pierwsze kroki** - otwiera się przy pierwszym uruchomieniu i gdy nikt nie jest jeszcze obserwowany: lista kroków (token, osoby, opcjonalnie wyszukiwanie i powiadomienia) ze skrótami do sekcji i **Sprawdź połączenie**.
 - **Osoby** - dodawanie obserwowanych osób (login jest weryfikowany w GitHub); lista jest domyślnie zwinięta, z licznikiem i filtrem. Można importować/eksportować listę JSON lub zaimportować członków zespołu GitHub (wymaga dostępu do członkostwa organizacji: `read:org` classic lub `Members: read` fine-grained).
-- **Wyszukiwanie** - wzmianki i prośby o review (patrz niżej), dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
+- **Wyszukiwanie** - wzmianki i prośby o review (patrz niżej), drafty, ukrywanie zatwierdzonych PR-ów, dodatkowe kwalifikatory (np. `org:my-org`) oraz wykluczenia repozytoriów i etykiet.
 - **Przypomnienia** - dni i godziny okna z przypomnieniem o review (patrz niżej).
 - **Powiadomienia** - włączanie powiadomień, które zdarzenia powiadamiają, ciche godziny (patrz niżej).
-- **Ogólne** - język, interwał odświeżania, sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
-- **Token** - aktualne źródło tokenu, instrukcja dla GitHub CLI i PAT (z wymaganymi scope'ami) oraz zapisywanie lub usuwanie PAT.
+- **Ogólne** - język, interwał odświeżania, wyróżnianie PR-ów otwartych od N dni (domyślnie 7, 0 = wyłączone), sortowanie, automatyczne odhaczanie po własnym review, autostart, wersja i aktualizacje.
+- **Token** - aktualne źródło tokenu, **Sprawdź połączenie**, instrukcja dla GitHub CLI i PAT (z wymaganymi scope'ami), zapisywanie lub usuwanie PAT oraz host serwera GitHub (patrz niżej).
 
-Nowa instalacja zaczyna z pustą listą osób.
+Nowa instalacja zaczyna z pustą listą osób; pusta lista PR-ów ma przycisk **Skonfiguruj**, który otwiera Pierwsze kroki.
+
+## GitHub Enterprise
+
+Domyślnie GHNotif używa github.com. Jeśli firma używa GitHub Enterprise Server lub GHE.com, wpisz jego host (np. `github.firma.pl`) w **Ustawienia → Token → Serwer GitHub** i kliknij **Zastosuj**. Aplikacja użyje wtedy API tego serwera, `gh auth token --hostname HOST` (zaloguj się przez `gh auth login --hostname HOST`) i linków do tego serwera dla PAT i SSO. Sprawdzanie aktualizacji dalej korzysta z github.com.
 
 ## Wzmianki i prośby o review
 
 Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
 
 - **wzmianki** (`mentions:@me`, domyślnie włączone) - otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
-- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) - tylko prośby skierowane do Ciebie osobiście, nie do Twojego zespołu; oznaczone ikoną osoby ze znakiem zapytania.
+- **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) - prośby skierowane do Ciebie osobiście; oznaczone ikoną osoby ze znakiem zapytania,
+- **prośby do zespołów** (`review-requested:@me`, domyślnie wyłączone, dostępne przy włączonych prośbach o review) - także prośby wysłane do Twoich zespołów, np. gdy ktoś doda cały zespół QA jako reviewera; oznaczone ikoną zespołu, gdy poproszono tylko zespół.
+
+W sekcji **Widoczność** możesz też **pokazywać drafty** (oznaczone etykietą Draft; domyślnie ukryte) i **ukrywać zatwierdzone PR-y** (decyzja review „Approved” na GitHubie). PR-y otwarte co najmniej tyle dni, ile ustawiono w Ogólnych, mają wiek na pomarańczowo z ikoną zegara.
 
 Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień - tylko nowe.
 
@@ -169,7 +177,7 @@ Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → J
 
 ## Ikony i tooltipy
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania - prośbę o Twoje review. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania - prośbę o Twoje review, ikona zespołu - prośbę o review tylko do Twojego zespołu. Szara etykieta Draft oznacza draft, a pomarańczowy wiek z zegarem - PR otwarty dłużej niż ustawiona liczba dni. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
 Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
@@ -229,7 +237,7 @@ chronione regułami. Ominąć je może tylko administrator repozytorium.
 
 ## Jak to działa
 
-Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…`, wyniki są łączone i deduplikowane. Wzmianki i prośby o review to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
+Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…` (bez `draft:false`, gdy drafty są włączone), wyniki są łączone i deduplikowane. Wzmianki, prośby o review i prośby do zespołów to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
 
 Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `MenuBarExtra` złożona z kilku widoków pokazuje tylko ich część.
 
