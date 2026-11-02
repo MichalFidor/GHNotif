@@ -1,4 +1,4 @@
-# GHNotif 0.8.0
+# GHNotif 0.7.4
 
 - Settings → Token now explains both sign-in options step by step: GitHub CLI (recommended) and a personal access token with the required scopes (`repo`, `read:org`), with a link that creates a classic PAT with these scopes preselected.
 - The Token tab and docs explain why PRs may be missing: no `repo` scope (only public repositories visible) or no access to an organization (SAML SSO not authorized, classic PATs blocked or GitHub CLI not approved).
