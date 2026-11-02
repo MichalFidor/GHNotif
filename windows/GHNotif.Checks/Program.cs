@@ -173,6 +173,11 @@ Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSea
 var legacyConfig = JsonSerializer.Deserialize<Config>("{\"users\":[\"a\"],\"notify\":false}",
     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
 Check(legacyConfig.IncludeMentions && !legacyConfig.IncludeReviewRequests, "Old config gets new defaults");
+Check(!legacyConfig.IncludeTeamReviewRequests && !legacyConfig.IncludeDrafts && !legacyConfig.HideApproved
+    && legacyConfig.StaleAfterDays == 7 && legacyConfig.Host == "github.com", "New options default for old configs");
+var hostConfig = new Config { Host = "https://GitHub.Acme.com/", StaleAfterDays = -3 };
+hostConfig.Validate();
+Check(hostConfig.Host == "github.acme.com" && hostConfig.StaleAfterDays == 0, "Host normalized, stale days clamped");
 
 var filtering = new Config { ExcludedRepositories = ["EXAMPLE/DEMO"] };
 var parsedPr = GitHubClient.ParsePullRequest(JsonDocument.Parse(Node("filter")).RootElement);
@@ -180,6 +185,75 @@ Check(!filtering.Includes(parsedPr), "Repository exclusion is case-insensitive")
 filtering.ExcludedRepositories.Clear();
 filtering.ExcludedLabels = ["WIP"];
 Check(!filtering.Includes(parsedPr), "Label exclusion is case-insensitive");
+Check(!parsedPr.IsDraft && GitHubClient.ParsePullRequest(JsonDocument.Parse(Node("draft").Replace("\"reviewDecision\":null", "\"reviewDecision\":\"APPROVED\",\"isDraft\":true")).RootElement).IsDraft,
+    "Draft flag parsed");
+var approvedPr = parsedPr with { ReviewDecision = "APPROVED", CreatedAt = DateTimeOffset.UnixEpoch };
+var visibility = new Config();
+Check(visibility.Includes(approvedPr), "Approved PRs shown by default");
+visibility.HideApproved = true;
+Check(!visibility.Includes(approvedPr) && visibility.Includes(parsedPr with { CreatedAt = DateTimeOffset.UnixEpoch }), "Hide approved");
+Check(visibility.IsStale(approvedPr, DateTimeOffset.UnixEpoch.AddDays(10)) && !visibility.IsStale(approvedPr, DateTimeOffset.UnixEpoch.AddDays(6)),
+    "Stale after 7 days by default");
+visibility.StaleAfterDays = 0;
+Check(!visibility.IsStale(approvedPr, DateTimeOffset.UnixEpoch.AddDays(10)), "0 disables stale highlighting");
+
+var teamConfig = new Config { Users = ["a"], ExtraQualifiers = "org:x", IncludeMentions = false, IncludeTeamReviewRequests = true };
+Check(QueryBuilder.Searches(teamConfig).Select(s => s.Reason).SequenceEqual([MatchReason.WatchedAuthor]),
+    "Team review requests need personal review requests");
+teamConfig.IncludeReviewRequests = true;
+var teamSearches = QueryBuilder.Searches(teamConfig).ToList();
+Check(teamSearches.Last().Query == "is:pr is:open draft:false review-requested:@me -author:@me org:x"
+    && teamSearches.Last().Reason == MatchReason.TeamReviewRequested, "Team review query");
+teamConfig.IncludeDrafts = true;
+Check(QueryBuilder.Searches(teamConfig).All(s => s.Query.StartsWith("is:pr is:open ") && !s.Query.Contains("draft:")), "Drafts drop draft:false");
+var teamOnly = parsedPr with { Reasons = new HashSet<MatchReason> { MatchReason.TeamReviewRequested } };
+Check(teamOnly.IsTeamReviewRequestOnly && !(parsedPr with { Reasons = new HashSet<MatchReason> { MatchReason.ReviewRequested, MatchReason.TeamReviewRequested } }).IsTeamReviewRequestOnly,
+    "Personal review request wins over team");
+Check(ActivityText.NewPullRequest(teamOnly) == "◉ Prośba o review do Twojego zespołu", "Team review alert text");
+
+var dotCom = new GitHubHost("https://GitHub.com/");
+Check(dotCom.IsDotCom && dotCom.GraphQLUrl == "https://api.github.com/graphql" && dotCom.RestUrl("/user") == "https://api.github.com/user", "github.com endpoints");
+var ghes = new GitHubHost(" https://github.acme.com/path ");
+Check(ghes.Name == "github.acme.com" && ghes.GraphQLUrl == "https://github.acme.com/api/graphql"
+    && ghes.RestUrl("/user") == "https://github.acme.com/api/v3/user", "GHES endpoints");
+Check(new GitHubHost("acme.ghe.com").GraphQLUrl == "https://api.acme.ghe.com/graphql" && new GitHubHost("").IsDotCom, "GHE.com and empty host");
+Check(ghes.Owns("https://github.acme.com/o/r/pull/1") && !ghes.Owns("https://evil.com/") && !ghes.Owns("http://github.acme.com/"), "Host ownership");
+Check(ghes.SsoSettingsUrl(true) == "https://github.acme.com/settings/applications"
+    && dotCom.SsoSettingsUrl(true).Contains("178c6fc778ccc68e1d6a"), "SSO settings follow host");
+
+Check(ConnectionDiagnosis.ParseScopes("repo, read:org") is ["repo", "read:org"] && ConnectionDiagnosis.ParseScopes(null) is null, "Scope header");
+Check(new ConnectionDiagnosis("me", ["project", "read:packages"], []).MissingScopes is ["repo", "read:org"], "Unrelated scopes are missing");
+Check(new ConnectionDiagnosis("me", ["repo", "admin:org"], []).MissingScopes.Count == 0, "Broader org scope implies read:org");
+var ssoStatus = ConnectionDiagnosis.ClassifyOrg(403, "required; url=https://github.com/orgs/acme/sso?x=1", "{\"message\":\"SAML\"}");
+Check(ssoStatus == new OrgStatus(OrgAccess.SsoRequired, "https://github.com/orgs/acme/sso?x=1"), "SSO requirement");
+Check(ConnectionDiagnosis.ClassifyOrg(403, null, "{\"message\":\"forbids classic\"}") == new OrgStatus(OrgAccess.Blocked, "forbids classic"), "Org policy block");
+Check(ConnectionDiagnosis.ClassifyOrg(200, null, "") == new OrgStatus(OrgAccess.Ok) && ConnectionDiagnosis.ClassifyOrg(500, null, "oops") == new OrgStatus(OrgAccess.Error, "HTTP 500: oops"), "Other statuses");
+var diagnosis = new ConnectionDiagnosis("me", ["read:packages"], [new("acme", ssoStatus), new("open", new(OrgAccess.Ok))]);
+var lines = diagnosis.Lines();
+Check(diagnosis.HasProblems && diagnosis.SsoAuthorizationUrl == "https://github.com/orgs/acme/sso?x=1", "Diagnosis problems");
+Check(lines[0] == "✓ Zalogowano jako me" && lines.Any(l => l.StartsWith("✗ Brak uprawnienia repo")) && lines.Contains("✓ open - dostęp OK")
+    && lines.Any(l => l.StartsWith("✗ acme - wymaga autoryzacji SSO")), "Diagnosis report");
+
+var diagnoseRequests = new List<string>();
+using var diagnoseHttp = new HttpClient(new FakeHandler(request =>
+{
+    diagnoseRequests.Add(request.RequestUri!.ToString());
+    var path = request.RequestUri!.AbsolutePath;
+    var response = path.EndsWith("/user")
+        ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"login\":\"me\"}") }
+        : path.EndsWith("/user/orgs")
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"login\":\"acme\"},{\"login\":\"open\"}]") }
+            : path.Contains("/acme/")
+                ? new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"message\":\"SAML\"}") }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") };
+    if (path.EndsWith("/user")) response.Headers.TryAddWithoutValidation("X-OAuth-Scopes", "repo, read:org");
+    if (path.Contains("/acme/")) response.Headers.TryAddWithoutValidation("X-GitHub-SSO", "required; url=https://github.acme.com/orgs/acme/sso");
+    return Task.FromResult(response);
+}));
+var diagnosed = await new GitHubClient(diagnoseHttp) { Host = ghes }.DiagnoseAsync("t");
+Check(diagnoseRequests.All(url => url.StartsWith("https://github.acme.com/api/v3/")), "Diagnosis uses the configured host");
+Check(diagnosed.Login == "me" && diagnosed.MissingScopes.Count == 0
+    && diagnosed.Organizations.Select(o => o.Status.Access).SequenceEqual([OrgAccess.SsoRequired, OrgAccess.Ok]), "Diagnosis end to end");
 
 var merging = 0;
 using var mergeHttp = new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

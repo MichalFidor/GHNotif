@@ -220,9 +220,7 @@ internal sealed class TrayWindow : Window
                 L("GitHub ukrywa wyniki z części organizacji. Autoryzuj token lub aplikację GitHub CLI dla SSO.", "GitHub hides results from some organizations. Authorize the token or the GitHub CLI app for SSO."),
                 () => _ = app.RunAsync(() =>
                 {
-                    App.OpenGitHub(app.Tokens.Source == "gh CLI"
-                        ? "https://github.com/settings/connections/applications/178c6fc778ccc68e1d6a"
-                        : "https://github.com/settings/tokens");
+                    App.OpenGitHub(app.Config.GitHubHost.SsoSettingsUrl(app.Tokens.Source == "gh CLI"));
                     return Task.CompletedTask;
                 }));
             banners.Children.Add(Banner(Glyph.Lock, Palette.Orange,
@@ -268,6 +266,17 @@ internal sealed class TrayWindow : Window
                 Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center
             });
         panel.Children.Add(new TextBlock { Text = text, Foreground = Palette.Secondary, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+        if (app.IsRefreshing || app.Config.HasSearches) return panel;
+        var setup = Ui.Button(L("Skonfiguruj", "Set up"), L("Otwórz pierwsze kroki w ustawieniach", "Open Get started in settings"), () =>
+        {
+            Hide();
+            app.OpenSettings();
+            app.Settings?.SelectTab(0);
+        });
+        setup.Style = (Style)Application.Current.FindResource("AccentButton");
+        setup.Margin = new Thickness(10, 0, 0, 0);
+        setup.VerticalAlignment = VerticalAlignment.Center;
+        panel.Children.Add(setup);
         return panel;
     }
 
@@ -406,6 +415,8 @@ internal sealed class TrayWindow : Window
             });
         if (pr.Reasons.Contains(MatchReason.ReviewRequested))
             badges.Children.Add(Ui.Status(Glyph.Person, Palette.Purple, L("Poproszono Cię o review", "Your review was requested")));
+        else if (pr.IsTeamReviewRequestOnly)
+            badges.Children.Add(Ui.Status(Glyph.People, Palette.Purple, L("Poproszono o review Twój zespół", "Your team's review was requested")));
         switch (pr.ReviewDecision)
         {
             case "APPROVED": badges.Children.Add(Ui.Status(Glyph.CompletedSolid, Palette.Green, L("Review: PR zatwierdzony", "Review: approved"))); break;
@@ -434,12 +445,33 @@ internal sealed class TrayWindow : Window
             Text = pr.Title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
             MaxHeight = 36, TextTrimming = TextTrimming.CharacterEllipsis
         });
-        details.Children.Add(new TextBlock
+        var caption = new TextBlock
         {
-            Text = $"#{pr.Number} · {pr.Author} · {Age(pr.CreatedAt)} · +{pr.Additions}/−{pr.Deletions}",
             FontSize = 12, Foreground = Palette.Secondary, Margin = new Thickness(0, 2, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        if (pr.IsDraft)
+            caption.Inlines.Add(new System.Windows.Documents.InlineUIContainer(new Border
+            {
+                Background = Palette.Capsule, CornerRadius = new CornerRadius(6), Padding = new Thickness(5, 0, 5, 0),
+                Margin = new Thickness(0, 0, 5, -2), ToolTip = L("Draft - PR nie jest jeszcze gotowy do review", "Draft - the PR isn't ready for review yet"),
+                Child = new TextBlock { Text = "Draft", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Palette.Secondary }
+            }) { BaselineAlignment = BaselineAlignment.Center });
+        caption.Inlines.Add(new System.Windows.Documents.Run($"#{pr.Number} · {pr.Author} · "));
+        var age = new System.Windows.Documents.Run(Age(pr.CreatedAt));
+        if (app.Config.IsStale(pr))
+        {
+            caption.Inlines.Add(new System.Windows.Documents.Run(Glyph.Clock + " ")
+            {
+                FontFamily = Ui.IconFont, FontSize = 11, Foreground = Palette.Orange
+            });
+            age.Foreground = Palette.Orange;
+            age.FontWeight = FontWeights.SemiBold;
+            caption.ToolTip = L($"Otwarty od co najmniej {app.Config.StaleAfterDays} dni", $"Open for at least {app.Config.StaleAfterDays} days");
+        }
+        caption.Inlines.Add(age);
+        caption.Inlines.Add(new System.Windows.Documents.Run($" · +{pr.Additions}/−{pr.Deletions}"));
+        details.Children.Add(caption);
         if (unread && entry is not null)
         {
             details.Children.Add(new TextBlock
@@ -546,6 +578,7 @@ internal static class Glyph
     internal const string Lock = "\uE72E";
     internal const string Eye = "\uE7B3";
     internal const string Person = "\uE77B";
+    internal const string People = "\uE716";
 }
 
 internal static class Ui

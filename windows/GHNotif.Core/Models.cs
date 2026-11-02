@@ -16,6 +16,11 @@ public sealed record PullRequest(
     public IReadOnlyList<PullRequestReview> Reviews { get; init; } = [];
     /// GitHub login of the head commit's author; the pusher isn't exposed by the API.
     public string? HeadCommitAuthor { get; init; }
+    public bool IsDraft { get; init; }
+
+    /// Team requests are only worth showing when the user wasn't asked personally.
+    public bool IsTeamReviewRequestOnly =>
+        Reasons.Contains(MatchReason.TeamReviewRequested) && !Reasons.Contains(MatchReason.ReviewRequested);
 
     /// Human-readable list of what changed since the snapshot, e.g. "✓ bob - zatwierdzenie".
     public List<string> Changes(DismissalSnapshot snapshot, string? viewer)
@@ -75,7 +80,7 @@ public sealed record PullRequest(
     public bool HasViewerReviewedCurrentHead(string? viewer) => ViewerReviewAt(viewer) is not null;
 }
 
-public enum MatchReason { WatchedAuthor, Mention, ReviewRequested }
+public enum MatchReason { WatchedAuthor, Mention, ReviewRequested, TeamReviewRequested }
 public enum SortOrder { RecentlyUpdated, OldestFirst, LargestChanges }
 
 /// A comment or submitted review by a human (bots are skipped while parsing).
@@ -176,6 +181,7 @@ public static class ActivityText
 
     public static string NewPullRequest(PullRequest pr) =>
         pr.Reasons.Contains(MatchReason.ReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Poproszono Cię o review", "Your review was requested"))
+        : pr.Reasons.Contains(MatchReason.TeamReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
         : pr.Reasons.Contains(MatchReason.Mention) ? AlertEvent.Mention.Line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
         : AlertEvent.NewPullRequest.Line(L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}"));
 }
@@ -198,6 +204,16 @@ public sealed class Config
     public bool IncludeMentions { get; set; } = true;
     /// Also show PRs where a review is requested from the signed-in user personally (not via a team).
     public bool IncludeReviewRequests { get; set; }
+    /// With IncludeReviewRequests, also show PRs where a review is requested from one of the user's teams.
+    public bool IncludeTeamReviewRequests { get; set; }
+    /// Show draft PRs too; by default searches use `draft:false`.
+    public bool IncludeDrafts { get; set; }
+    /// Hide PRs whose review decision is already "approved".
+    public bool HideApproved { get; set; }
+    /// PRs open longer than this many days are highlighted; 0 turns it off.
+    public int StaleAfterDays { get; set; } = 7;
+    /// `github.com`, a GHE.com host, or a GitHub Enterprise Server host name.
+    public string Host { get; set; } = GitHubHost.DotCom;
     public bool AutoDismissReviewed { get; set; } = true;
     public List<string> ExcludedRepositories { get; set; } = [];
     public List<string> ExcludedLabels { get; set; } = [];
@@ -208,15 +224,23 @@ public sealed class Config
     public NotificationPreferences Notifications { get; set; } = new();
 
     public bool HasSearches => Users.Count > 0 || IncludeMentions || IncludeReviewRequests;
+    public GitHubHost GitHubHost => new(Host);
+
+    /// True when the PR has been open for at least StaleAfterDays days.
+    public bool IsStale(PullRequest pr, DateTimeOffset? now = null) =>
+        StaleAfterDays > 0 && (now ?? DateTimeOffset.UtcNow) - pr.CreatedAt >= TimeSpan.FromDays(StaleAfterDays);
+
     public bool Includes(PullRequest pr) =>
-        !ExcludedRepositories.Contains(pr.Repository, StringComparer.OrdinalIgnoreCase)
+        !(HideApproved && pr.ReviewDecision == "APPROVED")
+        && !ExcludedRepositories.Contains(pr.Repository, StringComparer.OrdinalIgnoreCase)
         && !pr.Labels.Any(label => ExcludedLabels.Contains(label, StringComparer.OrdinalIgnoreCase));
 
     public Config Copy() => new()
     {
         Users = Users.ToList(), ExtraQualifiers = ExtraQualifiers, RefreshMinutes = RefreshMinutes, Notify = Notify,
         IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests,
-        AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
+        IncludeTeamReviewRequests = IncludeTeamReviewRequests, IncludeDrafts = IncludeDrafts, HideApproved = HideApproved,
+        StaleAfterDays = StaleAfterDays, Host = Host, AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
         ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder, ReviewReminder = ReviewReminder.Copy(),
         Language = Language, Notifications = Notifications.Copy()
     };
@@ -227,6 +251,8 @@ public sealed class Config
             || RefreshMinutes is < 1 or > 60 || !Enum.IsDefined(SortOrder) || !Enum.IsDefined(Language))
             throw new InvalidDataException(L("Nieprawidłowa konfiguracja. Interwał musi wynosić 1-60 minut.", "Invalid configuration. The interval must be 1-60 minutes."));
         Users = QueryBuilder.Normalize(Users).ToList();
+        StaleAfterDays = Math.Clamp(StaleAfterDays, 0, 365);
+        Host = GitHubHost.Normalize(Host);
         ExcludedRepositories = NormalizeValues(ExcludedRepositories);
         ExcludedLabels = NormalizeValues(ExcludedLabels);
         ReviewReminder ??= new();
@@ -416,16 +442,23 @@ public static class QueryBuilder
 
     public static IEnumerable<(string Query, MatchReason Reason)> Searches(Config config)
     {
-        foreach (var query in Build(config.Users, config.ExtraQualifiers)) yield return (query, MatchReason.WatchedAuthor);
+        foreach (var query in Build(config.Users, config.ExtraQualifiers, config.IncludeDrafts))
+            yield return (query, MatchReason.WatchedAuthor);
+        var baseQualifiers = Base(config.IncludeDrafts);
         // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
         string Viewer(string qualifiers) =>
-            $"is:pr is:open draft:false {qualifiers} {config.ExtraQualifiers.Trim()}".Trim();
+            $"{baseQualifiers} {qualifiers} {config.ExtraQualifiers.Trim()}".Trim();
         if (config.IncludeMentions) yield return (Viewer("mentions:@me"), MatchReason.Mention);
         if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me -author:@me"), MatchReason.ReviewRequested);
+        // `review-requested:@me` also matches personal requests; the personal reason wins when both apply.
+        if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests)
+            yield return (Viewer("review-requested:@me -author:@me"), MatchReason.TeamReviewRequested);
     }
 
-    public static IEnumerable<string> Build(IEnumerable<string> users, string extra) =>
+    public static string Base(bool includeDrafts) => includeDrafts ? "is:pr is:open" : "is:pr is:open draft:false";
+
+    public static IEnumerable<string> Build(IEnumerable<string> users, string extra, bool includeDrafts = false) =>
         Normalize(users).Chunk(10).Select(batch =>
-            ("is:pr is:open draft:false " + string.Join(" ", batch.Select(u => $"author:{u}")) +
+            (Base(includeDrafts) + " " + string.Join(" ", batch.Select(u => $"author:{u}")) +
              " " + extra.Trim()).Trim());
 }

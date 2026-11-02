@@ -11,6 +11,7 @@ internal sealed class TokenStore(string directory)
 {
     private string Path => System.IO.Path.Combine(directory, "token.dat");
     public string Source { get; private set; } = "brak";
+    public string Host { get; set; } = GHNotif.Core.GitHubHost.DotCom;
 
     public async Task<string> ResolveAsync()
     {
@@ -26,7 +27,7 @@ internal sealed class TokenStore(string directory)
             RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true
         };
-        foreach (var argument in new[] { "auth", "token", "--hostname", "github.com" })
+        foreach (var argument in new[] { "auth", "token", "--hostname", Host })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start)
             ?? throw new InvalidOperationException(L("Nie udało się uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT.", "Could not run gh. Install GitHub CLI or add a PAT."));

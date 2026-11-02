@@ -149,8 +149,39 @@ internal static class Program
             Check(Buttons(settings).Any(b => Equals(b.Content, "Importuj członków zespołu")),
                 "Team import is available in settings");
             var nav = Descendants<TabControl>(settings).Single();
-            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 6, "Settings use a left navigation menu");
+            Check(nav.TabStripPlacement == Dock.Left && nav.Items.Count == 7 && nav.SelectedIndex == 1, "Settings use a left navigation menu");
+            settings.SelectTab(0);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            Check(Buttons(settings).Any(b => Equals(b.Content, "Ustawienia tokenu"))
+                && Buttons(settings).Any(b => Equals(b.Content, "Sprawdź połączenie")), "Get started tab renders");
+            await app.CheckConnectionAsync();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            Check(app.ConnectionHasProblems && app.ConnectionSsoUrl == "https://github.com/orgs/acme/sso"
+                && Descendants<TextBlock>(settings).Any(t => t.Text.StartsWith("✗ acme - wymaga autoryzacji SSO"))
+                && Buttons(settings).Any(b => Equals(b.Content, "Autoryzuj SSO") && b.IsVisible), "Connection check reports SSO problems");
             settings.SelectTab(2);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            settings.UpdateLayout();
+            var searchBoxes = Descendants<CheckBox>(settings).ToList();
+            var teamBox = searchBoxes.Single(box => Equals(box.Content, "…także prośby do moich zespołów"));
+            Check(!teamBox.IsEnabled, "Team requests need personal review requests");
+            searchBoxes.Single(box => Equals(box.Content, "PR-y z prośbą o moje review")).IsChecked = true;
+            Check(teamBox.IsEnabled, "Team requests enabled with review requests");
+            teamBox.IsChecked = true;
+            searchBoxes.Single(box => Equals(box.Content, "Pokazuj drafty")).IsChecked = true;
+            Buttons(settings).Single(b => Equals(b.ToolTip, "Zapisz ustawienia wyszukiwania"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            for (var i = 0; i < 100 && !app.Config.IncludeDrafts; i++) await Task.Delay(10);
+            Check(app.Config.IncludeReviewRequests && app.Config.IncludeTeamReviewRequests && app.Config.IncludeDrafts
+                && !app.Config.HideApproved, "Search visibility options saved");
+            var plain = app.Config.Copy();
+            plain.IncludeReviewRequests = false;
+            plain.IncludeTeamReviewRequests = false;
+            plain.IncludeDrafts = false;
+            await app.SaveConfigAsync(plain);
+            settings.SelectTab(3);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             var reminderBoxes = Descendants<CheckBox>(settings).ToList();
@@ -195,7 +226,7 @@ internal static class Program
             Check(new JsonStore<LocalState>(Path.Combine(folder, "state.json")).Load().ReviewReminder.SnoozedUntil is not null,
                 "Reminder snooze saved to disk");
             Check(savedWeekdays.Count == 6, "Weekday selection round trip");
-            settings.SelectTab(3);
+            settings.SelectTab(4);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             var eventBoxes = Descendants<CheckBox>(settings).Where(box => box.ToolTip is string).ToList();
@@ -211,10 +242,18 @@ internal static class Program
             var loud = app.Config.Copy();
             loud.Notifications = new NotificationPreferences();
             await app.SaveConfigAsync(loud);
-            settings.SelectTab(5);
+            settings.SelectTab(6);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             settings.UpdateLayout();
             Check(Buttons(settings).Any(b => Equals(b.Content, "Zapisz PAT")), "Token tab renders");
+            Descendants<TextBox>(settings).Single(box => Equals(box.ToolTip, "Host GitHub, np. github.com lub github.firma.pl")).Text = "https://GitHub.Acme.com/";
+            Buttons(settings).Single(b => Equals(b.Content, "Zastosuj")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            for (var i = 0; i < 100 && app.Config.Host == "github.com"; i++) await Task.Delay(10);
+            Check(app.Config.Host == "github.acme.com" && app.Client.Host.GraphQLUrl == "https://github.acme.com/api/graphql"
+                && app.Tokens.Host == "github.acme.com" && app.ConnectionReport.Count == 0, "Host change applies to client and token");
+            var dotCom = app.Config.Copy();
+            dotCom.Host = "github.com";
+            await app.SaveConfigAsync(dotCom);
             settings.Close();
             panel.Close();
             Check(!panel.IsVisible, "Closing panel hides it");
@@ -364,6 +403,18 @@ internal static class Program
 
         private Task<HttpResponseMessage> Fixture(HttpRequestMessage request)
         {
+            var path = request.RequestUri?.AbsolutePath ?? "";
+            if (request.Method == HttpMethod.Get && (path == "/user" || path == "/user/orgs" || path.StartsWith("/orgs/acme/")))
+            {
+                var response = new HttpResponseMessage(path.StartsWith("/orgs/") ? HttpStatusCode.Forbidden : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(path == "/user" ? """{"login":"me"}"""
+                        : path == "/user/orgs" ? """[{"login":"acme"}]""" : """{"message":"SAML enforcement"}""")
+                };
+                if (path == "/user") response.Headers.TryAddWithoutValidation("X-OAuth-Scopes", "repo, read:org");
+                if (path.StartsWith("/orgs/")) response.Headers.TryAddWithoutValidation("X-GitHub-SSO", "required; url=https://github.com/orgs/acme/sso");
+                return Task.FromResult(response);
+            }
             if (request.RequestUri?.AbsolutePath.EndsWith("/releases/latest") == true)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {

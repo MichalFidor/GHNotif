@@ -10,13 +10,16 @@ public sealed record SearchResult(List<PullRequest> PullRequests, HashSet<string
 
 public sealed class GitHubClient(HttpClient http)
 {
+    /// API host; set from the config before each request batch.
+    public GitHubHost Host { get; set; } = new(GitHubHost.DotCom);
+
     private const string SearchQuery = """
         query($q: String!, $after: String) {
           viewer { login }
           search(query: $q, type: ISSUE, first: 100, after: $after) {
             issueCount pageInfo { hasNextPage endCursor }
             nodes { ... on PullRequest {
-              id number title url createdAt updatedAt reviewDecision
+              id number title url createdAt updatedAt reviewDecision isDraft
               author { login avatarUrl } repository { nameWithOwner }
               additions deletions
               labels(first: 100) { nodes { name } }
@@ -89,12 +92,7 @@ public sealed class GitHubClient(HttpClient http)
         var members = new List<string>();
         for (var page = 1; page <= 10; page++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.github.com/orgs/{organization}/teams/{team}/members?per_page=100&page={page}");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            request.Headers.Accept.ParseAdd("application/vnd.github+json");
-            request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
-            using var response = await http.SendAsync(request, ct);
+            using var response = await GetAsync(token, $"/orgs/{organization}/teams/{team}/members?per_page=100&page={page}", ct);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
                 throw new HttpRequestException(L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired."));
             if (!response.IsSuccessStatusCode)
@@ -111,9 +109,61 @@ public sealed class GitHubClient(HttpClient http)
         throw new InvalidOperationException(L("Zespół ma ponad 1000 członków; ogranicz import.", "The team has over 1000 members; narrow the import."));
     }
 
+    /// Checks the token, its scopes and access to each organization the user belongs to.
+    public async Task<ConnectionDiagnosis> DiagnoseAsync(string token, CancellationToken ct = default)
+    {
+        string login;
+        List<string>? scopes;
+        using (var user = await GetAsync(token, "/user", ct))
+        {
+            if (user.StatusCode == HttpStatusCode.Unauthorized)
+                throw new HttpRequestException(L("Token GitHub jest nieprawidłowy lub wygasł.", "The GitHub token is invalid or expired."));
+            if (!user.IsSuccessStatusCode)
+                throw new HttpRequestException(L($"GitHub API: HTTP {(int)user.StatusCode}.", $"GitHub API: HTTP {(int)user.StatusCode}."));
+            using var json = await JsonDocument.ParseAsync(await user.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            login = Text(json.RootElement, "login") ?? "?";
+            scopes = ConnectionDiagnosis.ParseScopes(user.Headers.TryGetValues("X-OAuth-Scopes", out var values)
+                ? string.Join(",", values) : null);
+        }
+        var orgLogins = new List<string>();
+        using (var orgs = await GetAsync(token, "/user/orgs?per_page=100", ct))
+        {
+            if (orgs.IsSuccessStatusCode)
+            {
+                using var json = await JsonDocument.ParseAsync(await orgs.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+                orgLogins = json.RootElement.EnumerateArray().Select(org => Text(org, "login"))
+                    .Where(name => name is not null).Select(name => name!).ToList();
+            }
+        }
+        var organizations = await Task.WhenAll(orgLogins.Select(async org =>
+        {
+            try
+            {
+                using var response = await GetAsync(token, $"/orgs/{Uri.EscapeDataString(org)}/repos?per_page=1", ct);
+                var sso = response.Headers.TryGetValues("X-GitHub-SSO", out var values) ? string.Join(";", values) : null;
+                return new OrganizationDiagnosis(org, ConnectionDiagnosis.ClassifyOrg(
+                    (int)response.StatusCode, sso, await response.Content.ReadAsStringAsync(ct)));
+            }
+            catch (HttpRequestException error)
+            {
+                return new OrganizationDiagnosis(org, new(OrgAccess.Error, error.Message));
+            }
+        }));
+        return new(login, scopes, organizations.OrderBy(org => org.Login, StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private async Task<HttpResponseMessage> GetAsync(string token, string path, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, Host.RestUrl(path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
+        return await http.SendAsync(request, ct);
+    }
+
     private async Task<HttpResponseMessage> PostAsync(string token, string query, object variables, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.github.com/graphql");
+        using var request = new HttpRequestMessage(HttpMethod.Post, Host.GraphQLUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.UserAgent.ParseAdd("GHNotif/1.0");
         request.Content = JsonContent.Create(new { query, variables });
@@ -191,7 +241,8 @@ public sealed class GitHubClient(HttpClient http)
             Deletions = deletions,
             Labels = labels,
             Reviews = reviews,
-            HeadCommitAuthor = headAuthor
+            HeadCommitAuthor = headAuthor,
+            IsDraft = node.TryGetProperty("isDraft", out var draft) && draft.ValueKind == JsonValueKind.True
         };
     }
 

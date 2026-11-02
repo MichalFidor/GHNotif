@@ -23,6 +23,16 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox notify = new() { Content = L("Powiadamiaj o nowych PR-ach i nowej aktywności", "Notify about new PRs and new activity"), Margin = new Thickness(8) };
     private readonly CheckBox mentions = new() { Content = L("PR-y, w których ktoś mnie wspomniał (@)", "PRs where someone mentioned me (@)"), Margin = new Thickness(8) };
     private readonly CheckBox reviewRequests = new() { Content = L("PR-y z prośbą o moje review", "PRs requesting my review"), Margin = new Thickness(8) };
+    private readonly CheckBox teamReviewRequests = new() { Content = L("…także prośby do moich zespołów", "…also requests to my teams"), Margin = new Thickness(28, 4, 8, 8) };
+    private readonly CheckBox includeDrafts = new() { Content = L("Pokazuj drafty", "Show drafts"), Margin = new Thickness(8) };
+    private readonly CheckBox hideApproved = new() { Content = L("Ukrywaj zatwierdzone PR-y", "Hide approved PRs"), Margin = new Thickness(8) };
+    private readonly TextBox staleDays = new() { Width = 60, Margin = new Thickness(8), HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly TextBox host = new() { MinWidth = 240, Margin = new Thickness(3) };
+    private readonly List<(Button Check, StackPanel Report, Button Sso)> connectionPanels = [];
+    private readonly TextBlock tokenStep = Ui.Text("");
+    private readonly TextBlock peopleStep = Ui.Text("");
+    private readonly TextBlock searchStep = Ui.Text("");
+    private readonly TextBlock notificationsStep = Ui.Text("");
     private readonly TextBox filter = new() { Margin = new Thickness(3, 6, 3, 6) };
     private readonly TextBox organization = new() { Margin = new Thickness(3), MinWidth = 140 };
     private readonly TextBox team = new() { Margin = new Thickness(3), MinWidth = 140 };
@@ -69,7 +79,7 @@ internal sealed class SettingsWindow : Window
         add.Children.Add(addButton);
         add.Children.Add(login);
         people.Children.Add(add);
-        people.Children.Add(Ui.Text(L("Pokazywane są otwarte PR-y (bez draftów) tych osób, w dowolnym repozytorium widocznym dla tokenu.", "Shows open PRs (no drafts) by these people in any repository visible to the token.")));
+        people.Children.Add(Ui.Text(L("Pokazywane są otwarte PR-y tych osób (drafty - zależnie od ustawienia w Wyszukiwaniu), w dowolnym repozytorium widocznym dla tokenu.", "Shows open PRs by these people (drafts - depending on the Search setting) in any repository visible to the token.")));
         filter.ToolTip = L("Filtruj listę obserwowanych osób", "Filter the watched people list");
         filter.TextChanged += (_, _) => RenderUsers();
         var list = new StackPanel();
@@ -95,7 +105,18 @@ internal sealed class SettingsWindow : Window
         reviewRequests.IsChecked = app.Config.IncludeReviewRequests;
         search.Children.Add(mentions);
         search.Children.Add(reviewRequests);
-        search.Children.Add(Ui.Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review obejmują tylko te skierowane do Ciebie osobiście, nie do zespołu - mimo to mogą mocno wydłużyć listę, dlatego są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally, not to a team - they can still make the list much longer, so they're off by default.")));
+        teamReviewRequests.IsChecked = app.Config.IncludeTeamReviewRequests;
+        teamReviewRequests.IsEnabled = reviewRequests.IsChecked == true;
+        reviewRequests.Checked += (_, _) => teamReviewRequests.IsEnabled = true;
+        reviewRequests.Unchecked += (_, _) => teamReviewRequests.IsEnabled = false;
+        search.Children.Add(teamReviewRequests);
+        search.Children.Add(Ui.Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review domyślnie obejmują tylko te skierowane do Ciebie osobiście. Prośby do zespołów (np. gdy ktoś doda cały zespół QA jako reviewera) są oznaczone ikoną zespołu - mogą mocno wydłużyć listę, dlatego obie opcje są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally by default. Team requests (e.g. when someone adds the whole QA team as reviewer) are marked with a team icon - they can make the list much longer, so both options are off by default.")));
+        search.Children.Add(Heading(L("Widoczność", "Visibility")));
+        includeDrafts.IsChecked = app.Config.IncludeDrafts;
+        hideApproved.IsChecked = app.Config.HideApproved;
+        search.Children.Add(includeDrafts);
+        search.Children.Add(hideApproved);
+        search.Children.Add(Ui.Text(L("Drafty są oznaczone etykietą Draft. Zatwierdzone = decyzja review „Approved” na GitHubie - takie PR-y zwykle nie potrzebują już Twojej uwagi.", "Drafts are marked with a Draft label. Approved = the \"Approved\" review decision on GitHub - such PRs usually don't need your attention anymore.")));
         search.Children.Add(Heading(L("Zakres", "Scope")));
         extra.Text = app.Config.ExtraQualifiers;
         extra.ToolTip = L("Dodatkowe kwalifikatory GitHub, np. org:my-org. Puste = wszystkie dostępne repozytoria.", "Extra GitHub qualifiers, e.g. org:my-org. Empty = every accessible repository.");
@@ -157,6 +178,10 @@ internal sealed class SettingsWindow : Window
         launchAtLogin.IsChecked = app.LaunchAtLogin;
         launchAtLogin.Checked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(true); return Task.CompletedTask; });
         launchAtLogin.Unchecked += (_, _) => _ = app.RunAsync(() => { app.SetLaunchAtLogin(false); return Task.CompletedTask; });
+        general.Children.Add(Heading(L("Wyróżniaj PR-y otwarte od N dni (0 = wyłączone)", "Highlight PRs open for N days (0 = off)")));
+        staleDays.Text = app.Config.StaleAfterDays.ToString();
+        staleDays.ToolTip = L("Data otwarcia starszych PR-ów jest pokazywana na pomarańczowo", "The opening date of older PRs is shown in orange");
+        general.Children.Add(staleDays);
         general.Children.Add(launchAtLogin);
         general.Children.Add(Ui.Button(L("Zapisz", "Save"), L("Zapisz ustawienia ogólne", "Save general settings"), () => _ = app.RunAsync(SaveAsync)));
         general.Children.Add(Heading($"GHNotif {app.InstalledVersion}"));
@@ -202,13 +227,14 @@ internal sealed class SettingsWindow : Window
         var token = Page();
         token.Children.Add(Heading(L("Token GitHub", "GitHub token")));
         token.Children.Add(source);
+        token.Children.Add(ConnectionPanel());
         token.Children.Add(Ui.Text(L("GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Brak PR-ów z prywatnych repozytoriów = brak scope'u repo. Widać tylko PR-y z własnych repozytoriów = token nie jest autoryzowany przez SSO dla organizacji albo organizacja blokuje classic PAT lub nie zatwierdziła GitHub CLI (wtedy GitHub ukrywa wyniki bez ostrzeżenia).", "GHNotif only sees PRs from repositories the token can access. PRs from private repositories missing = no repo scope. Only PRs from your own repositories = the token is not SSO-authorized for the organization, or the organization blocks classic PATs or hasn't approved GitHub CLI (GitHub then hides results without a warning).")));
         token.Children.Add(Heading(L("Opcja 1: GitHub CLI (zalecana)", "Option 1: GitHub CLI (recommended)")));
         token.Children.Add(Ui.Text(L("1. Zainstaluj GitHub CLI: winget install GitHub.cli i uruchom GHNotif ponownie (gh musi być w PATH).\n2. W terminalu uruchom gh auth login (GitHub.com, logowanie przez przeglądarkę) i autoryzuj organizacje z SSO, jeśli GitHub o to poprosi (później: gh auth refresh).\n3. Sprawdź gh auth status - na liście scope'ów powinny być repo i read:org (są domyślnie).\n4. Jeśli zapisany jest PAT, usuń go - PAT ma pierwszeństwo przed gh.", "1. Install GitHub CLI: winget install GitHub.cli and restart GHNotif (gh must be on PATH).\n2. In a terminal run gh auth login (GitHub.com, sign in with the browser) and authorize SSO organizations if GitHub asks (later: gh auth refresh).\n3. Check gh auth status - the scopes should include repo and read:org (granted by default).\n4. If a PAT is saved, remove it - a PAT takes precedence over gh.")));
         token.Children.Add(Heading(L("Opcja 2: personal access token", "Option 2: personal access token")));
         token.Children.Add(Ui.Text(L("Classic PAT - zaznacz scope'y:\n• repo - PR-y z prywatnych repozytoriów (bez niego widać tylko publiczne),\n• read:org - import członków zespołu.\nInne scope'y (np. project, read:packages) nie dają dostępu do PR-ów.\nOrganizacje z SAML SSO: przy tokenie kliknij Configure SSO → Authorize.\nFine-grained PAT: Pull requests - read i Members - read; obejmuje tylko jednego właściciela zasobów, więc PR-y z innych organizacji nie będą widoczne.\nPAT ma pierwszeństwo przed gh i jest szyfrowany przez Windows DPAPI dla bieżącego użytkownika.", "Classic PAT - select the scopes:\n• repo - PRs from private repositories (without it only public ones are visible),\n• read:org - importing team members.\nOther scopes (e.g. project, read:packages) don't grant access to PRs.\nSAML SSO organizations: next to the token click Configure SSO → Authorize.\nFine-grained PAT: Pull requests - read and Members - read; it covers only one resource owner, so PRs from other organizations won't be visible.\nA PAT takes precedence over gh and is encrypted with Windows DPAPI for the current user.")));
         token.Children.Add(Ui.Button(L("Utwórz classic PAT z tymi scope'ami", "Create a classic PAT with these scopes"), L("Otwórz GitHub z zaznaczonymi scope'ami repo i read:org", "Open GitHub with the repo and read:org scopes selected"),
-            () => App.OpenGitHub("https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHNotif")));
+            () => App.OpenGitHub(app.Config.GitHubHost.NewTokenUrl)));
         pat.ToolTip = L("Personal access token - nigdy nie jest zapisywany w config.json", "Personal access token - never saved in config.json");
         token.Children.Add(pat);
         token.Children.Add(Ui.Button(L("Zapisz PAT", "Save PAT"), L("Zapisz zaszyfrowany token", "Save the encrypted token"),
@@ -228,7 +254,34 @@ internal sealed class SettingsWindow : Window
                 app.CredentialsChanged();
                 await app.RefreshAsync();
             })));
+        token.Children.Add(Heading(L("Serwer GitHub", "GitHub server")));
+        var hostRow = new DockPanel();
+        var applyHost = Ui.Button(L("Zastosuj", "Apply"), L("Zapisz host serwera GitHub", "Save the GitHub server host"), () => _ = app.RunAsync(ApplyHostAsync));
+        DockPanel.SetDock(applyHost, Dock.Right);
+        hostRow.Children.Add(applyHost);
+        host.Text = app.Config.Host;
+        host.ToolTip = L("Host GitHub, np. github.com lub github.firma.pl", "GitHub host, e.g. github.com or github.company.com");
+        hostRow.Children.Add(host);
+        token.Children.Add(hostRow);
+        token.Children.Add(Ui.Text(L("Zostaw github.com, chyba że firma używa GitHub Enterprise Server lub GHE.com - wtedy wpisz jego host, np. github.firma.pl. Dla GitHub CLI zaloguj się poleceniem gh auth login --hostname HOST; PAT utwórz na tym serwerze.", "Keep github.com unless your company uses GitHub Enterprise Server or GHE.com - then enter its host, e.g. github.company.com. For GitHub CLI sign in with gh auth login --hostname HOST; create the PAT on that server.")));
 
+        var start = Page();
+        start.Children.Add(Ui.Text(L("GHNotif pokazuje w zasobniku otwarte PR-y wybranych osób. Do działania potrzebuje tokenu GitHub i listy obserwowanych osób - reszta jest opcjonalna.", "GHNotif shows open PRs by chosen people in the tray. It needs a GitHub token and a list of watched people - everything else is optional."), Palette.Text));
+        start.Children.Add(Heading(L("1. Token GitHub", "1. GitHub token")));
+        start.Children.Add(tokenStep);
+        start.Children.Add(StepButton(L("Ustawienia tokenu", "Token settings"), 6));
+        start.Children.Add(ConnectionPanel());
+        start.Children.Add(Heading(L("2. Obserwowane osoby", "2. Watched people")));
+        start.Children.Add(peopleStep);
+        start.Children.Add(StepButton(L("Dodaj osoby", "Add people"), 1));
+        start.Children.Add(Heading(L("3. Co pokazywać (opcjonalnie)", "3. What to show (optional)")));
+        start.Children.Add(searchStep);
+        start.Children.Add(StepButton(L("Wyszukiwanie", "Search"), 2));
+        start.Children.Add(Heading(L("4. Powiadomienia i przypomnienia (opcjonalnie)", "4. Notifications and reminders (optional)")));
+        start.Children.Add(notificationsStep);
+        start.Children.Add(StepButton(L("Powiadomienia", "Notifications"), 4));
+
+        tabs.Items.Add(Tab("\uE7C1", L("Pierwsze kroki", "Get started"), start));
         tabs.Items.Add(Tab("\uE716", L("Osoby", "People"), people));
         tabs.Items.Add(Tab("\uE721", L("Wyszukiwanie", "Search"), search));
         tabs.Items.Add(Tab("\uEA8F", L("Przypomnienia", "Reminders"), reminders));
@@ -240,6 +293,83 @@ internal sealed class SettingsWindow : Window
         Closed += (_, _) => app.Changed -= UpdateSource;
         RenderUsers();
         UpdateSource();
+        tabs.SelectedIndex = app.IsFirstLaunch || !app.Config.HasSearches ? 0 : 1;
+    }
+
+    private Button StepButton(string text, int tab)
+    {
+        var button = Ui.Button(text, text, () => SelectTab(tab));
+        button.HorizontalAlignment = HorizontalAlignment.Left;
+        button.Margin = new Thickness(8, 0, 8, 4);
+        return button;
+    }
+
+    /// Connection check button with its report; created per page because WPF elements have one parent.
+    private StackPanel ConnectionPanel()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 8, 0) };
+        var check = Ui.Button(L("Sprawdź połączenie", "Check connection"),
+            L("Sprawdź uprawnienia tokenu i dostęp do organizacji (SSO)", "Check token scopes and organization access (SSO)"),
+            () => _ = app.RunAsync(app.CheckConnectionAsync));
+        var sso = Ui.Button(L("Autoryzuj SSO", "Authorize SSO"), L("Otwórz stronę autoryzacji SSO na GitHubie", "Open the SSO authorization page on GitHub"),
+            () => _ = app.RunAsync(() =>
+            {
+                if (app.ConnectionSsoUrl is { } url) App.OpenGitHub(url);
+                return Task.CompletedTask;
+            }));
+        sso.Margin = new Thickness(8, 0, 0, 0);
+        buttons.Children.Add(check);
+        buttons.Children.Add(sso);
+        var report = new StackPanel { Margin = new Thickness(4, 4, 8, 0) };
+        panel.Children.Add(buttons);
+        panel.Children.Add(report);
+        connectionPanels.Add((check, report, sso));
+        return panel;
+    }
+
+    private void UpdateConnection()
+    {
+        foreach (var (check, report, sso) in connectionPanels)
+        {
+            check.IsEnabled = !app.CheckingConnection;
+            check.Content = app.CheckingConnection ? L("Sprawdzanie…", "Checking…") : L("Sprawdź połączenie", "Check connection");
+            sso.Visibility = app.ConnectionSsoUrl is null ? Visibility.Collapsed : Visibility.Visible;
+            report.Children.Clear();
+            foreach (var line in app.ConnectionReport)
+            {
+                var text = Ui.Text(line, line.StartsWith('✗') ? Palette.Red : line.StartsWith('?') ? Palette.Orange : null);
+                text.Margin = new Thickness(4, 1, 4, 1);
+                report.Children.Add(text);
+            }
+        }
+        var config = app.Config;
+        tokenStep.Text = app.Tokens.Source == "brak"
+            ? L("Zaloguj się przez GitHub CLI (gh auth login) albo zapisz PAT. Potem sprawdź połączenie.", "Sign in with GitHub CLI (gh auth login) or save a PAT. Then check the connection.")
+            : L($"✓ Źródło: {app.Tokens.Source}. Sprawdź, czy token widzi Twoje organizacje.", $"✓ Source: {app.Tokens.Source}. Check that the token can see your organizations.");
+        peopleStep.Text = config.Users.Count == 0
+            ? L("Dodaj loginy pojedynczo albo zaimportuj cały zespół z organizacji.", "Add logins one by one or import a whole team from an organization.")
+            : L($"✓ Obserwowane osoby: {config.Users.Count}.", $"✓ Watched people: {config.Users.Count}.");
+        var parts = new List<string>();
+        if (config.IncludeMentions) parts.Add(L("wzmianki", "mentions"));
+        if (config.IncludeReviewRequests) parts.Add(L("prośby o review", "review requests"));
+        if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests) parts.Add(L("review zespołów", "team reviews"));
+        if (config.IncludeDrafts) parts.Add(L("drafty", "drafts"));
+        if (config.HideApproved) parts.Add(L("bez zatwierdzonych", "no approved"));
+        var list = parts.Count == 0 ? L("tylko PR-y obserwowanych osób", "only PRs by watched people") : string.Join(", ", parts);
+        searchStep.Text = L($"Teraz: {list}. Możesz też ograniczyć zakres do organizacji i wykluczyć repozytoria lub etykiety.",
+            $"Now: {list}. You can also limit the scope to an organization and exclude repositories or labels.");
+        notificationsStep.Text = config.Notify
+            ? L("Powiadomienia włączone - możesz ustawić ciche godziny i przypomnienia o review.", "Notifications on - you can set quiet hours and review reminders.")
+            : L("Powiadomienia wyłączone.", "Notifications off.");
+    }
+
+    private async Task ApplyHostAsync()
+    {
+        var config = Copy();
+        config.Host = GitHubHost.Normalize(host.Text);
+        await app.SaveConfigAsync(config);
+        host.Text = app.Config.Host;
     }
 
     internal void SelectTab(int index) => tabs.SelectedIndex = index;
@@ -270,6 +400,7 @@ internal sealed class SettingsWindow : Window
     {
         source.Text = L("Źródło tokenu: ", "Token source: ") + (app.Tokens.Source == "brak" ? L("brak", "none") : app.Tokens.Source);
         updateStatus.Text = app.UpdateStatus;
+        UpdateConnection();
         var reminder = app.Config.ReviewReminder;
         nextReminder.Text = reminder.Alarms.Count == 0 ? L("Następne przypomnienie: dodaj godzinę", "Next reminder: add a time")
             : !reminder.Enabled ? L("Następne przypomnienie: wyłączone", "Next reminder: off")
@@ -285,6 +416,8 @@ internal sealed class SettingsWindow : Window
     {
         if (!int.TryParse(minutes.Text, out var value) || value is < 1 or > 60)
             throw new InvalidOperationException(L("Interwał musi wynosić 1-60 minut.", "The interval must be 1-60 minutes."));
+        if (!int.TryParse(staleDays.Text, out var stale) || stale is < 0 or > 365)
+            throw new InvalidOperationException(L("Liczba dni musi wynosić 0-365.", "The number of days must be 0-365."));
         var alarms = reminderAlarms.Select(row => new ReminderAlarm { Time = row.Time.Text.Trim(), Enabled = row.Enabled.IsChecked == true }).ToList();
         if (alarms.FirstOrDefault(alarm => !ReviewReminderSettings.TryParseTime(alarm.Time, out _))?.Time is { } invalid)
             throw new InvalidOperationException(L($"Nieprawidłowa godzina przypomnienia: {invalid}. Użyj formatu GG:MM, np. 09:00.", $"Invalid reminder time: {invalid}. Use the HH:MM format, e.g. 09:00."));
@@ -302,6 +435,10 @@ internal sealed class SettingsWindow : Window
         config.Notify = notify.IsChecked == true;
         config.IncludeMentions = mentions.IsChecked == true;
         config.IncludeReviewRequests = reviewRequests.IsChecked == true;
+        config.IncludeTeamReviewRequests = teamReviewRequests.IsChecked == true;
+        config.IncludeDrafts = includeDrafts.IsChecked == true;
+        config.HideApproved = hideApproved.IsChecked == true;
+        config.StaleAfterDays = stale;
         config.AutoDismissReviewed = autoDismissReviewed.IsChecked == true;
         config.ExcludedRepositories = ParseValues(excludedRepos.Text);
         config.ExcludedLabels = ParseValues(excludedLabels.Text);

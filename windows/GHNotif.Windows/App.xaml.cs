@@ -101,6 +101,11 @@ public partial class App : Application
     internal string? Error { get; private set; }
     internal DateTimeOffset? LastRefresh { get; private set; }
     internal bool IsRefreshing => refreshing;
+    internal bool IsFirstLaunch { get; private set; }
+    internal bool CheckingConnection { get; private set; }
+    internal IReadOnlyList<string> ConnectionReport { get; private set; } = [];
+    internal bool ConnectionHasProblems { get; private set; }
+    internal string? ConnectionSsoUrl { get; private set; }
     internal bool LaunchAtLogin
     {
         get
@@ -166,7 +171,11 @@ public partial class App : Application
         reminderTimer.Tick += (_, _) => _ = RunAsync(() => { CheckReviewReminder(DateTimeOffset.Now); return Task.CompletedTask; });
         reminderTimer.Start();
         CheckReviewReminder(DateTimeOffset.Now);
-        if (Config.Users.Count == 0) OpenSettings();
+        if (IsFirstLaunch || !Config.HasSearches)
+        {
+            OpenSettings();
+            settings?.SelectTab(0);
+        }
         _ = CheckForUpdatesAsync();
         await RefreshAsync();
     }
@@ -186,6 +195,7 @@ public partial class App : Application
         configStore = new(Path.Combine(folder, "config.json"));
         stateStore = new(Path.Combine(folder, "state.json"));
         var newInstallation = !configStore.Exists;
+        IsFirstLaunch = newInstallation;
         // Invalid files are reported without overwriting the user's configuration.
         Config = configStore.Load();
         if (newInstallation) Config.Language = AppLanguage.System;
@@ -193,8 +203,8 @@ public partial class App : Application
         GHNotif.Core.Localization.Language = Config.Language;
         State = stateStore.Load();
         State.Migrate(DateTimeOffset.UtcNow);
-        Tokens = new(folder);
-        Client = new(client ?? http);
+        Tokens = new(folder) { Host = Config.Host };
+        Client = new(client ?? http) { Host = Config.GitHubHost };
         updateHttp = client ?? http;
     }
 
@@ -439,11 +449,21 @@ public partial class App : Application
             || config.IncludeMentions != Config.IncludeMentions || config.IncludeReviewRequests != Config.IncludeReviewRequests
             || config.ExcludedRepositories.SequenceEqual(Config.ExcludedRepositories) == false
             || config.ExcludedLabels.SequenceEqual(Config.ExcludedLabels) == false
-            || config.AutoDismissReviewed != Config.AutoDismissReviewed;
+            || config.AutoDismissReviewed != Config.AutoDismissReviewed
+            || config.IncludeTeamReviewRequests != Config.IncludeTeamReviewRequests
+            || config.IncludeDrafts != Config.IncludeDrafts || config.HideApproved != Config.HideApproved
+            || config.Host != Config.Host;
+        var hostChanged = config.Host != Config.Host;
         var reminderChanged = !config.ReviewReminder.SameAs(Config.ReviewReminder);
         var languageChanged = config.Language != Config.Language;
         configStore.Save(config);
         Config = config;
+        if (hostChanged)
+        {
+            Client.Host = config.GitHubHost;
+            Tokens.Host = config.Host;
+            ClearConnectionReport();
+        }
         if (languageChanged) ApplyLanguage();
         // Changed schedules apply from now on; times already past today don't fire immediately.
         if (reminderChanged)
@@ -481,6 +501,45 @@ public partial class App : Application
     {
         revision++;
         baseline = true;
+        ClearConnectionReport();
+    }
+
+    private void ClearConnectionReport()
+    {
+        ConnectionReport = [];
+        ConnectionHasProblems = false;
+        ConnectionSsoUrl = null;
+    }
+
+    /// Checks the token scopes and per-organization access (SSO, PAT policy) and publishes a readable report.
+    internal async Task CheckConnectionAsync()
+    {
+        if (CheckingConnection) return;
+        CheckingConnection = true;
+        ClearConnectionReport();
+        Changed?.Invoke();
+        try
+        {
+            var diagnosis = await Client.DiagnoseAsync(await Tokens.ResolveAsync());
+            ConnectionReport = [L($"Źródło tokenu: {Tokens.Source}", $"Token source: {Tokens.Source}"), .. diagnosis.Lines()];
+            ConnectionHasProblems = diagnosis.HasProblems;
+            ConnectionSsoUrl = diagnosis.SsoAuthorizationUrl
+                ?? (diagnosis.Organizations.Any(org => org.Status.Access == OrgAccess.SsoRequired)
+                    ? Config.GitHubHost.SsoSettingsUrl(Tokens.Source == "gh CLI") : null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
+            or Win32Exception or IOException or CryptographicException or OperationCanceledException)
+        {
+            ConnectionReport = ["✗ " + (ex is Win32Exception
+                ? L("Nie można uruchomić gh. Zainstaluj GitHub CLI lub dodaj PAT.", "Could not run gh. Install GitHub CLI or add a PAT.")
+                : ex.Message)];
+            ConnectionHasProblems = true;
+        }
+        finally
+        {
+            CheckingConnection = false;
+            Changed?.Invoke();
+        }
     }
 
     private void UpdateTray()
@@ -560,7 +619,9 @@ public partial class App : Application
 
     internal static void OpenGitHub(string url)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com")
+        var configured = (Current as App)?.Config.GitHubHost.Name;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https"
+            || (uri.Host != "github.com" && !string.Equals(uri.Host, configured, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException(L("Nieprawidłowy adres GitHub.", "Invalid GitHub URL."));
         Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
     }
