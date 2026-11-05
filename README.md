@@ -254,6 +254,10 @@ In the macOS menu bar the logo and the counter are drawn as a single image, beca
 
 GHNotif only reads from GitHub, runs entirely on your machine and has no server or telemetry. The [threat model](docs/THREAT-MODEL.md) describes the assets, trust boundaries, mitigated threats, accepted risks (e.g. unsigned builds) and recommendations.
 
+## License
+
+Copyright 2026 Michał Fidor. Except for the bundled Octicons notification badges, GHNotif is licensed under the [Apache License 2.0](LICENSE). The badges are licensed separately under the MIT license - see [Octicons-LICENSE.txt](Sources/GHNotif/Resources/Octicons-LICENSE.txt).
+
 ## Tests
 
 ```bash

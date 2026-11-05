@@ -255,6 +255,10 @@ Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `M
 
 GHNotif tylko odczytuje dane z GitHuba, działa w całości na Twoim komputerze i nie ma serwera ani telemetrii. [Threat model](docs/THREAT-MODEL.md) (po angielsku) opisuje chronione zasoby, granice zaufania, zabezpieczone zagrożenia, zaakceptowane ryzyka (np. niepodpisane buildy) i rekomendacje.
 
+## Licencja
+
+Copyright 2026 Michał Fidor. Z wyjątkiem dołączonych odznak powiadomień Octicons, GHNotif jest udostępniony na [licencji Apache 2.0](LICENSE). Odznaki są osobno objęte licencją MIT - zob. [Octicons-LICENSE.txt](Sources/GHNotif/Resources/Octicons-LICENSE.txt).
+
 ## Testy
 
 ```bash
