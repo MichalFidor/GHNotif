@@ -37,9 +37,9 @@ internal static class Toasts
         {
             new ToastContentBuilder()
                 .AddText(L("Dostępna aktualizacja GHNotif", "GHNotif update available"))
-                .AddText(L($"Wersja {version} jest gotowa do instalacji.", $"Version {version} is ready to install."))
+                .AddText(L($"Dostępna wersja {version}. Zbuduj ją z przejrzanych źródeł.", $"Version {version} is available. Build it from reviewed source."))
                 .AddArgument(ActionArgument, "update")
-                .AddButton(new ToastButton().SetContent(L("Zaktualizuj teraz", "Update now")).AddArgument(ActionArgument, "update"))
+                .AddButton(new ToastButton().SetContent(L("Otwórz wydanie", "View release")).AddArgument(ActionArgument, "update"))
                 .AddButton(new ToastButton().SetContent(L("Później", "Later")).AddArgument(ActionArgument, "later"))
                 .Show(toast => { toast.Tag = "update"; toast.Group = "ghnotif"; });
             return true;

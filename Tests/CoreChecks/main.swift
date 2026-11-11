@@ -26,6 +26,19 @@ do {
     let normalized = SearchQueryBuilder.queries(authors: [" @Alice ", "alice", "", "bob"], extraQualifiers: " org:Acme ")
     check(normalized == ["is:pr is:open draft:false author:Alice author:bob org:Acme"], "normalization + extra qualifiers")
     check(SearchQueryBuilder.queries(authors: ["  "]).isEmpty, "no queries without authors")
+    check(["a", "Alice-1", "ci-bot[bot]", "managed_user", String(repeating: "a", count: 39),
+           String(repeating: "a", count: 39) + "[bot]"]
+        .allSatisfy(SearchQueryBuilder.isValidLogin), "Valid regular, bot and EMU logins")
+    check(["", "-alice", "alice-", "a--b", "alice org:other", "a/b", "a:b", "a.b", "a__b",
+           "@alice", "ąlice", "[bot]", "alice\n", "alice\nrepo:x", String(repeating: "a", count: 40),
+           String(repeating: "a", count: 40) + "[bot]"]
+        .allSatisfy { !SearchQueryBuilder.isValidLogin($0) }, "Invalid syntax and query injection are rejected")
+    check(try SearchQueryBuilder.validatedLogins([" @Alice ", "alice", "ci[bot]"]) == ["Alice", "ci[bot]"],
+          "Validated logins retain normalization and deduplication")
+    do {
+        _ = try SearchQueryBuilder.validatedLogins(["alice", "bob org:other"])
+        check(false, "Invalid watchlist must fail as a whole")
+    } catch {}
 }
 
 do {

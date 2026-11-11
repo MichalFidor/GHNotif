@@ -55,8 +55,8 @@ internal static class Program
             Check(panel.ActualHeight > 150 && panel.ActualWidth >= 500, "PR panel must not collapse");
             SavePreview(panel, "build/windows-preview.png");
             var rendered = Buttons(panel).ToList();
-            Check(rendered.Any(b => b.ToolTip?.ToString() == "Pobierz i zainstaluj aktualizację GHNotif"),
-                "Update button is visible");
+            Check(rendered.Any(b => b.ToolTip?.ToString() == "Otwórz stronę wydania w przeglądarce"),
+                "Browser-only release button is visible");
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Oznacz jako załatwione") == true),
                 "Missing dismiss button; rendered tooltips: " + string.Join(" | ", rendered.Select(b => b.ToolTip)));
             Check(rendered.Any(b => b.ToolTip?.ToString()?.StartsWith("Kliknij: odłóż na 2 godziny") == true),

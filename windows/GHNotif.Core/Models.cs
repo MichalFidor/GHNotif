@@ -436,6 +436,24 @@ public sealed class LocalState
 
 public static class QueryBuilder
 {
+    public static bool IsValidLogin(string login)
+    {
+        var name = login.EndsWith("[bot]", StringComparison.Ordinal) ? login[..^5] : login;
+        return name.Length is > 0 and <= 39
+            && System.Text.RegularExpressions.Regex.IsMatch(name,
+                @"\A[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]+)?\z",
+                System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+    }
+
+    public static IReadOnlyList<string> ValidatedLogins(IEnumerable<string> raw)
+    {
+        var logins = raw.Select(login => login.Trim()).Select(login => login.StartsWith('@') ? login[1..] : login).ToList();
+        if (logins.Count == 0 || !logins.All(IsValidLogin))
+            throw new InvalidDataException(L("Lista zawiera nieprawidłowy login GitHub lub jest pusta.",
+                "The list contains an invalid GitHub login or is empty."));
+        return Normalize(logins).ToList();
+    }
+
     public static IEnumerable<string> Normalize(IEnumerable<string> logins) =>
         logins.Select(login => login.Trim().TrimStart('@'))
             .Where(login => login.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);

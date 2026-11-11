@@ -8,12 +8,18 @@ permissions:
 
 jobs:
   macos:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         runner: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - name: Validate release version
         run: test "$GITHUB_REF_NAME" = "v$(tr -d '\r\n' < VERSION)"
       - name: Core and application checks
@@ -33,16 +39,27 @@ jobs:
             exit 1
           fi
           kill "$pid"
-      - uses: actions/upload-artifact@v4
+      - name: Attest macOS packages
+        if: ${{ !github.event.repository.private || vars.BUILD_PROVENANCE_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: build/GHNotif-macos-*.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-${{ matrix.runner }}
           path: build/GHNotif-macos-*.zip
           if-no-files-found: error
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: "10.0.x"
       - name: Validate release version
@@ -58,7 +75,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "UI checks failed" }
       - run: ./scripts/build-windows.ps1
       - run: ./scripts/build-windows.ps1 -Runtime win-arm64
-      - uses: actions/upload-artifact@v4
+      - name: Attest Windows packages
+        if: ${{ !github.event.repository.private || vars.BUILD_PROVENANCE_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: build/GHNotif-win-*.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows
           path: build/GHNotif-win-*.zip
@@ -70,11 +92,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: release
           merge-multiple: true
+      - name: Warn about unavailable private-repository provenance
+        if: ${{ github.event.repository.private && vars.BUILD_PROVENANCE_ENABLED != 'true' }}
+        run: echo "::warning::No build attestations generated. Private repositories require GitHub Enterprise Cloud and BUILD_PROVENANCE_ENABLED=true. Releases are not approved for broad distribution."
       - name: Publish release with checksums
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,13 +120,21 @@ jobs:
     if: ${{ vars.HOMEBREW_TAP_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tap configuration
+        env:
+          TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
+        run: |
+          if [[ ! "$TAP_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Set HOMEBREW_TAP_REPOSITORY to the approved owner/repository before enabling tap sync."
+            exit 1
+          fi
       - name: Download the generated cask
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern ghnotif.rb
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          repository: MichalFidor/homebrew-ghnotif
+          repository: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
       - name: Update tap

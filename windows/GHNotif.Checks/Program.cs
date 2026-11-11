@@ -24,6 +24,21 @@ Check(queries[2] == "is:pr is:open draft:false author:user21 author:user22 autho
 Check(QueryBuilder.Build([" @Alice ", "alice", "bob"], "").Single() ==
     "is:pr is:open draft:false author:Alice author:bob", "Normalize and deduplicate");
 Check(!QueryBuilder.Build([], "").Any(), "Empty list does not search globally");
+Check(new[] { "a", "Alice-1", "ci-bot[bot]", "managed_user", new string('a', 39), new string('a', 39) + "[bot]" }.All(QueryBuilder.IsValidLogin),
+    "Valid regular, bot and EMU logins");
+Check(new[] { "", "-alice", "alice-", "a--b", "alice org:other", "a/b", "a:b", "a.b", "a__b",
+    "@alice", "ąlice", "[bot]", "alice\n", "alice\nrepo:x", new string('a', 40), new string('a', 40) + "[bot]" }.All(login => !QueryBuilder.IsValidLogin(login)),
+    "Invalid syntax and query injection are rejected");
+Check(Watchlist.Import("""[" @Alice ","alice","ci[bot]","managed_user"]""").SequenceEqual(["Alice", "ci[bot]", "managed_user"]),
+    "Watchlist validates and deduplicates without losing bot or EMU logins");
+Check(Watchlist.Import("""{"formatVersion":1,"users":["alice"]}""").SequenceEqual(["alice"]),
+    "Versioned watchlist is accepted");
+Check(Watchlist.Import("alice,\nbob").SequenceEqual(["alice", "bob"]), "Text watchlist is accepted");
+Check(Watchlist.Import("alice bob").SequenceEqual(["alice", "bob"]), "Windows space-separated text import remains supported");
+foreach (var text in new[] { """["alice","bob org:other"]""", """{"users":["-bad"]}""",
+    """[""]""", "[]", """["alice",42]""", """{"users":null}""", "{}", "alice repo:other/repo" })
+    await ThrowsAsync<InvalidDataException>(() => { Watchlist.Import(text); return Task.CompletedTask; },
+        "Invalid watchlist must fail as a whole");
 Check(GitHubClient.ParseSso("partial-results; organizations=12,34").SetEquals(["12", "34"]), "SSO warning");
 
 string Node(string id, bool deleted = false) => $$$$"""

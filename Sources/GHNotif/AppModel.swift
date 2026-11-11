@@ -56,7 +56,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableRelease: GitHubRelease?
     @Published private(set) var updateStatus = ""
     @Published private(set) var checkingUpdates = false
-    @Published private(set) var installingUpdate = false
     @Published private(set) var notificationStatus = ""
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published private(set) var checkingConnection = false
@@ -90,19 +89,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func installUpdate() async {
-        guard let availableRelease, !installingUpdate else { return }
-        installingUpdate = true
-        defer { installingUpdate = false }
-        updateStatus = L("Przygotowywanie aktualizacji \(availableRelease.tagName)...",
-                         "Preparing update \(availableRelease.tagName)...")
+    func openRelease() {
+        guard let availableRelease else { return }
         do {
-            try await UpdateInstaller.prepare(release: availableRelease, installedBundle: Bundle.main.bundleURL)
-            updateStatus = L("Aplikacja uruchomi się ponownie po aktualizacji.", "The app will relaunch after updating.")
-            NSApplication.shared.terminate(nil)
+            _ = try availableRelease.isNewer(than: installedVersion)
+            guard urlOpener(availableRelease.htmlURL) else {
+                throw GitHubError.graphQL(L("Nie udało się otworzyć strony wydania.", "Could not open the release page."))
+            }
+            updateStatus = L("Samoinstalacja jest wyłączona. Zbuduj aktualizację z przejrzanych źródeł.",
+                             "Self-installation is disabled. Build the update from reviewed source.")
         } catch {
-            updateStatus = L("Nie udało się zainstalować aktualizacji: \(error.localizedDescription)",
-                             "Could not install the update: \(error.localizedDescription)")
+            updateStatus = L("Nie udało się otworzyć wydania: \(error.localizedDescription)",
+                             "Could not open the release: \(error.localizedDescription)")
         }
     }
 
@@ -207,7 +205,7 @@ final class AppModel: ObservableObject {
                 .filter { !$0.isEmpty }
             guard !imported.isEmpty else { throw GitHubError.graphQL(L("Plik listy osób jest pusty lub nieprawidłowy.", "The people list file is empty or invalid.")) }
         }
-        let combined = SearchQueryBuilder.normalizeLogins(config.users + imported)
+        let combined = SearchQueryBuilder.normalizeLogins(config.users + (try SearchQueryBuilder.validatedLogins(imported)))
         config.users = combined
     }
 
@@ -216,7 +214,9 @@ final class AppModel: ObservableObject {
             throw GitHubError.graphQL(L("Brak tokenu GitHub.", "No GitHub token."))
         }
         let members = try await client(token).teamMembers(organization: organization, team: team)
-        config.users = SearchQueryBuilder.normalizeLogins(config.users + members)
+        if !members.isEmpty {
+            config.users = SearchQueryBuilder.normalizeLogins(config.users + (try SearchQueryBuilder.validatedLogins(members)))
+        }
     }
 
     func isCollapsed(_ repository: String) -> Bool { collapsedRepositories.contains(repository) }
@@ -264,7 +264,7 @@ final class AppModel: ObservableObject {
         }
         Localization.language = config.language
         notifier.onUpdateNow = { [weak self] in
-            Task { await self?.installUpdate() }
+            Task { @MainActor in self?.openRelease() }
         }
         notifier.onPullRequestOpened = { [weak self] url in
             Task { @MainActor in
@@ -434,6 +434,9 @@ final class AppModel: ObservableObject {
     func addUser(_ raw: String) async -> String? {
         let login = SearchQueryBuilder.normalizeLogin(raw)
         guard !login.isEmpty else { return L("Podaj login.", "Enter a login.") }
+        guard SearchQueryBuilder.isValidLogin(login) else {
+            return L("Nieprawidłowy login GitHub.", "Invalid GitHub login.")
+        }
         if config.users.contains(where: { $0.caseInsensitiveCompare(login) == .orderedSame }) {
             return L("\(login) jest już obserwowany.", "\(login) is already watched.")
         }

@@ -21,6 +21,8 @@ public struct ReleaseVersion: Comparable, Equatable, Sendable {
 }
 
 public struct GitHubRelease: Decodable, Sendable {
+    public static let repository = "MichalFidor/GHNotif"
+
     public let tagName: String
     public let htmlURL: URL
     public let draft: Bool
@@ -43,7 +45,7 @@ public struct GitHubRelease: Decodable, Sendable {
     public func isNewer(than installed: String) throws -> Bool {
         guard let latest = ReleaseVersion(tagName), let current = ReleaseVersion(installed),
               htmlURL.scheme == "https", htmlURL.host == "github.com",
-              htmlURL.path.hasPrefix("/MichalFidor/GHNotif/releases/") else {
+              htmlURL.path.hasPrefix("/\(Self.repository)/releases/") else {
             throw GitHubError.graphQL(L("Nieprawidłowa wersja lub adres wydania GHNotif.", "Invalid GHNotif release version or URL."))
         }
         return !draft && !prerelease && latest > current
@@ -53,7 +55,7 @@ public struct GitHubRelease: Decodable, Sendable {
         guard let asset = assets.first(where: { $0.name == name }),
               asset.browserDownloadURL.scheme == "https",
               asset.browserDownloadURL.host == "github.com",
-              asset.browserDownloadURL.path.contains("/MichalFidor/GHNotif/releases/download/\(tagName)/"),
+              asset.browserDownloadURL.path.hasPrefix("/\(Self.repository)/releases/download/\(tagName)/"),
               asset.browserDownloadURL.lastPathComponent == name else {
             throw GitHubError.graphQL(L("Nie znaleziono prawidłowego pliku aktualizacji GHNotif.", "A valid GHNotif update asset was not found."))
         }
@@ -75,7 +77,7 @@ public struct GitHubRelease: Decodable, Sendable {
     }
 
     public static func latest(session: URLSession = .shared) async throws -> GitHubRelease? {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/MichalFidor/GHNotif/releases/latest")!)
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repository)/releases/latest")!)
         request.setValue("GHNotif", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)

@@ -42,9 +42,6 @@ final class Notifier {
         Self.notifiedDetails += alerts.map(\.details)
     }
 }
-enum UpdateInstaller {
-    static func prepare(release: GitHubRelease, installedBundle: URL) async throws {}
-}
 final class ReviewReminderPresenter {
     static var shownCount = 0
     func show(model: AppModel) { Self.shownCount += 1 }
@@ -203,6 +200,13 @@ func runChecks() async throws {
     releaseResult = try JSONDecoder().decode(GitHubRelease.self, from: releaseData)
     await model.checkForUpdates()
     precondition(model.availableRelease?.tagName == "v0.2.0", "Update is exposed to the UI")
+    model.openRelease()
+    precondition(openedURLs.last == releaseResult?.htmlURL && model.updateStatus.contains("Samoinstalacja"),
+                 "Release action opens only the browser and explains disabled self-installation")
+    canOpenURL = false
+    model.openRelease()
+    precondition(model.updateStatus.contains("Nie udało się otworzyć"), "Browser launch failure is visible")
+    canOpenURL = true
     releaseFails = true
     await model.checkForUpdates()
     precondition(model.updateStatus.contains("Rate limit") && !model.checkingUpdates, "Update failure is visible")
@@ -329,6 +333,24 @@ func runChecks() async throws {
 
     try model.importWatchlist(Data(#"["other-user"]"#.utf8))
     precondition(model.config.users.contains("other-user"), "Watchlist import merges users")
+    try model.importWatchlist(Data(#"{"users":[" @Alice ","alice","ci-bot[bot]","managed_user"]}"#.utf8))
+    precondition(model.config.users.contains("ci-bot[bot]") && model.config.users.contains("managed_user")
+                 && model.config.users.filter { $0.lowercased() == "alice" }.count == 1,
+                 "Imports normalize and deduplicate regular, bot and managed-user logins")
+    try model.importWatchlist(Data("text-user,\nnext-user".utf8))
+    for invalid in [#"["valid-user","alice org:other"]"#, #"{"users":["-bad"]}"#,
+                    #"[""]"#, "[]", #"["alice",42]"#, "alice repo:other/repo"] {
+        let before = model.config.users
+        let saved = try Data(contentsOf: store.fileURL)
+        do {
+            try model.importWatchlist(Data(invalid.utf8))
+            preconditionFailure("Invalid import must fail")
+        } catch {
+            let after = try Data(contentsOf: store.fileURL)
+            precondition(model.config.users == before && after == saved,
+                         "Invalid import does not partially mutate or persist the watchlist")
+        }
+    }
     let watchlist = try JSONDecoder().decode(WatchlistFixture.self, from: model.watchlistData())
     precondition(watchlist.users.contains("other-user") && watchlist.formatVersion == 1, "Watchlist export has only versioned users")
     try await model.importTeam(organization: "example", team: "qa")

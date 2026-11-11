@@ -10,6 +10,12 @@ version="$1"
 arm_sha="$2"
 intel_sha="$3"
 output="$4"
+repository="${GITHUB_REPOSITORY:-MichalFidor/GHNotif}"
+
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    echo "Invalid version or release repository" >&2
+    exit 2
+}
 
 for checksum in "$arm_sha" "$intel_sha"; do
     [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || {
@@ -24,10 +30,10 @@ cask "ghnotif" do
   arch arm: "arm64", intel: "x86_64"
   sha256 arm: "$arm_sha", intel: "$intel_sha"
 
-  url "https://github.com/MichalFidor/GHNotif/releases/download/v#{version}/GHNotif-macos-#{arch}.zip"
+  url "https://github.com/$repository/releases/download/v#{version}/GHNotif-macos-#{arch}.zip"
   name "GHNotif"
   desc "GitHub pull request review notifications"
-  homepage "https://github.com/MichalFidor/GHNotif"
+  homepage "https://github.com/$repository"
 
   livecheck do
     url :url

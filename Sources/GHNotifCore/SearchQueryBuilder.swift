@@ -66,6 +66,22 @@ public enum SearchQueryBuilder {
         return login
     }
 
+    public static func isValidLogin(_ login: String) -> Bool {
+        let base = login.hasSuffix("[bot]") ? String(login.dropLast(5)) : login
+        return !base.isEmpty && base.utf8.count <= 39
+            && base.range(of: #"\A[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]+)?\z"#,
+                          options: .regularExpression) != nil
+    }
+
+    public static func validatedLogins(_ raw: [String]) throws -> [String] {
+        let logins = raw.map(normalizeLogin)
+        guard !logins.isEmpty, logins.allSatisfy(isValidLogin) else {
+            throw GitHubError.graphQL(L("Lista zawiera nieprawidłowy login GitHub lub jest pusta.",
+                                       "The list contains an invalid GitHub login or is empty."))
+        }
+        return normalizeLogins(logins)
+    }
+
     public static func normalizeLogins(_ raw: [String]) -> [String] {
         var seen = Set<String>()
         return raw.map(normalizeLogin).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }

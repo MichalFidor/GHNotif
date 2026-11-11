@@ -6,9 +6,17 @@
 
 A macOS menu bar / Windows system tray app that shows open pull requests (drafts optional) from the people you follow, across every repository your GitHub token can see. Each platform has its own native UI.
 
+## Distribution status
+
+Company use is conditional and limited to the author's own use, with an expiring read-only
+fine-grained PAT. This is not approval for wider R&D distribution. Do not use a `gh` token or
+classic `repo` PAT for company access. Colleagues should build from reviewed source rather
+than install unsigned releases. Code signing, organization ownership and renewed approval
+are still required before broader distribution. In-app self-installation is disabled.
+
 ## Installing on macOS
 
-**Homebrew (recommended):**
+**Homebrew (unsigned personal-use packages):**
 
 ```bash
 brew tap MichalFidor/ghnotif
@@ -32,7 +40,8 @@ Building from source:
 
 Requires macOS 15+ and Swift 6 (Command Line Tools are enough). Launch at login can be enabled in GHNotif → Settings → General.
 
-On first launch, sign in with `gh auth login` or save a read-only PAT (see [Authentication](#authentication)), then add people in the settings.
+On first launch, save an expiring read-only fine-grained PAT (see [Authentication](#authentication)),
+then add people in the settings. GitHub CLI remains available for non-company use.
 
 ## Installing on Windows
 
@@ -41,7 +50,7 @@ Requires Windows 10/11. The portable build bundles .NET, so nothing else needs t
 1. Download `GHNotif-win-x64.zip` (typical PC) or `GHNotif-win-arm64.zip` from [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Extract the whole ZIP to a permanent folder and run `GHNotif.Windows.exe`; keep `GHNotif.ico` next to it.
 3. Click the icon next to the clock (it may be hidden under the arrow). Right-click for settings, refresh or quit.
-4. Sign in with `gh auth login` or save a read-only PAT (see [Authentication](#authentication)), then add people in the settings.
+4. Save an expiring read-only fine-grained PAT (see [Authentication](#authentication)), then add people in the settings.
 
 The app is not signed with a publisher certificate, so Windows SmartScreen may show a warning. Only run builds from a trusted source.
 Closing the panel hides it to the tray. Launch at login can be enabled in the app settings.
@@ -74,6 +83,8 @@ On macOS the app looks for `gh` in `/opt/homebrew/bin`, `/usr/local/bin` and `/u
 ### Option 2: personal access token (PAT)
 
 GHNotif only reads data, so the token doesn't need any write access.
+For company access, the expiring read-only fine-grained PAT is required; the alternatives
+below describe existing compatibility, not approved company authentication methods.
 
 - **Fine-grained PAT, read-only (most secure)** - [create one with the permissions preselected](https://github.com/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif&pull_requests=read&statuses=read&expires_in=90):
   - Resource owner - the organization with the PRs,
@@ -164,6 +175,10 @@ Read status survives restarts and works independently of desktop notification fi
 The clock next to a PR snoozes it for 2 hours or until tomorrow morning. Snoozed PRs are listed separately and come back when the time is up (with a notification if notifications are enabled). Repositories can be excluded as `owner/repo`, labels by name. Sorting: recently updated, oldest first or largest changes. Each PR also shows added/removed lines, CI status and the review decision.
 
 Importing/exporting the watch list transfers logins only - never tokens or private settings. Importing team members uses the GitHub endpoint for reading organization members.
+Imports accept a JSON array, a JSON object with a `users` array, or comma/newline-separated
+text. Logins are normalized and validated before any change is saved; an invalid or empty
+list is rejected as a whole. Bot `[bot]` and managed-user `_shortcode` suffixes are supported.
+Windows also accepts spaces between entries in text files.
 
 The check mark button in the header switches to the list of dismissed, still open PRs. The arrow next to a PR restores it to the main list. This is purely local app state, not a review or closing the PR on GitHub. IDs together with the dismissal time and the latest commit are kept in macOS preferences or the Windows state file, outside the repository.
 
@@ -221,28 +236,80 @@ trigger a notification; the look of the system banner has to be checked on a log
 The version number comes from `VERSION`. Both apps check for the latest stable release
 at launch and every 6 hours; you can also use **Check for updates** in the settings.
 When a newer version exists, the app shows a panel banner and sends one system notification
-per version (macOS requires GHNotif notification permission). Choose **Update now** or **Later**;
-the panel also has an **Update now** button.
+per version (macOS requires GHNotif notification permission). Choose **View release** or **Later**;
+the panel and settings also have a **View release** button.
 The check uses the public API, without a token and without sending your watch list.
 Update check errors are shown in the settings and don't interrupt fetching PRs.
 
-macOS Homebrew installations run `brew update` and `brew upgrade --cask ghnotif` in Terminal.
-Other macOS installations download the matching ZIP, verify its SHA-256 checksum, replace the
-app bundle and relaunch. Windows downloads and verifies the matching ZIP, replaces the app files
-after exit, and restarts GHNotif. Installations in protected folders may still need a manual
-update with administrator permissions. Settings, tokens and local state stay outside the package.
+**View release** only opens the validated release page in your browser. GHNotif does not
+download, extract, install or execute release packages, invoke Homebrew or exit for an update.
+Build updates from reviewed source until the distribution conditions are met.
+Settings, tokens and local state stay outside the package. A checksum in the same release
+detects corruption, not compromise of the publisher account.
 
 Publishing: update `VERSION` and `RELEASE-NOTES.md`, push the commit and a `vX.Y.Z` tag
 matching `VERSION`. The **Release** workflow runs the macOS/Windows tests, builds four
 packages (macOS arm64/x86_64, Windows x64/arm64) and only then publishes the release
-with `SHA256SUMS` checksums. The macOS build itself is ad-hoc signed, without notarization.
+with `SHA256SUMS` checksums. Actions are pinned to commit SHAs and Dependabot checks Actions
+and the Windows NuGet dependency weekly. Build provenance is generated for the exact ZIPs
+in their build jobs, before upload, not by the publishing job. It is enabled automatically
+for public repositories; for a private repository it requires GitHub Enterprise Cloud and
+`BUILD_PROVENANCE_ENABLED=true`. Otherwise publishing emits an explicit warning and the
+release has no attestations. This does not lift the restriction on broad distribution.
+The macOS build itself is ad-hoc signed, without notarization.
 The workflow also attaches the `ghnotif.rb` cask to the release. Syncing the tap automatically
 on later releases requires the repository variable `HOMEBREW_TAP_ENABLED=true` and the secret
-`HOMEBREW_TAP_TOKEN` with write access to `MichalFidor/homebrew-ghnotif`.
+`HOMEBREW_TAP_REPOSITORY=owner/repository` and `HOMEBREW_TAP_TOKEN` with write access to
+that approved tap. The cask uses `GITHUB_REPOSITORY` in CI, so it follows the release repository.
 
-Publishing runs in the `release` environment, which requires approval from the repository owner
-(Actions → waiting run → **Review deployments**). The `main` branch and `v*` tags are
-protected by rulesets. Only a repository administrator can bypass them.
+Publishing references the `release` environment. Required reviewers, restricted deployment
+tags and rulesets for `main` and `v*` must be configured and verified in GitHub settings;
+the workflow alone does not enforce or prove those controls.
+
+For an attested release, authenticate the GitHub CLI to the release repository and verify
+each downloaded ZIP before extracting it (replace the tag, archive and reviewed commit):
+
+```bash
+gh attestation verify GHNotif-macos-arm64.zip \
+  --repo MichalFidor/GHNotif \
+  --signer-workflow MichalFidor/GHNotif/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z \
+  --source-digest REVIEWED_COMMIT_SHA \
+  --deny-self-hosted-runners
+```
+
+Use the current approved owner/repository after transfer. Stop if verification fails or no
+attestation exists; do not treat `SHA256SUMS` as an alternative proof of publisher trust.
+Provenance links an artifact to a build and reviewed source; it is not code signing or
+proof that the source is safe.
+
+### Organization migration checklist (not performed)
+
+1. Agree the destination organization, private visibility, maintainers and company ownership
+   with its administrators. Confirm licensing with ITAM and obtain distribution approval.
+   Agree a support/maintenance policy and additional maintainers; no support lifetime or
+   OpenSSF Scorecard score is claimed here. Use only company-approved assessment tooling
+   for private source, not a public scorecard upload.
+2. Require hardware-key/passkey 2FA, review collaborators and fine-grained release/tap
+   credentials. Set required reviewers on `release`, restrict it to `v*`, and protect `main`
+   and `v*` with rulesets that prevent unauthorized changes, deletions and bypass.
+3. Check Enterprise Cloud attestation entitlement and Actions policy; enable
+   `BUILD_PROVENANCE_ENABLED=true` only when private-repository attestations are supported.
+   Provision Developer ID signing/notarization and Windows Authenticode through approved
+   company signing infrastructure. No signing credentials are included in this repository.
+4. Before publishing from the new owner, update `GitHubRelease.repository` in
+   `Sources/GHNotifCore/Releases.swift` and `GitHubRelease.Repository` in
+   `windows/GHNotif.Core/Releases.cs`, their fixtures, documentation and verification commands.
+   The channel is compiled in, not controlled by imported settings. Private release checks
+   remain unauthenticated and may return 404; use an approved distribution channel rather
+   than sending the PR-access PAT to a release repository.
+5. Keep `HOMEBREW_TAP_ENABLED` disabled until an approved tap and scoped token are configured.
+   Review tap visibility/access before distributing a cask for private assets. Keep existing
+   bundle identifiers and token/config storage identities to preserve user data.
+6. Rebuild and run all platform checks; verify each ZIP against the approved workflow,
+   tag and reviewed commit. Recheck GitHub settings after transfer and request a follow-up
+   distribution review. Leave self-installation disabled until a separately reviewed
+   updater can enforce provenance and publisher signing.
 
 ## How it works
 

@@ -207,11 +207,10 @@ internal sealed class TrayWindow : Window
         banners.Children.Clear();
         if (app.AvailableRelease is { } release)
         {
-            var install = Ui.Button(L("Zaktualizuj teraz", "Update now"), L("Pobierz i zainstaluj aktualizację GHNotif", "Download and install the GHNotif update"),
-                () => _ = app.RunAsync(app.InstallUpdateAsync));
-            install.IsEnabled = !app.IsInstallingUpdate;
+            var viewRelease = Ui.Button(L("Otwórz wydanie", "View release"), L("Otwórz stronę wydania w przeglądarce", "Open the release page in the browser"),
+                () => _ = app.RunAsync(() => { app.OpenRelease(); return Task.CompletedTask; }));
             banners.Children.Add(Banner(Glyph.Download, Palette.Accent,
-                app.IsInstallingUpdate ? app.UpdateStatus : L($"Dostępna nowa wersja {release.TagName}.", $"New version {release.TagName} is available."), install));
+                L($"Dostępna nowa wersja {release.TagName}.", $"New version {release.TagName} is available."), viewRelease));
         }
         if (app.Error is not null) banners.Children.Add(Banner(Glyph.Error, Palette.Red, app.Error));
         if (app.Results.BlockedOrganizations.Count > 0)

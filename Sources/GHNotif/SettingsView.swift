@@ -405,13 +405,14 @@ struct SettingsView: View {
                     .disabled(model.checkingUpdates)
                     Spacer()
                     if let release = model.availableRelease {
-                        Button(L("Zaktualizuj teraz \(release.tagName)", "Update now \(release.tagName)")) {
-                            Task { await model.installUpdate() }
+                        Button(L("Otwórz wydanie \(release.tagName)", "View release \(release.tagName)")) {
+                            model.openRelease()
                         }
-                        .disabled(model.installingUpdate)
                     }
                 }
                 if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption) }
+                Text(L("Samoinstalacja jest wyłączona. Zbuduj aktualizację z przejrzanych źródeł.",
+                       "Self-installation is disabled. Build the update from reviewed source.")).font(.caption)
             }
         }
         .formStyle(.grouped)
@@ -419,6 +420,10 @@ struct SettingsView: View {
 
     private var tokenTab: some View {
         Form {
+            Section {
+                Text(L("Do dostępu firmowego używaj wyłącznie fine-grained PAT tylko do odczytu z datą wygaśnięcia, nie tokenu gh ani classic PAT.",
+                       "For company access, use only an expiring read-only fine-grained PAT, not a gh token or classic PAT."))
+            }
             Section {
                 LabeledContent(L("Aktualne źródło", "Current source"), value: model.tokenSource?.rawValue ?? L("brak", "none"))
                 connectionCheck

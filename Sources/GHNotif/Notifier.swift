@@ -16,7 +16,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         super.init()
         center?.delegate = self
         let updateNow = UNNotificationAction(
-            identifier: Self.updateNowAction, title: L("Zaktualizuj teraz", "Update now"), options: [.foreground]
+            identifier: Self.updateNowAction, title: L("Otwórz wydanie", "View release"), options: [.foreground]
         )
         let later = UNNotificationAction(
             identifier: "GHNOTIF_UPDATE_LATER", title: L("Później", "Later"), options: []
@@ -113,7 +113,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return false }
         let content = UNMutableNotificationContent()
         content.title = L("Dostępna aktualizacja GHNotif", "GHNotif update available")
-        content.body = L("Wersja \(release.tagName) jest gotowa do instalacji.", "Version \(release.tagName) is ready to install.")
+        content.body = L("Dostępna wersja \(release.tagName). Zbuduj ją z przejrzanych źródeł.",
+                         "Version \(release.tagName) is available. Build it from reviewed source.")
         content.categoryIdentifier = Self.updateCategory
         content.sound = .default
         try await center.add(UNNotificationRequest(
