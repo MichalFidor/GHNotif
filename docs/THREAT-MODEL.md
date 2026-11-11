@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version covered | 0.7.6 + unreleased distribution hardening (macOS menu bar app, Windows tray app) |
+| Version covered | 0.7.7 (macOS menu bar app, Windows tray app) |
 | Method | Data flow diagram + STRIDE per element and trust boundary |
 | Last updated | 2026-11-11 |
 | Inputs | Source code, release workflow, author-run checks and distribution-review feedback. No independent source or binary audit is claimed. |

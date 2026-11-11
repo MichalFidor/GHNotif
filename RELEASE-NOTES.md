@@ -1,10 +1,13 @@
-# Unreleased
+# GHNotif 0.7.7
+
+Distribution hardening after the AppSec review.
 
 - Self-installation is disabled on both platforms. **View release** opens only the release page; updates should be built from reviewed source while builds remain unsigned.
 - Company access guidance requires an expiring read-only fine-grained PAT rather than GitHub CLI or a classic PAT.
 - Watchlist imports and manual additions validate GitHub login syntax, including bot and managed-user suffixes. Invalid imports are rejected before saving.
 - Actions are pinned to commit SHAs; Dependabot checks Actions and NuGet weekly. Release build jobs generate provenance where supported (private repositories require Enterprise Cloud and `BUILD_PROVENANCE_ENABLED=true`).
 - Release repository constants, owner-aware cask generation and explicit tap configuration prepare for an organization transfer. No transfer has been performed.
+- CI actions updated to their current major versions (checkout 7, setup-dotnet 6, upload-artifact 7, download-artifact 8, attest-build-provenance 4); artifact downloads now fail on a digest mismatch.
 
 # GHNotif 0.7.6
 
