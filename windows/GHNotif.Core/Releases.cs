@@ -11,6 +11,8 @@ public sealed record GitHubRelease(
     [property: JsonPropertyName("prerelease")] bool Prerelease,
     [property: JsonPropertyName("assets")] IReadOnlyList<GitHubReleaseAsset>? Assets = null)
 {
+    public const string Repository = "MichalFidor/GHNotif";
+
     public static Version ParseVersion(string value)
     {
         if (string.IsNullOrEmpty(value)) throw new InvalidDataException(L("Brak wersji GHNotif.", "Missing GHNotif version."));
@@ -24,7 +26,7 @@ public sealed record GitHubRelease(
     public bool IsNewer(string installed)
     {
         if (!Uri.TryCreate(HtmlUrl, UriKind.Absolute, out var url) || url.Scheme != "https"
-            || url.Host != "github.com" || !url.AbsolutePath.StartsWith("/MichalFidor/GHNotif/releases/", StringComparison.Ordinal))
+            || url.Host != "github.com" || !url.AbsolutePath.StartsWith($"/{Repository}/releases/", StringComparison.Ordinal))
             throw new InvalidDataException(L("Nieprawidłowy adres wydania GHNotif.", "Invalid GHNotif release URL."));
         return !Draft && !Prerelease && ParseVersion(TagName) > ParseVersion(installed);
     }
@@ -34,7 +36,7 @@ public sealed record GitHubRelease(
         var asset = Assets?.FirstOrDefault(candidate => candidate.Name == name);
         if (asset is null || !Uri.TryCreate(asset.BrowserDownloadUrl, UriKind.Absolute, out var url)
             || url.Scheme != "https" || url.Host != "github.com"
-            || !url.AbsolutePath.Contains($"/MichalFidor/GHNotif/releases/download/{TagName}/", StringComparison.Ordinal)
+            || !url.AbsolutePath.StartsWith($"/{Repository}/releases/download/{TagName}/", StringComparison.Ordinal)
             || !string.Equals(url.Segments.LastOrDefault()?.TrimEnd('/'), name, StringComparison.Ordinal))
             throw new InvalidDataException(L("Nie znaleziono prawidłowego pliku aktualizacji GHNotif.", "A valid GHNotif update asset was not found."));
         return url;
@@ -56,7 +58,7 @@ public sealed record GitHubRelease(
     public static async Task<GitHubRelease?> LatestAsync(HttpClient http)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            "https://api.github.com/repos/MichalFidor/GHNotif/releases/latest");
+            $"https://api.github.com/repos/{Repository}/releases/latest");
         request.Headers.UserAgent.ParseAdd("GHNotif");
         using var response = await http.SendAsync(request);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;

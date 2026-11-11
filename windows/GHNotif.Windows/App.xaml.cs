@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Win32;
@@ -46,11 +44,9 @@ public partial class App : Application
     private bool baseline;
     private DateTimeOffset? lastUpdateCheck;
     private bool checkingUpdates;
-    private bool installingUpdate;
     private HttpClient? updateHttp;
     internal GitHubRelease? AvailableRelease { get; private set; }
     internal string UpdateStatus { get; private set; } = "";
-    internal bool IsInstallingUpdate => installingUpdate;
     internal string InstalledVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
 
     internal async Task CheckForUpdatesAsync()
@@ -68,7 +64,7 @@ public partial class App : Application
                 if (!shown)
                 {
                     tray.BalloonTipTitle = L("Dostępna aktualizacja GHNotif", "GHNotif update available");
-                    tray.BalloonTipText = L($"Wersja {available.TagName} jest gotowa do instalacji.", $"Version {available.TagName} is ready to install.");
+                    tray.BalloonTipText = L($"Dostępna wersja {available.TagName}. Zbuduj ją z przejrzanych źródeł.", $"Version {available.TagName} is available. Build it from reviewed source.");
                     tray.ShowBalloonTip(5000);
                     shown = true;
                 }
@@ -148,7 +144,7 @@ public partial class App : Application
         tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => panel?.ShowPanel());
         Toasts.Initialize((url, action) => Dispatcher.Invoke(() =>
         {
-            if (action == "update") { _ = RunAsync(InstallUpdateAsync); return; }
+            if (action == "update") { _ = RunAsync(() => { OpenRelease(); return Task.CompletedTask; }); return; }
             if (action == "later") return;
             if (url is null) { panel?.ShowPanel(); return; }
             _ = RunAsync(() =>
@@ -226,119 +222,15 @@ public partial class App : Application
         }
     }
 
-    internal async Task InstallUpdateAsync()
+    internal void OpenRelease()
     {
-        var release = AvailableRelease;
-        if (release is null || installingUpdate) return;
-        installingUpdate = true;
-        UpdateStatus = L($"Pobieranie aktualizacji {release.TagName}...", $"Downloading update {release.TagName}...");
+        if (AvailableRelease is not { } release) return;
+        _ = release.IsNewer(InstalledVersion);
+        OpenGitHub(release.HtmlUrl);
+        UpdateStatus = L("Samoinstalacja jest wyłączona. Zbuduj aktualizację z przejrzanych źródeł.",
+            "Self-installation is disabled. Build the update from reviewed source.");
         Changed?.Invoke();
-        var directory = Path.Combine(Path.GetTempPath(), "GHNotif-update-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            var runtime = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
-            var archiveName = $"GHNotif-{runtime}.zip";
-            var zipUri = release.DownloadUri(archiveName);
-            var checksumUri = release.DownloadUri("SHA256SUMS");
-            Directory.CreateDirectory(directory);
-            var archivePath = Path.Combine(directory, archiveName);
-            var manifest = await (updateHttp ?? http).GetStringAsync(checksumUri);
-            var expected = release.Checksum(archiveName, manifest);
-            using (var response = await (updateHttp ?? http).GetAsync(zipUri, HttpCompletionOption.ResponseHeadersRead))
-            {
-                response.EnsureSuccessStatusCode();
-                if (response.Content.Headers.ContentLength is > 500_000_000)
-                    throw new InvalidDataException(L("Pakiet aktualizacji jest zbyt duży.", "The update package is too large."));
-                await using var output = File.Create(archivePath);
-                await response.Content.CopyToAsync(output);
-            }
-            await using (var input = File.OpenRead(archivePath))
-            {
-                var actual = Convert.ToHexString(await SHA256.HashDataAsync(input)).ToLowerInvariant();
-                if (actual != expected)
-                    throw new InvalidDataException(L("Suma kontrolna aktualizacji jest nieprawidłowa.", "The update checksum does not match."));
-            }
-
-            var probe = Path.Combine(AppContext.BaseDirectory, ".ghnotif-update-" + Guid.NewGuid().ToString("N"));
-            await File.WriteAllTextAsync(probe, "");
-            File.Delete(probe);
-            var scriptPath = Path.Combine(directory, "update.ps1");
-            await File.WriteAllTextAsync(scriptPath, UpdateScript);
-            var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-            var updater = new Process
-            {
-                StartInfo = new ProcessStartInfo(powershell)
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetTempPath()
-                }
-            };
-            foreach (var argument in new[]
-                     {
-                         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
-                         "-ProcessId", Environment.ProcessId.ToString(), "-Archive", archivePath,
-                         "-Target", AppContext.BaseDirectory, "-Work", directory,
-                         "-FailureTitle", "GHNotif",
-                         "-FailureMessage", L("Aktualizacja nie powiodła się.", "The update failed.")
-                     })
-                updater.StartInfo.ArgumentList.Add(argument);
-            if (!updater.Start())
-                throw new InvalidOperationException(L("Nie udało się uruchomić instalatora aktualizacji.", "Could not start the update installer."));
-            Application.Current.Shutdown();
-        }
-        catch
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-            throw;
-        }
-        finally
-        {
-            installingUpdate = false;
-            Changed?.Invoke();
-        }
     }
-
-    private const string UpdateScript = """
-        param([int]$ProcessId, [string]$Archive, [string]$Target, [string]$Work, [string]$FailureTitle, [string]$FailureMessage)
-        $ErrorActionPreference = 'Stop'
-        $backup = Join-Path $Work 'backup'
-        $stage = Join-Path $Work 'stage'
-        $changed = [System.Collections.Generic.List[string]]::new()
-        try {
-            while (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }
-            Expand-Archive -LiteralPath $Archive -DestinationPath $stage
-            $sourceExe = Join-Path $stage 'GHNotif.Windows.exe'
-            if (!(Test-Path -LiteralPath $sourceExe)) { throw 'The downloaded package does not contain GHNotif.Windows.exe.' }
-            New-Item -ItemType Directory -Path $backup -Force | Out-Null
-            foreach ($item in Get-ChildItem -LiteralPath $stage -Force) {
-                $destination = Join-Path $Target $item.Name
-                if (Test-Path -LiteralPath $destination) {
-                    Move-Item -LiteralPath $destination -Destination (Join-Path $backup $item.Name) -Force
-                }
-                try {
-                    Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force
-                    $changed.Add($item.Name)
-                } catch {
-                    if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
-                    $old = Join-Path $backup $item.Name
-                    if (Test-Path -LiteralPath $old) { Move-Item -LiteralPath $old -Destination $destination -Force }
-                    throw
-                }
-            }
-            Start-Process -FilePath (Join-Path $Target 'GHNotif.Windows.exe')
-            Remove-Item -LiteralPath $Work -Recurse -Force
-        } catch {
-            foreach ($name in $changed) {
-                $destination = Join-Path $Target $name
-                if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
-                $old = Join-Path $backup $name
-                if (Test-Path -LiteralPath $old) { Move-Item -LiteralPath $old -Destination $destination -Force }
-            }
-            Add-Type -AssemblyName System.Windows.Forms
-            [System.Windows.Forms.MessageBox]::Show("$FailureMessage`n$($_.Exception.Message)", $FailureTitle) | Out-Null
-        }
-        """;
 
     internal async Task RefreshAsync()
     {
@@ -478,7 +370,7 @@ public partial class App : Application
     {
         var users = await Client.TeamMembersAsync(await Tokens.ResolveAsync(), organization, team);
         var config = Config.Copy();
-        config.Users = QueryBuilder.Normalize(config.Users.Concat(users)).ToList();
+        config.Users = QueryBuilder.Normalize(config.Users.Concat(users.Count == 0 ? [] : QueryBuilder.ValidatedLogins(users))).ToList();
         await SaveConfigAsync(config);
     }
 

@@ -51,6 +51,7 @@ internal sealed class SettingsWindow : Window
     private readonly PasswordBox pat = new() { Margin = new Thickness(8) };
     private readonly TextBlock source = Ui.Text("");
     private readonly TextBlock updateStatus = Ui.Text("");
+    private readonly Button viewRelease;
     private readonly CheckBox[] reminderDays = L("Pn Wt Śr Cz Pt So Nd", "Mo Tu We Th Fr Sa Su").Split(' ')
         .Select(day => new CheckBox { Content = day, Margin = new Thickness(8, 4, 8, 4) }).ToArray();
     private readonly StackPanel reminderRows = new();
@@ -188,6 +189,11 @@ internal sealed class SettingsWindow : Window
         general.Children.Add(Ui.Button(L("Sprawdź aktualizacje", "Check for updates"), L("Sprawdź najnowszy release na GitHubie", "Check the latest release on GitHub"),
             () => _ = app.CheckForUpdatesAsync()));
         general.Children.Add(updateStatus);
+        viewRelease = Ui.Button(L("Otwórz wydanie", "View release"), L("Otwórz stronę wydania w przeglądarce", "Open the release page in the browser"),
+            () => _ = app.RunAsync(() => { app.OpenRelease(); return Task.CompletedTask; }));
+        general.Children.Add(viewRelease);
+        general.Children.Add(Ui.Text(L("Samoinstalacja jest wyłączona. Zbuduj aktualizację z przejrzanych źródeł.",
+            "Self-installation is disabled. Build the update from reviewed source.")));
         general.Children.Add(Ui.Text(L("Zamknięcie panelu PR-ów ukrywa go w zasobniku. Zakończenie aplikacji: prawy przycisk na ikonie → Zakończ.", "Closing the PR panel hides it in the tray. To quit: right-click the icon → Quit.")));
 
         var notifications = Page();
@@ -226,6 +232,8 @@ internal sealed class SettingsWindow : Window
 
         var token = Page();
         token.Children.Add(Heading(L("Token GitHub", "GitHub token")));
+        token.Children.Add(Ui.Text(L("Do dostępu firmowego używaj wyłącznie fine-grained PAT tylko do odczytu z datą wygaśnięcia, nie tokenu gh ani classic PAT.",
+            "For company access, use only an expiring read-only fine-grained PAT, not a gh token or classic PAT.")));
         token.Children.Add(source);
         token.Children.Add(ConnectionPanel());
         token.Children.Add(Ui.Text(L("GHNotif widzi tylko PR-y z repozytoriów dostępnych dla tokenu. Brak PR-ów z prywatnych repozytoriów = brak scope'u repo. Widać tylko PR-y z własnych repozytoriów = token nie jest autoryzowany przez SSO dla organizacji albo organizacja blokuje classic PAT lub nie zatwierdziła GitHub CLI (wtedy GitHub ukrywa wyniki bez ostrzeżenia).", "GHNotif only sees PRs from repositories the token can access. PRs from private repositories missing = no repo scope. Only PRs from your own repositories = the token is not SSO-authorized for the organization, or the organization blocks classic PATs or hasn't approved GitHub CLI (GitHub then hides results without a warning).")));
@@ -407,6 +415,7 @@ internal sealed class SettingsWindow : Window
     {
         source.Text = L("Źródło tokenu: ", "Token source: ") + (app.Tokens.Source == "brak" ? L("brak", "none") : app.Tokens.Source);
         updateStatus.Text = app.UpdateStatus;
+        viewRelease.IsEnabled = app.AvailableRelease is not null;
         UpdateConnection();
         var reminder = app.Config.ReviewReminder;
         nextReminder.Text = reminder.Alarms.Count == 0 ? L("Następne przypomnienie: dodaj godzinę", "Next reminder: add a time")
@@ -528,17 +537,7 @@ internal sealed class SettingsWindow : Window
         var open = new OpenFileDialog { Filter = L("JSON lub tekst (*.json;*.txt)|*.json;*.txt|Wszystkie pliki|*.*", "JSON or text (*.json;*.txt)|*.json;*.txt|All files|*.*") };
         if (open.ShowDialog() != true) return;
         var text = File.ReadAllText(open.FileName);
-        List<string> imported;
-        if (!text.TrimStart().StartsWith('{') && !text.TrimStart().StartsWith('['))
-            imported = text.Split(['\r', '\n', ',', ' '], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
-        else using (var json = JsonDocument.Parse(text))
-        {
-            var root = json.RootElement;
-            imported = root.ValueKind == JsonValueKind.Array
-                ? root.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String)
-                    .Select(item => item.GetString()!).ToList()
-                : root.GetProperty("users").EnumerateArray().Select(item => item.GetString()!).ToList();
-        }
+        var imported = Watchlist.Import(text);
         var config = Copy();
         config.Users = QueryBuilder.Normalize(config.Users.Concat(imported)).ToList();
         await app.SaveConfigAsync(config);
@@ -552,8 +551,7 @@ internal sealed class SettingsWindow : Window
     private async Task AddUserAsync()
     {
         if (adding) return;
-        var name = QueryBuilder.Normalize([login.Text]).SingleOrDefault()
-            ?? throw new InvalidOperationException(L("Podaj login.", "Enter a login."));
+        var name = QueryBuilder.ValidatedLogins([login.Text]).Single();
         adding = true;
         try
         {

@@ -6,9 +6,18 @@
 
 Aplikacja w pasku menu macOS lub zasobniku systemowym Windows, która pokazuje otwarte PR-y wybranych osób (drafty opcjonalnie) ze wszystkich repozytoriów widocznych dla Twojego tokenu GitHub. Obie wersje mają osobny, natywny interfejs.
 
+## Status dystrybucji
+
+Zgoda na użycie firmowe jest warunkowa i dotyczy wyłącznie autora, z fine-grained PAT
+tylko do odczytu i datą wygaśnięcia. Nie obejmuje szerszej dystrybucji w R&D.
+Nie używaj tokenu `gh` ani classic PAT do dostępu firmowego. Współpracownicy powinni
+budować z przejrzanych źródeł zamiast instalować niepodpisane wydania.
+Podpisywanie, przeniesienie do organizacji i ponowna zgoda nadal są wymagane.
+Samoinstalacja aktualizacji jest wyłączona.
+
 ## Instalacja macOS
 
-**Homebrew (zalecane):**
+**Homebrew (niepodpisane paczki do użytku osobistego):**
 
 ```bash
 brew tap MichalFidor/ghnotif
@@ -32,7 +41,9 @@ Budowanie ze źródeł:
 
 Wymaga macOS 15+ i Swift 6 (wystarczą Command Line Tools). Autostart można włączyć w GHNotif → Ustawienia → Ogólne.
 
-Przy pierwszym uruchomieniu zaloguj się przez `gh auth login` albo zapisz PAT tylko do odczytu (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+Przy pierwszym uruchomieniu zapisz fine-grained PAT tylko do odczytu z datą wygaśnięcia
+(patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+GitHub CLI pozostaje dostępne do użytku poza dostępem firmowym.
 
 ## Instalacja Windows
 
@@ -41,7 +52,7 @@ Wymaga Windows 10/11. Wersja portable zawiera .NET - użytkownik nie musi go ins
 1. Pobierz ZIP `GHNotif-win-x64.zip` (typowy komputer) lub `GHNotif-win-arm64.zip` z [GitHub Releases](https://github.com/MichalFidor/GHNotif/releases/latest).
 2. Rozpakuj cały ZIP do stałego folderu. Uruchom `GHNotif.Windows.exe`; plik `GHNotif.ico` musi pozostać obok.
 3. Kliknij ikonę przy zegarku (może być schowana pod strzałką). Prawy przycisk: ustawienia, odświeżanie lub zakończenie.
-4. Zaloguj się przez `gh auth login` albo zapisz PAT tylko do odczytu (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
+4. Zapisz fine-grained PAT tylko do odczytu z datą wygaśnięcia (patrz [Autoryzacja](#autoryzacja)), a potem dodaj osoby w ustawieniach.
 
 Aplikacja nie jest podpisana certyfikatem wydawcy; Windows SmartScreen może pokazać ostrzeżenie. Uruchamiaj wyłącznie buildy z zaufanego źródła.
 Zamknięcie panelu ukrywa go w zasobniku. Autostart można włączyć w ustawieniach aplikacji.
@@ -74,6 +85,8 @@ Na macOS aplikacja szuka `gh` w `/opt/homebrew/bin`, `/usr/local/bin` i `/usr/bi
 ### Opcja 2: personal access token (PAT)
 
 GHNotif tylko odczytuje dane, więc token nie potrzebuje żadnych uprawnień do zapisu.
+Do dostępu firmowego wymagany jest fine-grained PAT tylko do odczytu z datą wygaśnięcia;
+pozostałe opcje opisują zgodność aplikacji, nie zatwierdzone metody autoryzacji firmowej.
 
 - **Fine-grained PAT tylko do odczytu (najbezpieczniejszy)** - [utwórz z ustawionymi uprawnieniami](https://github.com/settings/personal-access-tokens/new?name=GHNotif&description=Read-only+access+for+GHNotif&pull_requests=read&statuses=read&expires_in=90):
   - Resource owner - organizacja z PR-ami,
@@ -222,28 +235,40 @@ wymaga sprawdzenia na zalogowanym Macu.
 Numer wersji pochodzi z `VERSION`. Obie aplikacje sprawdzają najnowszy stabilny release
 przy starcie i co 6 godzin; można też użyć **Sprawdź aktualizacje** w ustawieniach.
 Gdy jest nowsza wersja, w panelu pojawia się baner i raz dla danej wersji powiadomienie systemowe
-(na macOS wymagane są uprawnienia GHNotif do powiadomień). Można wybrać **Zaktualizuj teraz**
-albo **Później**; przycisk **Zaktualizuj teraz** jest też dostępny w panelu.
+(na macOS wymagane są uprawnienia GHNotif do powiadomień). Można wybrać **Otwórz wydanie**
+albo **Później**; przycisk **Otwórz wydanie** jest też dostępny w panelu i ustawieniach.
 Sprawdzanie korzysta z publicznego API, bez tokenu i bez wysyłania listy obserwowanych osób.
 Błędy sprawdzania są widoczne w ustawieniach i nie przerywają pobierania PR-ów.
 
-Instalacja Homebrew na macOS uruchamia w Terminalu `brew update` i `brew upgrade --cask ghnotif`.
-Inne instalacje macOS pobierają właściwy ZIP, weryfikują sumę SHA-256, podmieniają aplikację
-i uruchamiają ją ponownie. Windows pobiera i weryfikuje ZIP, po zamknięciu aplikacji podmienia
-pliki i uruchamia GHNotif ponownie. Instalacja w chronionym folderze może wymagać ręcznej
-aktualizacji z uprawnieniami administratora. Ustawienia, tokeny i stan lokalny pozostają poza paczką.
+**Otwórz wydanie** otwiera wyłącznie zweryfikowany adres strony w przeglądarce.
+Aplikacja nie pobiera, nie rozpakowuje i nie uruchamia paczek, nie wywołuje Homebrew
+i nie zamyka się na potrzeby aktualizacji. Do czasu spełnienia warunków dystrybucji
+buduj z przejrzanych źródeł. Ustawienia, tokeny i stan lokalny pozostają poza paczką.
+Suma SHA-256 z tego samego wydania wykrywa uszkodzenie, nie przejęcie konta wydawcy.
 
 Publikacja: zaktualizuj `VERSION` i `RELEASE-NOTES.md`, wypchnij commit i tag `vX.Y.Z`
 zgodny z `VERSION`. Workflow **Release** uruchamia testy macOS/Windows, buduje cztery
 paczki (macOS arm64/x86_64, Windows x64/arm64), a dopiero po powodzeniu publikuje
-release z sumami `SHA256SUMS`. Sam build macOS ma podpis ad-hoc, bez notaryzacji.
+release z sumami `SHA256SUMS`. Actions są przypięte do SHA commitów, a Dependabot sprawdza
+Actions i zależności NuGet co tydzień. Provenance powstaje dla ZIP-ów w zadaniach budujących,
+przed ich przesłaniem. Dla prywatnego repo wymaga GitHub Enterprise Cloud i
+`BUILD_PROVENANCE_ENABLED=true`; bez tego publikacja wyświetla ostrzeżenie i nie ma
+atestacji. Sam build macOS ma podpis ad-hoc, bez notaryzacji.
 Workflow dołącza też cask `ghnotif.rb` do release'u. Automatyczna synchronizacja tapu
 w kolejnych wydaniach wymaga repozytorium variable `HOMEBREW_TAP_ENABLED=true` i secretu
-`HOMEBREW_TAP_TOKEN` z prawem zapisu do `MichalFidor/homebrew-ghnotif`.
+`HOMEBREW_TAP_REPOSITORY=owner/repository` i `HOMEBREW_TAP_TOKEN` z prawem zapisu
+do zatwierdzonego tapu. Cask korzysta z `GITHUB_REPOSITORY` w CI.
 
-Publikacja działa w środowisku `release`, które wymaga akceptacji właściciela repo
-(Actions → oczekujący run → **Review deployments**). Gałąź `main` i tagi `v*` są
-chronione regułami. Ominąć je może tylko administrator repozytorium.
+Workflow odwołuje się do środowiska `release`. Wymaganych reviewerów, ograniczenia
+tagów oraz rulesety dla `main` i `v*` trzeba ustawić i zweryfikować w GitHub;
+sam plik workflow nie dowodzi, że te zabezpieczenia działają.
+
+Instrukcja weryfikacji atestacji i checklista przygotowania migracji do organizacji
+są w [angielskim README](README.md#organization-migration-checklist-not-performed).
+Migracja nie została wykonana. Import listy osób waliduje wszystkie loginy przed
+zapisem; błędna lub pusta lista jest odrzucana w całości. Obsługiwane są suffixy
+`[bot]` i `_shortcode`, JSON i tekst rozdzielony przecinkami lub nowymi liniami.
+Na Windowsie wpisy w pliku tekstowym mogą być też rozdzielone spacjami.
 
 ## Jak to działa
 
