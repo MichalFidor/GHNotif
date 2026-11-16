@@ -137,11 +137,16 @@ PRs from the people you follow come first, but the list can also include:
 
 - **mentions** (`mentions:@me`, on by default) - open PRs by any author where someone mentioned you; marked with a purple `@`,
 - **review requests** (`user-review-requested:@me`, off by default) - requests addressed to you personally; marked with a person icon with a question mark,
-- **team review requests** (`review-requested:@me`, off by default, available with review requests on) - also requests sent to your teams, e.g. when someone adds the whole QA team as a reviewer; marked with a team icon when only the team was asked.
+- **team review requests** (`review-requested:@me`, off by default, available with review requests on) - also requests sent to your teams, e.g. when someone adds the whole QA team as a reviewer; marked with a team icon when only the team was asked,
+- **commits by watched people** (on by default, needs at least one watched person) - other people's PRs that contain commits authored by someone you watch, e.g. tests a QA engineer added to a developer's PR; marked with a purple branch icon (a code icon on Windows).
 
 Under **Visibility** you can also **show drafts** (marked with a Draft label; hidden by default) and **hide approved PRs** (review decision "Approved" on GitHub). PRs open for at least the number of days set in General show their age in orange with a clock icon.
 
 Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications - only new ones do.
+
+GitHub search can't filter PRs by commit author, so commits by watched people are found by scanning open PRs (the last 50 commits of each) in the repositories that are already on the list from the other searches, minus excluded repositories. A PR in a repository where nobody you watch has an open PR, mention or review request won't be found. The commit author is matched, not the person who pushed, and each scanned repository batch costs extra GraphQL requests. Oversized batches are split to stay within GitHub's 1,000-result search limit; if one repository alone exceeds that limit, GHNotif reports that it could not scan it completely.
+
+Ordinary searches and repository-scope processing preserve quoted values such as `label:"needs repo:cleanup"` and expand Boolean alternatives into separate standard GitHub search queries, avoiding unsupported Boolean syntax in the regular search API. Alternatives with different filters use separate scans, always limited to discovered repositories. Scope expansion is limited to 32 branches; invalid or more complex scopes are reported rather than silently broadened. Ordinary macOS searches also fetch up to 1,000 results (20 pages of 50).
 
 The configuration is stored in `~/Library/Application Support/GHNotif/config.json`.
 On Windows: `%LOCALAPPDATA%/GHNotif/config.json`; dismissed, snoozed and seen PRs and collapsed repositories are kept in `state.json`, and the encrypted PAT in `token.dat`. Don't add these files to a repository and don't share your token.
@@ -156,7 +161,7 @@ The check mark button on the right of a PR marks it as done. The PR disappears f
 
 Changes to the title, labels or the CI status alone don't bring a PR back.
 
-A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `✓ anna - approved`, `piotr - changes requested`, `bob - comment` or `dave - pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested" or "You were mentioned".
+A notification also appears for new activity on a PR that is already on the list and says who did what, e.g. `✓ anna - approved`, `piotr - changes requested`, `bob - comment` or `dave - pushed commits`. The same event is not repeated on later refreshes. For commits the author of the latest commit is shown (the GitHub API doesn't say who pushed). New PRs are described as "New PR by …", "Your review was requested", "You were mentioned" or "Commits by someone you watch in a PR by …".
 
 Optionally a PR is dismissed automatically after you submit a review of its current commit, as long as nobody else has been active on it since. A new commit or another person's comment/review brings it back. Later refreshes without changes don't repeat the notification about the same comment. This can be turned off in the settings.
 
@@ -202,7 +207,7 @@ The UI is available in English and Polish. In **Settings → General → Languag
 
 ## Icons and tooltips
 
-Hover over an icon to see what it means. A purple `@` marks a mention, a person icon with a question mark a review request for you, a team icon a review request for your team only. A grey Draft label marks a draft and an orange age with a clock a PR open for longer than the configured number of days. A green check mark means an approved review, a speech bubble/exclamation mark requested changes, an eye a required review. CI dot: green = success, red = failure, yellow = in progress. The separate check mark at the end of a row marks the PR as locally done.
+Hover over an icon to see what it means. A purple `@` marks a mention, a person icon with a question mark a review request for you, a team icon a review request for your team only, a branch icon (code icon on Windows) commits by people you watch on someone else's PR. A grey Draft label marks a draft and an orange age with a clock a PR open for longer than the configured number of days. A green check mark means an approved review, a speech bubble/exclamation mark requested changes, an eye a required review. CI dot: green = success, red = failure, yellow = in progress. The separate check mark at the end of a row marks the PR as locally done.
 
 The logo shows a PR branch with a notification dot. The colored app icons (`.icns`/`.ico`), the menu bar logo and its monochrome variant are generated from a shared source:
 
@@ -313,7 +318,7 @@ proof that the source is safe.
 
 ## How it works
 
-Instead of one query joined with `OR` (GitHub search allows at most 5 logical operators), authors are split into batches of 10; repeated `author:` qualifiers act as OR. Each batch is a GraphQL query `is:pr is:open draft:false author:… author:…` (without `draft:false` when drafts are on), and the results are merged and deduplicated. Mentions, review requests and team review requests are separate queries; a PR found by several of them carries all their markers.
+Instead of one query joined with `OR` (GitHub search allows at most 5 logical operators), authors are split into batches of 10; repeated `author:` qualifiers act as OR. Each batch is a GraphQL query `is:pr is:open draft:false author:… author:…` (without `draft:false` when drafts are on), and the results are merged and deduplicated. Mentions, review requests and team review requests are separate queries; a PR found by several of them carries all their markers. Commits by watched people come from a further scan `is:pr is:open repo:… repo:…` (batches of 5 repositories) that also reads the authors of each PR's last 50 commits.
 
 In the macOS menu bar the logo and the counter are drawn as a single image, because a `MenuBarExtra` label made of several views only shows some of them.
 

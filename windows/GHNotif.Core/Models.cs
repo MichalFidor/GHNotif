@@ -80,7 +80,7 @@ public sealed record PullRequest(
     public bool HasViewerReviewedCurrentHead(string? viewer) => ViewerReviewAt(viewer) is not null;
 }
 
-public enum MatchReason { WatchedAuthor, Mention, ReviewRequested, TeamReviewRequested }
+public enum MatchReason { WatchedAuthor, Mention, ReviewRequested, TeamReviewRequested, WatchedCommitter }
 public enum SortOrder { RecentlyUpdated, OldestFirst, LargestChanges }
 
 /// A comment or submitted review by a human (bots are skipped while parsing).
@@ -183,6 +183,8 @@ public static class ActivityText
         pr.Reasons.Contains(MatchReason.ReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Poproszono Cię o review", "Your review was requested"))
         : pr.Reasons.Contains(MatchReason.TeamReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
         : pr.Reasons.Contains(MatchReason.Mention) ? AlertEvent.Mention.Line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
+        : !pr.Reasons.Contains(MatchReason.WatchedAuthor) && pr.Reasons.Contains(MatchReason.WatchedCommitter)
+            ? AlertEvent.NewPullRequest.Line(L($"Commity obserwowanej osoby w PR-ze od {pr.Author}", $"Commits by someone you watch in a PR by {pr.Author}"))
         : AlertEvent.NewPullRequest.Line(L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}"));
 }
 public sealed record PullRequestReview(string Login, string? CommitOid, DateTimeOffset? SubmittedAt);
@@ -208,6 +210,9 @@ public sealed class Config
     public bool IncludeTeamReviewRequests { get; set; }
     /// Show draft PRs too; by default searches use `draft:false`.
     public bool IncludeDrafts { get; set; }
+    /// Also show open PRs by other authors that contain commits by watched users, e.g. tests added by a QA engineer.
+    /// Only repositories already present in the other results are scanned.
+    public bool IncludeWatchedCommits { get; set; } = true;
     /// Hide PRs whose review decision is already "approved".
     public bool HideApproved { get; set; }
     /// PRs open longer than this many days are highlighted; 0 turns it off.
@@ -239,7 +244,7 @@ public sealed class Config
     {
         Users = Users.ToList(), ExtraQualifiers = ExtraQualifiers, RefreshMinutes = RefreshMinutes, Notify = Notify,
         IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests,
-        IncludeTeamReviewRequests = IncludeTeamReviewRequests, IncludeDrafts = IncludeDrafts, HideApproved = HideApproved,
+        IncludeTeamReviewRequests = IncludeTeamReviewRequests, IncludeDrafts = IncludeDrafts, IncludeWatchedCommits = IncludeWatchedCommits, HideApproved = HideApproved,
         StaleAfterDays = StaleAfterDays, Host = Host, AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
         ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder, ReviewReminder = ReviewReminder.Copy(),
         Language = Language, Notifications = Notifications.Copy()
@@ -458,19 +463,175 @@ public static class QueryBuilder
         logins.Select(login => login.Trim().TrimStart('@'))
             .Where(login => login.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);
 
-    public static IEnumerable<(string Query, MatchReason Reason)> Searches(Config config)
+    public static IReadOnlyList<(string Query, MatchReason Reason)> Searches(Config config)
     {
-        foreach (var query in Build(config.Users, config.ExtraQualifiers, config.IncludeDrafts))
-            yield return (query, MatchReason.WatchedAuthor);
+        var branches = new ScopeParser(config.ExtraQualifiers).Parse().Branches()
+            .Select(branch => branch.Where(qualifier => qualifier.Length > 0).ToArray()).ToArray();
+        var result = new List<(string Query, MatchReason Reason)>();
+        static string AddScope(string query, string[] branch) =>
+            string.Join(" ", new[] { query }.Concat(branch)).Trim();
+        foreach (var query in Build(config.Users, "", config.IncludeDrafts))
+            foreach (var branch in branches)
+                result.Add((AddScope(query, branch), MatchReason.WatchedAuthor));
         var baseQualifiers = Base(config.IncludeDrafts);
         // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
-        string Viewer(string qualifiers) =>
-            $"{baseQualifiers} {qualifiers} {config.ExtraQualifiers.Trim()}".Trim();
-        if (config.IncludeMentions) yield return (Viewer("mentions:@me"), MatchReason.Mention);
-        if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me -author:@me"), MatchReason.ReviewRequested);
+        void AddViewer(string qualifiers, MatchReason reason)
+        {
+            var query = $"{baseQualifiers} {qualifiers}".Trim();
+            foreach (var branch in branches) result.Add((AddScope(query, branch), reason));
+        }
+        if (config.IncludeMentions) AddViewer("mentions:@me", MatchReason.Mention);
+        if (config.IncludeReviewRequests) AddViewer("user-review-requested:@me -author:@me", MatchReason.ReviewRequested);
         // `review-requested:@me` also matches personal requests; the personal reason wins when both apply.
         if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests)
-            yield return (Viewer("review-requested:@me -author:@me"), MatchReason.TeamReviewRequested);
+            AddViewer("review-requested:@me -author:@me", MatchReason.TeamReviewRequested);
+        return result;
+    }
+
+    public sealed record RepositorySearch(IReadOnlyList<string> Repositories, string Qualifiers, bool IncludeDrafts)
+    {
+        public string Query =>
+            $"{Base(IncludeDrafts)} {string.Join(" ", Repositories.Select(repo => $"repo:{repo}"))} {Qualifiers}".Trim();
+    }
+
+    /// Expand Boolean scopes into separate searches so repo clauses can be intersected without leaving dangling operators.
+    public static IEnumerable<RepositorySearch> RepositorySearches(IEnumerable<string> repositories, Config config, int batchSize = 5)
+    {
+        var discovered = repositories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var scopes = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var branch in new ScopeParser(config.ExtraQualifiers).Parse().Branches())
+        {
+            var explicitRepositories = branch.Where(qualifier => qualifier.StartsWith("repo:", StringComparison.OrdinalIgnoreCase))
+                .Select(qualifier => qualifier["repo:".Length..].Trim('"')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var eligible = discovered.Where(repository => explicitRepositories.All(
+                explicitRepository => string.Equals(explicitRepository, repository, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (eligible.Count == 0) continue;
+            var qualifiers = string.Join(" ", branch.Where(qualifier => !qualifier.StartsWith("repo:", StringComparison.OrdinalIgnoreCase)));
+            if (!scopes.TryGetValue(qualifiers, out var existing)) scopes[qualifiers] = eligible;
+            else existing.AddRange(eligible.Except(existing, StringComparer.OrdinalIgnoreCase));
+        }
+        return scopes.SelectMany(scope => scope.Value.Chunk(Math.Max(1, batchSize))
+            .Select(batch => new RepositorySearch(batch, scope.Key, config.IncludeDrafts))).ToList();
+    }
+
+    public static IEnumerable<string> RepositoryQueries(IEnumerable<string> repositories, Config config, int batchSize = 5) =>
+        RepositorySearches(repositories, config, batchSize).Select(search => search.Query);
+
+    private static InvalidOperationException InvalidScope() => new(L(
+        "Nieprawidłowy lub zbyt złożony zakres wyszukiwania. Sprawdź cudzysłowy i operatory logiczne.",
+        "Invalid or overly complex search scope. Check quotes and Boolean operators."));
+
+    private abstract record ScopeExpression
+    {
+        public abstract List<List<string>> Branches(bool negated = false);
+    }
+
+    private sealed record ScopeTerm(string Value) : ScopeExpression
+    {
+        public override List<List<string>> Branches(bool negated = false) =>
+            [[negated ? (Value.StartsWith('-') ? Value[1..] : "-" + Value) : Value]];
+    }
+
+    private sealed record ScopeNot(ScopeExpression Expression) : ScopeExpression
+    {
+        public override List<List<string>> Branches(bool negated = false) => Expression.Branches(!negated);
+    }
+
+    private sealed record ScopeBinary(ScopeExpression Left, ScopeExpression Right, bool IsAnd) : ScopeExpression
+    {
+        public override List<List<string>> Branches(bool negated = false)
+        {
+            var left = Left.Branches(negated);
+            var right = Right.Branches(negated);
+            var isAnd = IsAnd != negated;
+            if ((isAnd ? left.Count * right.Count : left.Count + right.Count) > 32) throw InvalidScope();
+            return isAnd ? left.SelectMany(a => right.Select(b => a.Concat(b).ToList())).ToList() : left.Concat(right).ToList();
+        }
+    }
+
+    private sealed class ScopeParser
+    {
+        private readonly List<string> tokens = [];
+        private int index;
+
+        public ScopeParser(string text)
+        {
+            var token = new System.Text.StringBuilder();
+            var quoted = false;
+            var escaped = false;
+            foreach (var character in text)
+            {
+                if (escaped) { token.Append(character); escaped = false; }
+                else if (character == '\\' && quoted) { token.Append(character); escaped = true; }
+                else if (character == '"') { token.Append(character); quoted = !quoted; }
+                else if (!quoted && (char.IsWhiteSpace(character) || character is '(' or ')'))
+                {
+                    if (token.Length > 0) { tokens.Add(token.ToString()); token.Clear(); }
+                    if (!char.IsWhiteSpace(character)) tokens.Add(character.ToString());
+                }
+                else token.Append(character);
+            }
+            if (quoted) throw InvalidScope();
+            if (token.Length > 0) tokens.Add(token.ToString());
+        }
+
+        public ScopeExpression Parse()
+        {
+            if (tokens.Count == 0) return new ScopeTerm("");
+            var expression = Disjunction();
+            if (index != tokens.Count) throw InvalidScope();
+            return expression;
+        }
+
+        private ScopeExpression Disjunction()
+        {
+            var expression = Conjunction();
+            while (Consume("OR")) expression = new ScopeBinary(expression, Conjunction(), false);
+            return expression;
+        }
+
+        private ScopeExpression Conjunction()
+        {
+            var expression = ImplicitConjunction();
+            while (Consume("AND")) expression = new ScopeBinary(expression, ImplicitConjunction(), true);
+            return expression;
+        }
+
+        private ScopeExpression ImplicitConjunction()
+        {
+            var terms = new List<ScopeExpression> { Primary() };
+            while (index < tokens.Count && tokens[index] is not "AND" and not "OR" and not ")") terms.Add(Primary());
+            ScopeExpression? repositories = null;
+            var filters = new List<ScopeExpression>();
+            foreach (var term in terms)
+            {
+                if (term is ScopeTerm(var value) && value.StartsWith("repo:", StringComparison.OrdinalIgnoreCase))
+                    repositories = repositories is null ? term : new ScopeBinary(repositories, term, false);
+                else filters.Add(term);
+            }
+            if (repositories is not null) filters.Insert(0, repositories);
+            return filters.Skip(1).Aggregate(filters[0], (left, right) => new ScopeBinary(left, right, true));
+        }
+
+        private ScopeExpression Primary()
+        {
+            if (Consume("NOT") || Consume("-")) return new ScopeNot(Primary());
+            if (Consume("("))
+            {
+                var expression = Disjunction();
+                if (!Consume(")")) throw InvalidScope();
+                return expression;
+            }
+            if (index >= tokens.Count || tokens[index] is "AND" or "OR" or ")") throw InvalidScope();
+            return new ScopeTerm(tokens[index++]);
+        }
+
+        private bool Consume(string token)
+        {
+            if (index >= tokens.Count || tokens[index] != token) return false;
+            index++;
+            return true;
+        }
     }
 
     public static string Base(bool includeDrafts) => includeDrafts ? "is:pr is:open" : "is:pr is:open draft:false";

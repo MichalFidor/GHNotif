@@ -462,6 +462,11 @@ private struct ReasonBadges: View {
                 .foregroundStyle(.purple)
                 .help(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
         }
+        if pr.reasons.contains(.watchedCommitter) {
+            Image(systemName: "arrow.triangle.branch")
+                .foregroundStyle(.purple)
+                .help(L("Zawiera commity obserwowanych osób", "Contains commits by people you watch"))
+        }
     }
 }
 

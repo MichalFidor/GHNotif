@@ -254,10 +254,14 @@ struct SettingsView: View {
                 Toggle(L("…także prośby do moich zespołów", "…also requests to my teams"), isOn: $model.config.includeTeamReviewRequests)
                     .padding(.leading, 20)
                     .disabled(!model.config.includeReviewRequests)
+                Toggle(L("PR-y innych osób z commitami obserwowanych", "Other people's PRs with commits by watched people"), isOn: $model.config.includeWatchedCommits)
+                    .disabled(model.config.users.isEmpty)
             } header: {
                 Text(L("Dodatkowo pokazuj", "Also show"))
             } footer: {
                 Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review domyślnie obejmują tylko te skierowane do Ciebie osobiście. Prośby do zespołów (np. gdy ktoś doda cały zespół QA jako reviewera) są oznaczone ikoną zespołu - mogą mocno wydłużyć listę, dlatego obie opcje są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally by default. Team requests (e.g. when someone adds the whole QA team as reviewer) are marked with a team icon - they can make the list much longer, so both options are off by default."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(L("Commity obserwowanych (np. testy dodane przez QA do PR-a developera) są wyszukiwane tylko w repozytoriach, które już są na liście, wśród ostatnich 50 commitów PR-a.", "Commits by watched people (e.g. tests a QA engineer added to a developer's PR) are found only in repositories already on the list, among the PR's last 50 commits."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -562,6 +566,7 @@ struct SettingsView: View {
         if model.config.includeMentions { parts.append(L("wzmianki", "mentions")) }
         if model.config.includeReviewRequests { parts.append(L("prośby o review", "review requests")) }
         if model.config.includeReviewRequests && model.config.includeTeamReviewRequests { parts.append(L("review zespołów", "team reviews")) }
+        if model.config.includeWatchedCommits && !model.config.users.isEmpty { parts.append(L("commity obserwowanych", "commits by watched people")) }
         if model.config.includeDrafts { parts.append(L("drafty", "drafts")) }
         if model.config.hideApproved { parts.append(L("bez zatwierdzonych", "no approved")) }
         let list = parts.isEmpty ? L("tylko PR-y obserwowanych osób", "only PRs by watched people") : parts.joined(separator: ", ")

@@ -20,6 +20,8 @@ public enum MatchReason: String, Hashable, Sendable, CaseIterable {
     case reviewRequested
     /// Review requested from a team the user belongs to.
     case teamReviewRequested
+    /// Someone else's PR containing commits by a watched user.
+    case watchedCommitter
 }
 
 public struct PullRequestReview: Hashable, Sendable {
@@ -299,6 +301,8 @@ public struct PullRequestAlert: Sendable {
         let detail = pr.reasons.contains(.reviewRequested) ? AlertEvent.reviewRequested.line(L("Poproszono Cię o review", "Your review was requested"))
             : pr.reasons.contains(.teamReviewRequested) ? AlertEvent.reviewRequested.line(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
             : pr.reasons.contains(.mention) ? AlertEvent.mention.line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
+            : !pr.reasons.contains(.watchedAuthor) && pr.reasons.contains(.watchedCommitter)
+                ? AlertEvent.newPullRequest.line(L("Commity obserwowanej osoby w PR-ze od \(pr.author)", "Commits by someone you watch in a PR by \(pr.author)"))
             : AlertEvent.newPullRequest.line(L("Nowy PR od \(pr.author)", "New PR by \(pr.author)"))
         return PullRequestAlert(pullRequest: pr, details: [detail])
     }

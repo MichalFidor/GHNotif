@@ -343,6 +343,7 @@ public partial class App : Application
             || config.ExcludedLabels.SequenceEqual(Config.ExcludedLabels) == false
             || config.AutoDismissReviewed != Config.AutoDismissReviewed
             || config.IncludeTeamReviewRequests != Config.IncludeTeamReviewRequests
+            || config.IncludeWatchedCommits != Config.IncludeWatchedCommits
             || config.IncludeDrafts != Config.IncludeDrafts || config.HideApproved != Config.HideApproved
             || config.Host != Config.Host;
         var hostChanged = config.Host != Config.Host;
