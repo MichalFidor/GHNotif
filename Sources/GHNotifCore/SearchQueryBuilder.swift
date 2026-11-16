@@ -48,16 +48,37 @@ public enum SearchQueryBuilder {
         return result
     }
 
-    /// Searches for open PRs in the given repositories, used to find commits by watched users on other people's PRs.
-    /// Small batches keep each query below GitHub's 256-character search limit.
-    public static func repositoryQueries(repositories: [String], config: AppConfig, batchSize: Int = 5) -> [String] {
-        let extra = config.extraQualifiers.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Searches for open PRs in discovered repositories, used to find commits by watched users on other people's PRs.
+    /// Explicit positive repo qualifiers narrow the scan; they must never expand it beyond discovered repositories.
+    public static func repositoryBatches(repositories: [String], config: AppConfig, batchSize: Int = 5) -> [[String]] {
+        let qualifiers = config.extraQualifiers.split(whereSeparator: \.isWhitespace).map(String.init)
+        let explicitRepositories = qualifiers.compactMap { qualifier -> String? in
+            guard qualifier.lowercased().hasPrefix("repo:") else { return nil }
+            return String(qualifier.dropFirst("repo:".count))
+        }
+        let repositories = repositories.filter { repository in
+            explicitRepositories.isEmpty || explicitRepositories.contains {
+                $0.caseInsensitiveCompare(repository) == .orderedSame
+            }
+        }
         let size = max(1, batchSize)
         return stride(from: 0, to: repositories.count, by: size).map { start in
-            ([base(includeDrafts: config.includeDrafts)]
-                + repositories[start..<min(start + size, repositories.count)].map { "repo:\($0)" }
-                + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+            Array(repositories[start..<min(start + size, repositories.count)])
         }
+    }
+
+    public static func repositoryQuery(_ repositories: [String], config: AppConfig) -> String {
+        let extra = config.extraQualifiers.split(whereSeparator: \.isWhitespace)
+            .filter { !$0.lowercased().hasPrefix("repo:") }
+            .joined(separator: " ")
+        return ([base(includeDrafts: config.includeDrafts)]
+            + repositories.map { "repo:\($0)" }
+            + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+    }
+
+    public static func repositoryQueries(repositories: [String], config: AppConfig, batchSize: Int = 5) -> [String] {
+        repositoryBatches(repositories: repositories, config: config, batchSize: batchSize)
+            .map { repositoryQuery($0, config: config) }
     }
 
     /// Trims, strips a leading `@`, and removes case-insensitive duplicates while preserving order.

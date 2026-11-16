@@ -144,7 +144,7 @@ Under **Visibility** you can also **show drafts** (marked with a Draft label; hi
 
 Mentions include PRs by any author (including your own). Extra scope qualifiers apply to both searches. When you turn an option on, existing PRs don't trigger notifications - only new ones do.
 
-GitHub search can't filter PRs by commit author, so commits by watched people are found by scanning open PRs (the last 50 commits of each) in the repositories that are already on the list from the other searches, minus excluded repositories. A PR in a repository where nobody you watch has an open PR, mention or review request won't be found. The commit author is matched, not the person who pushed, and each scanned repository batch costs extra GraphQL requests.
+GitHub search can't filter PRs by commit author, so commits by watched people are found by scanning open PRs (the last 50 commits of each) in the repositories that are already on the list from the other searches, minus excluded repositories. A PR in a repository where nobody you watch has an open PR, mention or review request won't be found. The commit author is matched, not the person who pushed, and each scanned repository batch costs extra GraphQL requests. Oversized batches are split to stay within GitHub's 1,000-result search limit; if one repository alone exceeds that limit, GHNotif reports that it could not scan it completely.
 
 The configuration is stored in `~/Library/Application Support/GHNotif/config.json`.
 On Windows: `%LOCALAPPDATA%/GHNotif/config.json`; dismissed, snoozed and seen PRs and collapsed repositories are kept in `state.json`, and the encrypted PAT in `token.dat`. Don't add these files to a repository and don't share your token.

@@ -81,6 +81,14 @@ do {
     config.includeDrafts = true
     check(SearchQueryBuilder.repositoryQueries(repositories: ["a/b"], config: config) == ["is:pr is:open repo:a/b org:acme"],
           "repository scan follows the drafts setting")
+    config.extraQualifiers = "repo:acme/r1 repo:acme/r2 org:acme"
+    check(SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2", "acme/r3"], config: config)
+            == ["is:pr is:open repo:acme/r1 repo:acme/r2 org:acme"],
+          "positive repo qualifiers narrow the scan and are not appended to widen it")
+    config.extraQualifiers = "repo:acme/r2 org:acme"
+    check(SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2"], config: config)
+            == ["is:pr is:open repo:acme/r2 org:acme"],
+          "explicit repo qualifier scans only discovered repositories in its scope")
     check(AppConfig(users: []).includeWatchedCommits, "commits by watched people are on by default")
 }
 
@@ -608,12 +616,13 @@ final class MockGraphQL: URLProtocol {
 }
 
 do {
-    func node(_ id: String, author: String, commits: [String]) -> String {
+    func node(_ id: String, author: String, commits: [String], repository: String = "acme/app") -> String {
         let authors = commits.map { #"{"commit":{"author":{"user":{"login":"\#($0)"}}}}"# }.joined(separator: ",")
-        return #"{"id":"\#(id)","number":1,"title":"t","url":"https://github.com/acme/app/pull/1","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","reviewDecision":null,"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"acme/app"},"commitAuthors":{"nodes":[\#(authors)]}}"#
+        return #"{"id":"\#(id)","number":1,"title":"t","url":"https://github.com/\#(repository)/pull/1","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","reviewDecision":null,"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"\#(repository)"},"commitAuthors":{"nodes":[\#(authors)]}}"#
     }
-    func page(_ nodes: [String]) -> String {
-        #"{"data":{"viewer":{"login":"me"},"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+    func page(_ nodes: [String], issueCount: Int = 2, hasNextPage: Bool = false, endCursor: String? = nil) -> String {
+        let cursor = endCursor.map { "\"\($0)\"" } ?? "null"
+        return #"{"data":{"viewer":{"login":"me"},"search":{"issueCount":\#(issueCount),"pageInfo":{"hasNextPage":\#(hasNextPage),"endCursor":\#(cursor)},"nodes":[\#(nodes.joined(separator: ","))]}}}"#
     }
     MockGraphQL.respond = { body in
         body.contains("repo:acme\\/app") || body.contains("repo:acme/app")
@@ -634,6 +643,87 @@ do {
     config.includeWatchedCommits = false
     let withoutScan = try await client.searchPullRequests(config: config)
     check(withoutScan.pullRequests.map(\.id) == ["OWN"] && MockGraphQL.bodies.count == 1, "scan is skipped when the option is off")
+
+    MockGraphQL.bodies = []
+    config.includeWatchedCommits = true
+    config.extraQualifiers = "repo:acme/a repo:acme/b"
+    MockGraphQL.respond = { body in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        let query = ((request["variables"] as! [String: Any])["q"] as! String)
+        let isCommitScan = (request["query"] as! String).contains("commitAuthors")
+        if isCommitScan {
+            return query.contains("repo:acme/b")
+                ? page([node("UNEXPECTED", author: "dev", commits: ["tester"], repository: "acme/b")])
+                : page([])
+        }
+        return page([node("OWN", author: "tester", commits: [], repository: "acme/a")])
+    }
+    let restrictedScan = try await client.searchPullRequests(config: config)
+    let scanQueries = MockGraphQL.bodies.compactMap { body -> String? in
+        guard let request = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let graphQL = request["query"] as? String, graphQL.contains("commitAuthors"),
+              let variables = request["variables"] as? [String: Any],
+              let query = variables["q"] as? String else { return nil }
+        return query
+    }
+    check(scanQueries == ["is:pr is:open draft:false repo:acme/a"],
+          "repo qualifiers cannot expand a scan beyond repositories found by other searches: \(scanQueries)")
+    check(restrictedScan.pullRequests.map(\.id) == ["OWN"], "undiscovered repository is not scanned")
+
+    MockGraphQL.bodies = []
+    config.extraQualifiers = ""
+    MockGraphQL.respond = { body in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        let query = ((request["variables"] as! [String: Any])["q"] as! String)
+        let isCommitScan = (request["query"] as! String).contains("commitAuthors")
+        if isCommitScan, query.contains("repo:acme/a repo:acme/b") {
+            return page([], issueCount: 1_200)
+        }
+        if isCommitScan, query.contains("repo:acme/a") {
+            return page([node("DEV-A", author: "dev", commits: ["tester"], repository: "acme/a")])
+        }
+        if isCommitScan, query.contains("repo:acme/b") {
+            return page([node("DEV-B", author: "dev", commits: ["tester"], repository: "acme/b")])
+        }
+        return page([node("OWN-A", author: "tester", commits: [], repository: "acme/a"),
+                     node("OWN-B", author: "tester", commits: [], repository: "acme/b")])
+    }
+    let splitScan = try await client.searchPullRequests(config: config)
+    check(MockGraphQL.bodies.count == 4 && splitScan.pullRequests.contains { $0.id == "DEV-A" }
+            && splitScan.pullRequests.contains { $0.id == "DEV-B" },
+          "oversized repository batches are split and scanned without dropping PRs")
+
+    MockGraphQL.bodies = []
+    MockGraphQL.respond = { body in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        let variables = request["variables"] as! [String: Any]
+        let isCommitScan = (request["query"] as! String).contains("commitAuthors")
+        if isCommitScan {
+            let after = variables["after"] as? String
+            let pageNumber = after.flatMap(Int.init) ?? 0
+            return page([node("DEV", author: "dev", commits: ["tester"], repository: "acme/a")],
+                        issueCount: 600, hasNextPage: pageNumber < 11, endCursor: String(pageNumber + 1))
+        }
+        return page([node("OWN", author: "tester", commits: [], repository: "acme/a")])
+    }
+    let pagedScan = try await client.searchPullRequests(config: config)
+    check(MockGraphQL.bodies.count == 13 && pagedScan.pullRequests.contains { $0.id == "DEV" },
+          "macOS scans all 12 pages needed to reach 600 PRs")
+
+    MockGraphQL.bodies = []
+    MockGraphQL.respond = { body in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        return (request["query"] as! String).contains("commitAuthors")
+            ? page([], issueCount: 1_001)
+            : page([node("OWN", author: "tester", commits: [], repository: "acme/a")])
+    }
+    do {
+        _ = try await client.searchPullRequests(config: config)
+        check(false, "single repository overflow must be reported")
+    } catch let error as GitHubError {
+        check(error.localizedDescription.contains("acme/a") && error.localizedDescription.contains("1001"),
+              "single repository overflow reports its scope and result count")
+    }
 } catch {
     check(false, "watched commit search threw \(error)")
 }

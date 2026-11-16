@@ -52,8 +52,8 @@ string Node(string id, bool deleted = false) => $$$$"""
     "reviews":{"nodes":[{"id":"review-1","submittedAt":"2026-10-04T10:00:00Z","state":"APPROVED","commit":{"oid":"c1"},
       "author":{"__typename":"User","login":"me"}},{"submittedAt":null,"author":{"__typename":"User","login":"pending"}}]}}
     """;
-string Page(string nodes, bool more, string cursor = "cursor") => $$$$"""
-    {"data":{"viewer":{"login":"me"},"search":{"issueCount":2,"pageInfo":{"hasNextPage":{{{{more.ToString().ToLowerInvariant()}}}},"endCursor":"{{{{cursor}}}}"},
+string Page(string nodes, bool more, string cursor = "cursor", int issueCount = 2) => $$$$"""
+    {"data":{"viewer":{"login":"me"},"search":{"issueCount":{{{{issueCount}}}},"pageInfo":{"hasNextPage":{{{{more.ToString().ToLowerInvariant()}}}},"endCursor":"{{{{cursor}}}}"},
     "nodes":[{{{{nodes}}}}]}}}
     """;
 GitHubCredential Credential(string token, string host = GitHubHost.DotCom) => new(new GitHubHost(host), token);
@@ -193,6 +193,12 @@ Check(new Config { IncludeWatchedCommits = false }.Copy().IncludeWatchedCommits 
 var repoQueries = QueryBuilder.RepositoryQueries(Enumerable.Range(1, 7).Select(i => $"acme/r{i}"), new Config { ExtraQualifiers = "org:acme" }).ToList();
 Check(repoQueries.Count == 2 && repoQueries[1] == "is:pr is:open draft:false repo:acme/r6 repo:acme/r7 org:acme"
     && repoQueries.All(q => q.Length <= 256), "Repository scan queries are batched and keep scope");
+var restrictedRepoQueries = QueryBuilder.RepositoryQueries(["acme/a", "acme/c"],
+    new Config { ExtraQualifiers = "repo:acme/a repo:acme/b org:acme" }).ToList();
+Check(restrictedRepoQueries.SequenceEqual(["is:pr is:open draft:false repo:acme/a org:acme"]),
+    "Positive repo qualifiers narrow the scan and are not appended to widen it");
+Check(QueryBuilder.RepositoryQueries(["acme/a", "acme/b"], new Config { ExtraQualifiers = "repo:acme/b" })
+    .SequenceEqual(["is:pr is:open draft:false repo:acme/b"]), "Explicit repo qualifier scans only discovered repositories in its scope");
 Check(GitHubClient.RepositoriesToScan([parsedPrForScan("o/b"), parsedPrForScan("o/a"), parsedPrForScan("o/b"), parsedPrForScan("x/skip")], ["X/SKIP"])
     .SequenceEqual(["o/a", "o/b"]), "Scanned repositories are unique, sorted and skip exclusions");
 PullRequest parsedPrForScan(string repository) => new("id", 1, "t", "u", repository, "dev", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, null);
@@ -300,6 +306,8 @@ Check(merged.PullRequests.Single(pr => pr.Id == "one").Reasons.SetEquals([MatchR
 string ScanNode(string id, string author, params string[] commitAuthors) =>
     Node(id).Replace("{\"login\":\"example\",\"avatarUrl\":null}", $"{{\"login\":\"{author}\",\"avatarUrl\":null}}")
         .Replace("\"additions\"", $"\"commitAuthors\":{{\"nodes\":[{string.Join(",", commitAuthors.Select(login => $"{{\"commit\":{{\"author\":{{\"user\":{{\"login\":\"{login}\"}}}}}}}}"))}]}},\"additions\"");
+string ScanNodeInRepository(string id, string author, string repository, params string[] commitAuthors) =>
+    ScanNode(id, author, commitAuthors).Replace("example/demo", repository);
 var scanBodies = new List<string>();
 using var scanHttp = new HttpClient(new FakeHandler(async request =>
 {
@@ -324,6 +332,53 @@ scanBodies.Clear();
 scanConfig.IncludeWatchedCommits = false;
 Check((await new GitHubClient(scanHttp).SearchAsync(Credential("t"), scanConfig)).PullRequests.Select(pr => pr.Id).SequenceEqual(["own"])
     && scanBodies.Count == 1, "Scan is skipped when the option is off");
+
+var splitBodies = new List<string>();
+using var splitHttp = new HttpClient(new FakeHandler(async request =>
+{
+    using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+    var graphQL = body.RootElement.GetProperty("query").GetString()!;
+    var query = body.RootElement.GetProperty("variables").GetProperty("q").GetString()!;
+    splitBodies.Add(query);
+    if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/a repo:acme/b")) return new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(Page("", false, issueCount: 1_201)) };
+    if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/a")) return new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(Page(ScanNodeInRepository("dev-a", "dev", "acme/a", "tester"), false)) };
+    if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/b")) return new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(Page(ScanNodeInRepository("dev-b", "dev", "acme/b", "tester"), false)) };
+    return new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(Page(ScanNodeInRepository("own-a", "tester", "acme/a") + "," +
+            ScanNodeInRepository("own-b", "tester", "acme/b"), false)) };
+}));
+var splitConfig = new Config { Users = ["tester"], IncludeMentions = false };
+var splitResult = await new GitHubClient(splitHttp).SearchAsync(Credential("t"), splitConfig);
+Check(splitBodies.Count == 4 && splitResult.PullRequests.Any(pr => pr.Id == "dev-a")
+    && splitResult.PullRequests.Any(pr => pr.Id == "dev-b"),
+    "Oversized repository batches are split and scanned without dropping PRs");
+
+var limitBodies = new List<string>();
+using var limitHttp = new HttpClient(new FakeHandler(async request =>
+{
+    using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+    var graphQL = body.RootElement.GetProperty("query").GetString()!;
+    var query = body.RootElement.GetProperty("variables").GetProperty("q").GetString()!;
+    limitBodies.Add(query);
+    return new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent(graphQL.Contains("commitAuthors")
+            ? Page("", false, issueCount: 1_001)
+            : Page(ScanNodeInRepository("own", "tester", "acme/a"), false))
+    };
+}));
+try
+{
+    await new GitHubClient(limitHttp).SearchAsync(Credential("t"), splitConfig);
+    Check(false, "Single-repository overflow must be reported");
+}
+catch (InvalidOperationException ex)
+{
+    Check(ex.Message.Contains("acme/a") && ex.Message.Contains("1000"), "Single-repository overflow reports its scope");
+}
 
 using var unauthorized = new HttpClient(new FakeHandler(_ =>
     Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))));

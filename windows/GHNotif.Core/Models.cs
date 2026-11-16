@@ -478,11 +478,26 @@ public static class QueryBuilder
             yield return (Viewer("review-requested:@me -author:@me"), MatchReason.TeamReviewRequested);
     }
 
-    /// Searches for open PRs in the given repositories, used to find commits by watched users on other people's PRs.
-    /// Small batches keep each query below GitHub's 256-character search limit.
+    /// Searches for open PRs in discovered repositories; positive repo qualifiers narrow, never expand, the scan.
+    public static IEnumerable<string[]> RepositoryBatches(IEnumerable<string> repositories, Config config, int batchSize = 5)
+    {
+        var qualifiers = config.ExtraQualifiers.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var explicitRepositories = qualifiers.Where(qualifier => qualifier.StartsWith("repo:", StringComparison.OrdinalIgnoreCase))
+            .Select(qualifier => qualifier["repo:".Length..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var eligible = repositories.Where(repository => explicitRepositories.Count == 0 || explicitRepositories.Contains(repository))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        return eligible.Chunk(Math.Max(1, batchSize));
+    }
+
+    public static string RepositoryQuery(IEnumerable<string> repositories, Config config)
+    {
+        var extra = string.Join(" ", config.ExtraQualifiers.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Where(qualifier => !qualifier.StartsWith("repo:", StringComparison.OrdinalIgnoreCase)));
+        return $"{Base(config.IncludeDrafts)} {string.Join(" ", repositories.Select(repo => $"repo:{repo}"))} {extra}".Trim();
+    }
+
     public static IEnumerable<string> RepositoryQueries(IEnumerable<string> repositories, Config config, int batchSize = 5) =>
-        repositories.Chunk(batchSize).Select(batch =>
-            $"{Base(config.IncludeDrafts)} {string.Join(" ", batch.Select(repo => $"repo:{repo}"))} {config.ExtraQualifiers.Trim()}".Trim());
+        RepositoryBatches(repositories, config, batchSize).Select(batch => RepositoryQuery(batch, config));
 
     public static string Base(bool includeDrafts) => includeDrafts ? "is:pr is:open" : "is:pr is:open draft:false";
 

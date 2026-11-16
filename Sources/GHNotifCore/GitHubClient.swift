@@ -47,12 +47,9 @@ public struct GitHubClient: Sendable {
         var merged = Self.merge(outcomes)
         if config.includeWatchedCommits, !config.users.isEmpty {
             let repositories = Self.repositoriesToScan(merged.pullRequests, excluding: config.excludedRepositories)
-            let queries = SearchQueryBuilder.repositoryQueries(repositories: repositories, config: config)
-            let scans = try await withThrowingTaskGroup(of: PageResults.self) { group in
-                for query in queries {
-                    group.addTask { try await fetchPages(query: query, graphQL: Self.commitScanQuery) }
-                }
-                return try await group.reduce(into: []) { $0.append($1) }
+            var scans: [PageResults] = []
+            for batch in SearchQueryBuilder.repositoryBatches(repositories: repositories, config: config) {
+                scans.append(contentsOf: try await scanRepositories(batch, config: config))
             }
             merged = Self.addingWatchedCommitters(
                 to: merged, scanned: scans.flatMap(\.pullRequests), commitAuthors: scans.reduce(into: [:]) {
@@ -128,19 +125,50 @@ public struct GitHubClient: Sendable {
         var viewerLogin: String?
     }
 
-    private func fetchPages(query: String, graphQL: String, maxPages: Int = 10) async throws -> PageResults {
+    private struct SearchResultLimit: Error {
+        let issueCount: Int
+    }
+
+    private func scanRepositories(_ repositories: [String], config: AppConfig) async throws -> [PageResults] {
+        let query = SearchQueryBuilder.repositoryQuery(repositories, config: config)
+        do {
+            return [try await fetchPages(query: query, graphQL: Self.commitScanQuery, maxPages: 20,
+                                         maximumIssueCount: 1_000)]
+        } catch let limit as SearchResultLimit {
+            guard repositories.count > 1 else {
+                throw GitHubError.graphQL(L(
+                    "Repozytorium \(repositories[0]) ma ponad \(limit.issueCount) otwartych PR-ów i nie może zostać w całości przeskanowane. Zawęź kwalifikatory lub wyłącz wyszukiwanie commitów obserwowanych.",
+                    "Repository \(repositories[0]) has over \(limit.issueCount) open PRs and cannot be fully scanned. Narrow the qualifiers or turn off watched-commit search."
+                ))
+            }
+            let middle = repositories.count / 2
+            let firstHalf = try await scanRepositories(Array(repositories[..<middle]), config: config)
+            let secondHalf = try await scanRepositories(Array(repositories[middle...]), config: config)
+            return firstHalf + secondHalf
+        }
+    }
+
+    private func fetchPages(
+        query: String, graphQL: String, maxPages: Int = 10, maximumIssueCount: Int? = nil
+    ) async throws -> PageResults {
         var cursor: String?
         var results = PageResults()
-        for _ in 0..<maxPages {
+        for pageNumber in 0..<maxPages {
             var variables: [String: String] = ["q": query]
             if let cursor { variables["after"] = cursor }
             let (data, response) = try await post(query: graphQL, variables: variables)
             results.ssoBlockedOrgIDs.formUnion(Self.ssoBlockedOrgIDs(from: response.value(forHTTPHeaderField: "X-GitHub-SSO")))
             let page = try Self.parseSearchResponse(data)
+            if let maximumIssueCount, page.issueCount > maximumIssueCount {
+                throw SearchResultLimit(issueCount: page.issueCount)
+            }
             results.pullRequests.append(contentsOf: page.pullRequests)
             results.commitAuthors.merge(page.commitAuthors) { $1 }
             results.viewerLogin = results.viewerLogin ?? page.viewerLogin
             guard page.hasNextPage, let next = page.endCursor else { break }
+            guard pageNumber + 1 < maxPages else {
+                throw GitHubError.graphQL(L("GitHub ma więcej wyników, niż można przeskanować.", "GitHub has more results than can be scanned."))
+            }
             cursor = next
         }
         return results
@@ -215,6 +243,7 @@ public struct GitHubClient: Sendable {
         public let hasNextPage: Bool
         public let endCursor: String?
         public let viewerLogin: String?
+        public let issueCount: Int
         /// Commit author logins per PR id; only filled by the commit scan query.
         public let commitAuthors: [String: [String]]
     }
@@ -233,7 +262,8 @@ public struct GitHubClient: Sendable {
         }
         return SearchPage(
             pullRequests: nodes.map(\.pullRequest), hasNextPage: search.pageInfo.hasNextPage,
-            endCursor: search.pageInfo.endCursor, viewerLogin: decoded.data?.viewer?.login, commitAuthors: commitAuthors
+            endCursor: search.pageInfo.endCursor, viewerLogin: decoded.data?.viewer?.login,
+            issueCount: search.issueCount ?? 0, commitAuthors: commitAuthors
         )
     }
 
@@ -260,6 +290,7 @@ public struct GitHubClient: Sendable {
     query($q: String!, $after: String) {
       viewer { login }
       search(query: $q, type: ISSUE, first: 50, after: $after) {
+        issueCount
         pageInfo { hasNextPage endCursor }
         nodes {
           ... on PullRequest {
@@ -306,6 +337,7 @@ private struct SearchData: Decodable {
     }
 
     struct Search: Decodable {
+        let issueCount: Int?
         let pageInfo: PageInfo
         let nodes: [Lossy<PRNode>]
     }

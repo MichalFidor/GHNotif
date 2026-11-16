@@ -17,6 +17,10 @@ public sealed record GitHubCredential(GitHubHost Host, string Token)
 
 public sealed class GitHubClient(HttpClient http)
 {
+    private sealed class SearchResultLimitException(int issueCount) : InvalidOperationException(
+        L($"GitHub ogranicza wyszukiwanie do 1000 wyników (znaleziono {issueCount}). Zawęź zakres w ustawieniach.",
+            $"GitHub limits search to 1,000 results ({issueCount} found). Narrow the scope in settings."));
+
     private const string SearchQuery = """
         query($q: String!, $after: String) {
           viewer { login }
@@ -49,7 +53,7 @@ public sealed class GitHubClient(HttpClient http)
         string? viewer = null;
         foreach (var (query, reason) in QueryBuilder.Searches(config))
         {
-            var login = await SearchPagesAsync(credential, query, SearchQuery.Replace("PR_FIELDS", PullRequestFields), true,
+            var login = await SearchPagesAsync(credential, query, SearchQuery.Replace("PR_FIELDS", PullRequestFields),
                 blocked, node =>
                 {
                     var pr = ParsePullRequest(node);
@@ -64,9 +68,8 @@ public sealed class GitHubClient(HttpClient http)
             var scanned = new List<(PullRequest Pr, List<string> CommitAuthors)>();
             var repositories = RepositoriesToScan(prs.Values, config.ExcludedRepositories);
             var scanQuery = SearchQuery.Replace("PR_FIELDS", CommitAuthorsField + "\n" + PullRequestFields);
-            foreach (var query in QueryBuilder.RepositoryQueries(repositories, config))
-                await SearchPagesAsync(credential, query, scanQuery, false, blocked,
-                    node => scanned.Add((ParsePullRequest(node), CommitAuthors(node))), ct);
+            foreach (var batch in QueryBuilder.RepositoryBatches(repositories, config))
+                await ScanRepositoriesAsync(credential, batch, config, scanQuery, blocked, scanned, ct);
             AddWatchedCommitters(prs, scanned, config.Users);
         }
         var filtered = prs.Values.Where(config.Includes).ToList();
@@ -95,9 +98,30 @@ public sealed class GitHubClient(HttpClient http)
         }
     }
 
-    /// Runs a paginated search and returns the viewer login. Scans (`strict: false`) stop quietly at the page limit
-    /// instead of failing the whole refresh, because their scope isn't set by the user.
-    private async Task<string?> SearchPagesAsync(GitHubCredential credential, string query, string graphQL, bool strict,
+    /// Scans a repository batch; oversized batches are divided until each query fits GitHub's 1,000-result limit.
+    private async Task ScanRepositoriesAsync(GitHubCredential credential, IReadOnlyList<string> repositories, Config config,
+        string graphQL, HashSet<string> blocked, List<(PullRequest Pr, List<string> CommitAuthors)> scanned,
+        CancellationToken ct)
+    {
+        try
+        {
+            await SearchPagesAsync(credential, QueryBuilder.RepositoryQuery(repositories, config), graphQL, blocked,
+                node => scanned.Add((ParsePullRequest(node), CommitAuthors(node))), ct);
+        }
+        catch (SearchResultLimitException)
+        {
+            if (repositories.Count == 1)
+                throw new InvalidOperationException(L(
+                    $"Repozytorium {repositories[0]} ma ponad 1000 otwartych PR-ów i nie może zostać w całości przeskanowane. Zawęź kwalifikatory lub wyłącz wyszukiwanie commitów obserwowanych.",
+                    $"Repository {repositories[0]} has over 1,000 open PRs and cannot be fully scanned. Narrow the qualifiers or turn off watched-commit search."));
+            var middle = repositories.Count / 2;
+            await ScanRepositoriesAsync(credential, repositories.Take(middle).ToArray(), config, graphQL, blocked, scanned, ct);
+            await ScanRepositoriesAsync(credential, repositories.Skip(middle).ToArray(), config, graphQL, blocked, scanned, ct);
+        }
+    }
+
+    /// Runs a paginated search and returns the viewer login.
+    private async Task<string?> SearchPagesAsync(GitHubCredential credential, string query, string graphQL,
         HashSet<string> blocked, Action<JsonElement> onNode, CancellationToken ct)
     {
         string? viewer = null;
@@ -113,8 +137,8 @@ public sealed class GitHubClient(HttpClient http)
             var data = json.RootElement.GetProperty("data");
             if (data.TryGetProperty("viewer", out var viewerNode)) viewer ??= Text(viewerNode, "login");
             var search = data.GetProperty("search");
-            if (strict && search.GetProperty("issueCount").GetInt32() > 1000)
-                throw new InvalidOperationException(L("GitHub ogranicza wyszukiwanie do 1000 wyników. Zawęź zakres w ustawieniach.", "GitHub limits search to 1000 results. Narrow the scope in settings."));
+            var issueCount = search.GetProperty("issueCount").GetInt32();
+            if (issueCount > 1000) throw new SearchResultLimitException(issueCount);
             foreach (var node in search.GetProperty("nodes").EnumerateArray())
             {
                 if (node.ValueKind == JsonValueKind.Null || !node.TryGetProperty("id", out _)) continue;
@@ -126,7 +150,6 @@ public sealed class GitHubClient(HttpClient http)
                 ?? throw new InvalidDataException(L("GitHub nie zwrócił kursora następnej strony.", "GitHub did not return the next page cursor."));
             if (page >= 9)
             {
-                if (!strict) break;
                 throw new InvalidDataException(L("Przekroczono limit stron GitHub.", "GitHub page limit exceeded."));
             }
         }
