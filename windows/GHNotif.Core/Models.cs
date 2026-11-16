@@ -463,19 +463,29 @@ public static class QueryBuilder
         logins.Select(login => login.Trim().TrimStart('@'))
             .Where(login => login.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);
 
-    public static IEnumerable<(string Query, MatchReason Reason)> Searches(Config config)
+    public static IReadOnlyList<(string Query, MatchReason Reason)> Searches(Config config)
     {
-        foreach (var query in Build(config.Users, config.ExtraQualifiers, config.IncludeDrafts))
-            yield return (query, MatchReason.WatchedAuthor);
+        var branches = new ScopeParser(config.ExtraQualifiers).Parse().Branches()
+            .Select(branch => branch.Where(qualifier => qualifier.Length > 0).ToArray()).ToArray();
+        var result = new List<(string Query, MatchReason Reason)>();
+        static string AddScope(string query, string[] branch) =>
+            string.Join(" ", new[] { query }.Concat(branch)).Trim();
+        foreach (var query in Build(config.Users, "", config.IncludeDrafts))
+            foreach (var branch in branches)
+                result.Add((AddScope(query, branch), MatchReason.WatchedAuthor));
         var baseQualifiers = Base(config.IncludeDrafts);
         // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
-        string Viewer(string qualifiers) =>
-            $"{baseQualifiers} {qualifiers} {config.ExtraQualifiers.Trim()}".Trim();
-        if (config.IncludeMentions) yield return (Viewer("mentions:@me"), MatchReason.Mention);
-        if (config.IncludeReviewRequests) yield return (Viewer("user-review-requested:@me -author:@me"), MatchReason.ReviewRequested);
+        void AddViewer(string qualifiers, MatchReason reason)
+        {
+            var query = $"{baseQualifiers} {qualifiers}".Trim();
+            foreach (var branch in branches) result.Add((AddScope(query, branch), reason));
+        }
+        if (config.IncludeMentions) AddViewer("mentions:@me", MatchReason.Mention);
+        if (config.IncludeReviewRequests) AddViewer("user-review-requested:@me -author:@me", MatchReason.ReviewRequested);
         // `review-requested:@me` also matches personal requests; the personal reason wins when both apply.
         if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests)
-            yield return (Viewer("review-requested:@me -author:@me"), MatchReason.TeamReviewRequested);
+            AddViewer("review-requested:@me -author:@me", MatchReason.TeamReviewRequested);
+        return result;
     }
 
     public sealed record RepositorySearch(IReadOnlyList<string> Repositories, string Qualifiers, bool IncludeDrafts)
@@ -508,8 +518,8 @@ public static class QueryBuilder
         RepositorySearches(repositories, config, batchSize).Select(search => search.Query);
 
     private static InvalidOperationException InvalidScope() => new(L(
-        "Nieprawidłowy lub zbyt złożony zakres wyszukiwania commitów. Sprawdź cudzysłowy i operatory logiczne.",
-        "Invalid or overly complex watched-commit search scope. Check quotes and Boolean operators."));
+        "Nieprawidłowy lub zbyt złożony zakres wyszukiwania. Sprawdź cudzysłowy i operatory logiczne.",
+        "Invalid or overly complex search scope. Check quotes and Boolean operators."));
 
     private abstract record ScopeExpression
     {

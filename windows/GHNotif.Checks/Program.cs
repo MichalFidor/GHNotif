@@ -183,6 +183,29 @@ var searches = QueryBuilder.Searches(new Config { Users = ["a"], ExtraQualifiers
 Check(searches.Select(s => s.Reason).SequenceEqual([MatchReason.WatchedAuthor, MatchReason.Mention]),
     "Mentions on, review requests off by default");
 Check(searches[1].Query == "is:pr is:open draft:false mentions:@me org:x", "Mention query includes every author");
+var booleanSearches = QueryBuilder.Searches(new Config
+{
+    Users = ["a"], IncludeMentions = false, ExtraQualifiers = "(repo:acme/a OR repo:acme/b)"
+}).ToList();
+Check(booleanSearches.Select(search => search.Query).SequenceEqual([
+    "is:pr is:open draft:false author:a repo:acme/a",
+    "is:pr is:open draft:false author:a repo:acme/b"
+]), "Ordinary searches expand Boolean scopes into classic GitHub queries");
+var allBooleanSearches = QueryBuilder.Searches(new Config
+{
+    Users = ["a"], IncludeReviewRequests = true, IncludeTeamReviewRequests = true,
+    ExtraQualifiers = "org:acme OR org:other"
+});
+Check(allBooleanSearches.Select(search => search.Reason).SequenceEqual([
+    MatchReason.WatchedAuthor, MatchReason.WatchedAuthor, MatchReason.Mention, MatchReason.Mention,
+    MatchReason.ReviewRequested, MatchReason.ReviewRequested, MatchReason.TeamReviewRequested, MatchReason.TeamReviewRequested
+]) && allBooleanSearches.All(search => !search.Query.Contains(" OR ")),
+    "Boolean scope expands across author, mention, personal and team review searches");
+await ThrowsAsync<InvalidOperationException>(() =>
+{
+    QueryBuilder.Searches(new Config { Users = ["a"], ExtraQualifiers = "repo:acme/a OR" }).ToList();
+    return Task.CompletedTask;
+}, "Invalid Boolean scope fails before an ordinary search");
 Check(QueryBuilder.Searches(new Config { IncludeMentions = false, IncludeReviewRequests = true }).Single().Query ==
     "is:pr is:open draft:false user-review-requested:@me -author:@me", "Personal review request query");
 Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSearches, "HasSearches");
@@ -363,15 +386,22 @@ using var splitHttp = new HttpClient(new FakeHandler(async request =>
     var graphQL = body.RootElement.GetProperty("query").GetString()!;
     var query = body.RootElement.GetProperty("variables").GetProperty("q").GetString()!;
     splitBodies.Add(query);
+    if (query.Contains(" OR ") || query.Contains(" AND "))
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Page("", false)) };
     if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/a repo:acme/b")) return new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StringContent(Page("", false, issueCount: 1_201)) };
     if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/a")) return new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StringContent(Page(ScanNodeInRepository("dev-a", "dev", "acme/a", "tester"), false)) };
     if (graphQL.Contains("commitAuthors") && query.Contains("repo:acme/b")) return new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StringContent(Page(ScanNodeInRepository("dev-b", "dev", "acme/b", "tester"), false)) };
+    var scoped = query.Contains("repo:");
+    var seeds = new List<string>();
+    if (!scoped || query.Contains("repo:acme/a"))
+        seeds.Add(ScanNodeInRepository("own-a", "tester", "acme/a"));
+    if (!scoped || query.Contains("repo:acme/b"))
+        seeds.Add(ScanNodeInRepository("own-b", "tester", "acme/b"));
     return new HttpResponseMessage(HttpStatusCode.OK)
-        { Content = new StringContent(Page(ScanNodeInRepository("own-a", "tester", "acme/a") + "," +
-            ScanNodeInRepository("own-b", "tester", "acme/b"), false)) };
+        { Content = new StringContent(Page(string.Join(",", seeds), false)) };
 }));
 var splitConfig = new Config { Users = ["tester"], IncludeMentions = false };
 var splitResult = await new GitHubClient(splitHttp).SearchAsync(Credential("t"), splitConfig);
@@ -381,10 +411,14 @@ Check(splitBodies.Count == 4 && splitResult.PullRequests.Any(pr => pr.Id == "dev
 splitBodies.Clear();
 splitConfig.ExtraQualifiers = "(repo:acme/a OR repo:acme/b) AND label:\"needs repo:cleanup\"";
 var scopedSplitResult = await new GitHubClient(splitHttp).SearchAsync(Credential("t"), splitConfig);
-Check(splitBodies.Count == 4 && splitBodies.All(query => query.Contains("label:\"needs repo:cleanup\""))
-    && !splitBodies.Skip(1).Any(query => query.Contains(" OR ") || query.Contains(" AND "))
+Check(splitBodies.Count == 5 && splitBodies.All(query => query.Contains("label:\"needs repo:cleanup\""))
+    && !splitBodies.Any(query => query.Contains(" OR ") || query.Contains(" AND "))
+    && splitBodies.Take(2).SequenceEqual([
+        "is:pr is:open draft:false author:tester repo:acme/a label:\"needs repo:cleanup\"",
+        "is:pr is:open draft:false author:tester repo:acme/b label:\"needs repo:cleanup\""
+    ])
     && scopedSplitResult.PullRequests.Count == 4,
-    "Splitting an oversized Boolean scope preserves the quoted filter on every retry");
+    "Boolean discovery and oversized scan retries preserve the quoted filter without raw operators");
 splitConfig.ExtraQualifiers = "";
 
 var limitBodies = new List<string>();

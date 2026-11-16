@@ -43,31 +43,53 @@ do {
 
 do {
     let base = AppConfig(users: ["alice"], extraQualifiers: "org:acme")
-    check(SearchQueryBuilder.searches(for: base).map(\.reason) == [.watchedAuthor, .mention], "mentions on, review requests off by default")
-    check(SearchQueryBuilder.searches(for: base).last?.query == "is:pr is:open draft:false mentions:@me org:acme",
+    check(try SearchQueryBuilder.searches(for: base).map(\.reason) == [.watchedAuthor, .mention], "mentions on, review requests off by default")
+    check(try SearchQueryBuilder.searches(for: base).last?.query == "is:pr is:open draft:false mentions:@me org:acme",
           "mention query keeps scope and includes every author")
     var all = base
     all.includeReviewRequests = true
-    check(SearchQueryBuilder.searches(for: all).last?.query == "is:pr is:open draft:false user-review-requested:@me -author:@me org:acme",
+    check(try SearchQueryBuilder.searches(for: all).last?.query == "is:pr is:open draft:false user-review-requested:@me -author:@me org:acme",
           "review requests are personal only")
     var none = AppConfig(users: [])
     none.includeMentions = false
-    check(!none.hasSearches && SearchQueryBuilder.searches(for: none).isEmpty, "nothing to search")
+    let noSearches = try SearchQueryBuilder.searches(for: none)
+    check(!none.hasSearches && noSearches.isEmpty, "nothing to search")
     check(AppConfig(users: []).hasSearches, "mentions alone still search")
+    var booleanScope = AppConfig(users: ["alice"], extraQualifiers: "(repo:acme/a OR repo:acme/b)", includeMentions: false)
+    check(try SearchQueryBuilder.searches(for: booleanScope).map(\.query) == [
+        "is:pr is:open draft:false author:alice repo:acme/a",
+        "is:pr is:open draft:false author:alice repo:acme/b"
+    ], "ordinary searches expand Boolean scope into classic GitHub search queries")
+    booleanScope.extraQualifiers = "org:acme OR org:other"
+    booleanScope.includeMentions = true
+    booleanScope.includeReviewRequests = true
+    booleanScope.includeTeamReviewRequests = true
+    let expandedSearches = try SearchQueryBuilder.searches(for: booleanScope)
+    check(expandedSearches.map(\.reason) == [
+        .watchedAuthor, .watchedAuthor, .mention, .mention, .reviewRequested, .reviewRequested,
+        .teamReviewRequested, .teamReviewRequested
+    ] && expandedSearches.allSatisfy { !$0.query.contains(" OR ") }
+        && expandedSearches.suffix(2).allSatisfy { $0.query.contains("review-requested:@me") },
+        "Boolean scope expands consistently across author, mention, personal and team review searches")
+    booleanScope.extraQualifiers = "repo:acme/a OR"
+    do {
+        _ = try SearchQueryBuilder.searches(for: booleanScope)
+        check(false, "invalid Boolean scope must fail before an ordinary search")
+    } catch {}
 }
 
 do {
     var config = AppConfig(users: ["alice"], extraQualifiers: "org:acme", includeMentions: false)
     config.includeTeamReviewRequests = true
-    check(SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor],
+    check(try SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor],
           "team review requests need personal review requests enabled")
     config.includeReviewRequests = true
-    check(SearchQueryBuilder.searches(for: config).map(\.query).last == "is:pr is:open draft:false review-requested:@me -author:@me org:acme",
+    check(try SearchQueryBuilder.searches(for: config).map(\.query).last == "is:pr is:open draft:false review-requested:@me -author:@me org:acme",
           "team review query matches requests to the user's teams")
-    check(SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor, .reviewRequested, .teamReviewRequested],
+    check(try SearchQueryBuilder.searches(for: config).map(\.reason) == [.watchedAuthor, .reviewRequested, .teamReviewRequested],
           "personal and team review searches both run")
     config.includeDrafts = true
-    check(SearchQueryBuilder.searches(for: config).allSatisfy { $0.query.hasPrefix("is:pr is:open ") && !$0.query.contains("draft:") },
+    check(try SearchQueryBuilder.searches(for: config).allSatisfy { $0.query.hasPrefix("is:pr is:open ") && !$0.query.contains("draft:") },
           "drafts setting drops draft:false from every query")
 }
 
@@ -705,6 +727,9 @@ do {
         let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
         let query = ((request["variables"] as! [String: Any])["q"] as! String)
         let isCommitScan = (request["query"] as! String).contains("commitAuthors")
+        if query.contains(" OR ") || query.contains(" AND ") {
+            return page([])
+        }
         if isCommitScan, query.contains("repo:acme/a repo:acme/b") {
             return page([], issueCount: 1_200)
         }
@@ -714,8 +739,15 @@ do {
         if isCommitScan, query.contains("repo:acme/b") {
             return page([node("DEV-B", author: "dev", commits: ["tester"], repository: "acme/b")])
         }
-        return page([node("OWN-A", author: "tester", commits: [], repository: "acme/a"),
-                     node("OWN-B", author: "tester", commits: [], repository: "acme/b")])
+        let scoped = query.contains("repo:")
+        var seeds: [String] = []
+        if !scoped || query.contains("repo:acme/a") {
+            seeds.append(node("OWN-A", author: "tester", commits: [], repository: "acme/a"))
+        }
+        if !scoped || query.contains("repo:acme/b") {
+            seeds.append(node("OWN-B", author: "tester", commits: [], repository: "acme/b"))
+        }
+        return page(seeds)
     }
     let splitScan = try await client.searchPullRequests(config: config)
     check(MockGraphQL.bodies.count == 4 && splitScan.pullRequests.contains { $0.id == "DEV-A" }
@@ -729,10 +761,14 @@ do {
         let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
         return ((request["variables"] as! [String: Any])["q"] as! String)
     }
-    check(retryQueries.count == 4 && retryQueries.allSatisfy { $0.contains(#"label:"needs repo:cleanup""#) }
-            && retryQueries.dropFirst().allSatisfy { !$0.contains(" OR ") && !$0.contains(" AND ") }
+    check(retryQueries.count == 5 && retryQueries.allSatisfy { $0.contains(#"label:"needs repo:cleanup""#) }
+            && retryQueries.allSatisfy { !$0.contains(" OR ") && !$0.contains(" AND ") }
+            && Set(retryQueries.prefix(2)) == [
+                #"is:pr is:open draft:false author:tester repo:acme/a label:"needs repo:cleanup""#,
+                #"is:pr is:open draft:false author:tester repo:acme/b label:"needs repo:cleanup""#
+            ]
             && scopedSplitScan.pullRequests.count == 4,
-          "splitting an oversized Boolean scope preserves the quoted filter on every retry")
+          "Boolean discovery and oversized scan retries preserve the quoted filter without raw operators")
     config.extraQualifiers = ""
 
     MockGraphQL.bodies = []

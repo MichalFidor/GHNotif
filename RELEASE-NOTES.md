@@ -3,6 +3,7 @@
 - PRs by other authors can now appear when someone you watch authored one of their last 50 commits, e.g. when a QA engineer adds tests to a developer's PR. This is enabled by default and can be turned off in Search settings.
 - To find these PRs, GHNotif scans open PRs in repositories already found by the other searches, excluding repositories you've excluded. PRs in other repositories are not discovered this way. The scan matches commit authors, not pushers, and adds GraphQL requests per repository batch and search page.
 - Searches on macOS cover up to 1,000 results. Repository scans preserve quoted filter values and Boolean alternatives while staying within discovered repositories.
+- Boolean scope filters also work in the initial author, mention and review-request searches, so repository discovery can seed the watched-commit scan.
 
 # GHNotif 0.7.7
 

@@ -37,7 +37,7 @@ public struct GitHubClient: Sendable {
     }
 
     public func searchPullRequests(config: AppConfig) async throws -> SearchOutcome {
-        let searches = SearchQueryBuilder.searches(for: config)
+        let searches = try SearchQueryBuilder.searches(for: config)
         let outcomes = try await withThrowingTaskGroup(of: (SearchOutcome, MatchReason).self) { group in
             for item in searches {
                 group.addTask { (try await search(query: item.query), item.reason) }

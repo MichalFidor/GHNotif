@@ -27,23 +27,34 @@ public enum SearchQueryBuilder {
     }
 
     /// All searches for a config, tagged with why a matching PR is shown.
-    public static func searches(for config: AppConfig, batchSize: Int = 10) -> [(query: String, reason: MatchReason)] {
-        var result = queries(
-            authors: config.users, extraQualifiers: config.extraQualifiers, batchSize: batchSize,
-            includeDrafts: config.includeDrafts
-        ).map { (query: $0, reason: MatchReason.watchedAuthor) }
+    public static func searches(for config: AppConfig, batchSize: Int = 10) throws -> [(query: String, reason: MatchReason)] {
         let extra = config.extraQualifiers.trimmingCharacters(in: .whitespacesAndNewlines)
-        func viewerQuery(_ qualifiers: String...) -> String {
-            ([base(includeDrafts: config.includeDrafts)] + qualifiers + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+        var parser = try ScopeParser(extra)
+        let branches = try parser.parse().branches().map { $0.filter { !$0.isEmpty } }
+        func searchQueries(_ qualifiers: [String]) -> [String] {
+            branches.map { branch in
+                ([base(includeDrafts: config.includeDrafts)] + qualifiers + branch).joined(separator: " ")
+            }
+        }
+        var result: [(query: String, reason: MatchReason)] = []
+        let cleaned = normalize(config.users)
+        let size = max(1, batchSize)
+        for start in stride(from: 0, to: cleaned.count, by: size) {
+            let batch = cleaned[start..<min(start + size, cleaned.count)]
+            result += searchQueries(batch.map { "author:\($0)" }).map { (query: $0, reason: .watchedAuthor) }
         }
         // Mentions match any author, including the user; GitHub can't request a review from a PR's own author.
-        if config.includeMentions { result.append((viewerQuery("mentions:@me"), .mention)) }
+        if config.includeMentions {
+            result += searchQueries(["mentions:@me"]).map { (query: $0, reason: .mention) }
+        }
         if config.includeReviewRequests {
-            result.append((viewerQuery("user-review-requested:@me", "-author:@me"), .reviewRequested))
+            result += searchQueries(["user-review-requested:@me", "-author:@me"])
+                .map { (query: $0, reason: .reviewRequested) }
         }
         // `review-requested:@me` also matches personal requests; the personal reason wins when both apply.
         if config.includeReviewRequests && config.includeTeamReviewRequests {
-            result.append((viewerQuery("review-requested:@me", "-author:@me"), .teamReviewRequested))
+            result += searchQueries(["review-requested:@me", "-author:@me"])
+                .map { (query: $0, reason: .teamReviewRequested) }
         }
         return result
     }
@@ -101,8 +112,8 @@ public enum SearchQueryBuilder {
     }
 
     private static var invalidScope: GitHubError {
-        .graphQL(L("Nieprawidłowy lub zbyt złożony zakres wyszukiwania commitów. Sprawdź cudzysłowy i operatory logiczne.",
-                   "Invalid or overly complex watched-commit search scope. Check quotes and Boolean operators."))
+        .graphQL(L("Nieprawidłowy lub zbyt złożony zakres wyszukiwania. Sprawdź cudzysłowy i operatory logiczne.",
+                   "Invalid or overly complex search scope. Check quotes and Boolean operators."))
     }
 
     private indirect enum ScopeExpression {
