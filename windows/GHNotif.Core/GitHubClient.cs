@@ -68,8 +68,8 @@ public sealed class GitHubClient(HttpClient http)
             var scanned = new List<(PullRequest Pr, List<string> CommitAuthors)>();
             var repositories = RepositoriesToScan(prs.Values, config.ExcludedRepositories);
             var scanQuery = SearchQuery.Replace("PR_FIELDS", CommitAuthorsField + "\n" + PullRequestFields);
-            foreach (var batch in QueryBuilder.RepositoryBatches(repositories, config))
-                await ScanRepositoriesAsync(credential, batch, config, scanQuery, blocked, scanned, ct);
+            foreach (var search in QueryBuilder.RepositorySearches(repositories, config))
+                await ScanRepositoriesAsync(credential, search, scanQuery, blocked, scanned, ct);
             AddWatchedCommitters(prs, scanned, config.Users);
         }
         var filtered = prs.Values.Where(config.Includes).ToList();
@@ -99,24 +99,25 @@ public sealed class GitHubClient(HttpClient http)
     }
 
     /// Scans a repository batch; oversized batches are divided until each query fits GitHub's 1,000-result limit.
-    private async Task ScanRepositoriesAsync(GitHubCredential credential, IReadOnlyList<string> repositories, Config config,
+    private async Task ScanRepositoriesAsync(GitHubCredential credential, QueryBuilder.RepositorySearch search,
         string graphQL, HashSet<string> blocked, List<(PullRequest Pr, List<string> CommitAuthors)> scanned,
         CancellationToken ct)
     {
         try
         {
-            await SearchPagesAsync(credential, QueryBuilder.RepositoryQuery(repositories, config), graphQL, blocked,
+            await SearchPagesAsync(credential, search.Query, graphQL, blocked,
                 node => scanned.Add((ParsePullRequest(node), CommitAuthors(node))), ct);
         }
         catch (SearchResultLimitException)
         {
+            var repositories = search.Repositories;
             if (repositories.Count == 1)
                 throw new InvalidOperationException(L(
                     $"Repozytorium {repositories[0]} ma ponad 1000 otwartych PR-ów i nie może zostać w całości przeskanowane. Zawęź kwalifikatory lub wyłącz wyszukiwanie commitów obserwowanych.",
                     $"Repository {repositories[0]} has over 1,000 open PRs and cannot be fully scanned. Narrow the qualifiers or turn off watched-commit search."));
             var middle = repositories.Count / 2;
-            await ScanRepositoriesAsync(credential, repositories.Take(middle).ToArray(), config, graphQL, blocked, scanned, ct);
-            await ScanRepositoriesAsync(credential, repositories.Skip(middle).ToArray(), config, graphQL, blocked, scanned, ct);
+            await ScanRepositoriesAsync(credential, search with { Repositories = repositories.Take(middle).ToArray() }, graphQL, blocked, scanned, ct);
+            await ScanRepositoriesAsync(credential, search with { Repositories = repositories.Skip(middle).ToArray() }, graphQL, blocked, scanned, ct);
         }
     }
 

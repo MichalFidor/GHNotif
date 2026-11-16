@@ -74,22 +74,51 @@ do {
 do {
     var config = AppConfig(users: ["tester"], extraQualifiers: "org:acme")
     let repos = (1...7).map { "acme/r\($0)" }
-    let queries = SearchQueryBuilder.repositoryQueries(repositories: repos, config: config)
+    let queries = try SearchQueryBuilder.repositoryQueries(repositories: repos, config: config)
     check(queries.count == 2 && queries[1] == "is:pr is:open draft:false repo:acme/r6 repo:acme/r7 org:acme",
           "repository scan queries are batched and keep scope")
     check(queries.allSatisfy { $0.count <= 256 }, "repository scan queries fit the search length limit")
     config.includeDrafts = true
-    check(SearchQueryBuilder.repositoryQueries(repositories: ["a/b"], config: config) == ["is:pr is:open repo:a/b org:acme"],
+    check(try SearchQueryBuilder.repositoryQueries(repositories: ["a/b"], config: config) == ["is:pr is:open repo:a/b org:acme"],
           "repository scan follows the drafts setting")
     config.extraQualifiers = "repo:acme/r1 repo:acme/r2 org:acme"
-    check(SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2", "acme/r3"], config: config)
+    check(try SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2", "acme/r3"], config: config)
             == ["is:pr is:open repo:acme/r1 repo:acme/r2 org:acme"],
           "positive repo qualifiers narrow the scan and are not appended to widen it")
     config.extraQualifiers = "repo:acme/r2 org:acme"
-    check(SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2"], config: config)
+    check(try SearchQueryBuilder.repositoryQueries(repositories: ["acme/r1", "acme/r2"], config: config)
             == ["is:pr is:open repo:acme/r2 org:acme"],
           "explicit repo qualifier scans only discovered repositories in its scope")
     check(AppConfig(users: []).includeWatchedCommits, "commits by watched people are on by default")
+    let scopeCases: [(String, [String])] = [
+        (#"label:"needs repo:cleanup""#, [#"repo:acme/a repo:acme/b repo:acme/c label:"needs repo:cleanup""#]),
+        (#"label:"needs \"repo:cleanup\" (OR)""#, [#"repo:acme/a repo:acme/b repo:acme/c label:"needs \"repo:cleanup\" (OR)""#]),
+        (#"repo:"ACME/A" org:acme"#, ["repo:acme/a org:acme"]),
+        ("repo:acme/a OR repo:acme/b", ["repo:acme/a repo:acme/b"]),
+        ("(repo:acme/a OR repo:acme/b) AND label:ready", ["repo:acme/a repo:acme/b label:ready"]),
+        ("repo:acme/a label:ready OR repo:acme/b label:bug", ["repo:acme/a label:ready", "repo:acme/b label:bug"]),
+        ("repo:acme/a OR label:bug", ["repo:acme/a", "repo:acme/a repo:acme/b repo:acme/c label:bug"]),
+        ("(repo:acme/a OR repo:acme/b) AND repo:acme/a", ["repo:acme/a"]),
+        ("repo:acme/missing OR repo:acme/b -repo:acme/c", ["repo:acme/b -repo:acme/c"]),
+        ("NOT (repo:acme/b OR repo:acme/c)", ["repo:acme/a repo:acme/b repo:acme/c -repo:acme/b -repo:acme/c"])
+    ]
+    for (scope, expected) in scopeCases {
+        config.extraQualifiers = scope
+        let actual = try SearchQueryBuilder.repositoryQueries(repositories: ["acme/a", "acme/b", "acme/c"], config: config)
+        check(actual == expected.map { "is:pr is:open " + $0 }, "quote/Boolean scope retains repository boundaries: \(scope)")
+    }
+    for scope in [#"label:"unterminated"#, "repo:acme/a OR", "(repo:acme/a", "repo:acme/a AND )",
+                  (1...6).map { "(label:a\($0) OR label:b\($0))" }.joined(separator: " AND ")] {
+        config.extraQualifiers = scope
+        do {
+            _ = try SearchQueryBuilder.repositoryQueries(repositories: ["acme/a"], config: config)
+            check(false, "invalid or overly complex scope must be reported: \(scope)")
+        } catch let error as GitHubError {
+            check(error.localizedDescription.contains("zakres"), "scope error is shown to the user")
+        }
+    }
+} catch {
+    check(false, "repository scope checks threw \(error)")
 }
 
 // MARK: GitHubHost
@@ -694,6 +723,19 @@ do {
           "oversized repository batches are split and scanned without dropping PRs")
 
     MockGraphQL.bodies = []
+    config.extraQualifiers = #"(repo:acme/a OR repo:acme/b) AND label:"needs repo:cleanup""#
+    let scopedSplitScan = try await client.searchPullRequests(config: config)
+    let retryQueries = MockGraphQL.bodies.map { body -> String in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        return ((request["variables"] as! [String: Any])["q"] as! String)
+    }
+    check(retryQueries.count == 4 && retryQueries.allSatisfy { $0.contains(#"label:"needs repo:cleanup""#) }
+            && retryQueries.dropFirst().allSatisfy { !$0.contains(" OR ") && !$0.contains(" AND ") }
+            && scopedSplitScan.pullRequests.count == 4,
+          "splitting an oversized Boolean scope preserves the quoted filter on every retry")
+    config.extraQualifiers = ""
+
+    MockGraphQL.bodies = []
     MockGraphQL.respond = { body in
         let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
         let variables = request["variables"] as! [String: Any]
@@ -711,6 +753,25 @@ do {
           "macOS scans all 12 pages needed to reach 600 PRs")
 
     MockGraphQL.bodies = []
+    config.includeWatchedCommits = false
+    MockGraphQL.respond = { body in
+        let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
+        let variables = request["variables"] as! [String: Any]
+        let pageNumber = (variables["after"] as? String).flatMap(Int.init) ?? 0
+        let nodes = (0..<50).map {
+            node("PR-\(pageNumber * 50 + $0)", author: "tester", commits: [])
+        }
+        return page(nodes, issueCount: 1_000, hasNextPage: pageNumber < 19, endCursor: String(pageNumber + 1))
+    }
+    let ordinarySearch = try await client.searchPullRequests(config: config)
+    check(MockGraphQL.bodies.count == 20 && ordinarySearch.pullRequests.count == 1_000
+            && ordinarySearch.pullRequests.contains { $0.id == "PR-999" },
+          "ordinary search reaches all 1,000 results across 20 pages with watched-commit scanning disabled")
+    check(ordinarySearch.pullRequests.allSatisfy { $0.reasons == [.watchedAuthor] },
+          "paginated ordinary search preserves its match reason")
+
+    MockGraphQL.bodies = []
+    config.includeWatchedCommits = true
     MockGraphQL.respond = { body in
         let request = try! JSONSerialization.jsonObject(with: Data(body.utf8)) as! [String: Any]
         return (request["query"] as! String).contains("commitAuthors")

@@ -48,8 +48,8 @@ public struct GitHubClient: Sendable {
         if config.includeWatchedCommits, !config.users.isEmpty {
             let repositories = Self.repositoriesToScan(merged.pullRequests, excluding: config.excludedRepositories)
             var scans: [PageResults] = []
-            for batch in SearchQueryBuilder.repositoryBatches(repositories: repositories, config: config) {
-                scans.append(contentsOf: try await scanRepositories(batch, config: config))
+            for search in try SearchQueryBuilder.repositorySearches(repositories: repositories, config: config) {
+                scans.append(contentsOf: try await scanRepositories(search))
             }
             merged = Self.addingWatchedCommitters(
                 to: merged, scanned: scans.flatMap(\.pullRequests), commitAuthors: scans.reduce(into: [:]) {
@@ -113,7 +113,7 @@ public struct GitHubClient: Sendable {
         )
     }
 
-    public func search(query: String, maxPages: Int = 10) async throws -> SearchOutcome {
+    public func search(query: String, maxPages: Int = 20) async throws -> SearchOutcome {
         let pages = try await fetchPages(query: query, graphQL: Self.searchQuery, maxPages: maxPages)
         return SearchOutcome(pullRequests: pages.pullRequests, ssoBlockedOrgIDs: pages.ssoBlockedOrgIDs, viewerLogin: pages.viewerLogin)
     }
@@ -129,12 +129,12 @@ public struct GitHubClient: Sendable {
         let issueCount: Int
     }
 
-    private func scanRepositories(_ repositories: [String], config: AppConfig) async throws -> [PageResults] {
-        let query = SearchQueryBuilder.repositoryQuery(repositories, config: config)
+    private func scanRepositories(_ search: SearchQueryBuilder.RepositorySearch) async throws -> [PageResults] {
         do {
-            return [try await fetchPages(query: query, graphQL: Self.commitScanQuery, maxPages: 20,
+            return [try await fetchPages(query: search.query, graphQL: Self.commitScanQuery, maxPages: 20,
                                          maximumIssueCount: 1_000)]
         } catch let limit as SearchResultLimit {
+            let repositories = search.repositories
             guard repositories.count > 1 else {
                 throw GitHubError.graphQL(L(
                     "Repozytorium \(repositories[0]) ma ponad \(limit.issueCount) otwartych PR-ów i nie może zostać w całości przeskanowane. Zawęź kwalifikatory lub wyłącz wyszukiwanie commitów obserwowanych.",
@@ -142,14 +142,18 @@ public struct GitHubClient: Sendable {
                 ))
             }
             let middle = repositories.count / 2
-            let firstHalf = try await scanRepositories(Array(repositories[..<middle]), config: config)
-            let secondHalf = try await scanRepositories(Array(repositories[middle...]), config: config)
+            var firstSearch = search
+            firstSearch.repositories = Array(repositories[..<middle])
+            var secondSearch = search
+            secondSearch.repositories = Array(repositories[middle...])
+            let firstHalf = try await scanRepositories(firstSearch)
+            let secondHalf = try await scanRepositories(secondSearch)
             return firstHalf + secondHalf
         }
     }
 
     private func fetchPages(
-        query: String, graphQL: String, maxPages: Int = 10, maximumIssueCount: Int? = nil
+        query: String, graphQL: String, maxPages: Int = 20, maximumIssueCount: Int? = nil
     ) async throws -> PageResults {
         var cursor: String?
         var results = PageResults()

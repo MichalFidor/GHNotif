@@ -199,6 +199,29 @@ Check(restrictedRepoQueries.SequenceEqual(["is:pr is:open draft:false repo:acme/
     "Positive repo qualifiers narrow the scan and are not appended to widen it");
 Check(QueryBuilder.RepositoryQueries(["acme/a", "acme/b"], new Config { ExtraQualifiers = "repo:acme/b" })
     .SequenceEqual(["is:pr is:open draft:false repo:acme/b"]), "Explicit repo qualifier scans only discovered repositories in its scope");
+var scopeCases = new (string Scope, string[] Expected)[]
+{
+    ("label:\"needs repo:cleanup\"", ["repo:acme/a repo:acme/b repo:acme/c label:\"needs repo:cleanup\""]),
+    ("label:\"needs \\\"repo:cleanup\\\" (OR)\"", ["repo:acme/a repo:acme/b repo:acme/c label:\"needs \\\"repo:cleanup\\\" (OR)\""]),
+    ("""repo:"ACME/A" org:acme""", ["repo:acme/a org:acme"]),
+    ("repo:acme/a OR repo:acme/b", ["repo:acme/a repo:acme/b"]),
+    ("(repo:acme/a OR repo:acme/b) AND label:ready", ["repo:acme/a repo:acme/b label:ready"]),
+    ("repo:acme/a label:ready OR repo:acme/b label:bug", ["repo:acme/a label:ready", "repo:acme/b label:bug"]),
+    ("repo:acme/a OR label:bug", ["repo:acme/a", "repo:acme/a repo:acme/b repo:acme/c label:bug"]),
+    ("(repo:acme/a OR repo:acme/b) AND repo:acme/a", ["repo:acme/a"]),
+    ("repo:acme/missing OR repo:acme/b -repo:acme/c", ["repo:acme/b -repo:acme/c"]),
+    ("NOT (repo:acme/b OR repo:acme/c)", ["repo:acme/a repo:acme/b repo:acme/c -repo:acme/b -repo:acme/c"])
+};
+foreach (var (scope, expected) in scopeCases)
+    Check(QueryBuilder.RepositoryQueries(["acme/a", "acme/b", "acme/c"], new Config { ExtraQualifiers = scope, IncludeDrafts = true })
+        .SequenceEqual(expected.Select(query => "is:pr is:open " + query)), $"Quote/Boolean scope retains repository boundaries: {scope}");
+foreach (var scope in new[] { "label:\"unterminated", "repo:acme/a OR", "(repo:acme/a", "repo:acme/a AND )",
+    string.Join(" AND ", Enumerable.Range(1, 6).Select(i => $"(label:a{i} OR label:b{i})")) })
+    await ThrowsAsync<InvalidOperationException>(() =>
+    {
+        QueryBuilder.RepositoryQueries(["acme/a"], new Config { ExtraQualifiers = scope }).ToList();
+        return Task.CompletedTask;
+    }, $"Invalid or overly complex scope must be reported: {scope}");
 Check(GitHubClient.RepositoriesToScan([parsedPrForScan("o/b"), parsedPrForScan("o/a"), parsedPrForScan("o/b"), parsedPrForScan("x/skip")], ["X/SKIP"])
     .SequenceEqual(["o/a", "o/b"]), "Scanned repositories are unique, sorted and skip exclusions");
 PullRequest parsedPrForScan(string repository) => new("id", 1, "t", "u", repository, "dev", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, null);
@@ -355,6 +378,14 @@ var splitResult = await new GitHubClient(splitHttp).SearchAsync(Credential("t"),
 Check(splitBodies.Count == 4 && splitResult.PullRequests.Any(pr => pr.Id == "dev-a")
     && splitResult.PullRequests.Any(pr => pr.Id == "dev-b"),
     "Oversized repository batches are split and scanned without dropping PRs");
+splitBodies.Clear();
+splitConfig.ExtraQualifiers = "(repo:acme/a OR repo:acme/b) AND label:\"needs repo:cleanup\"";
+var scopedSplitResult = await new GitHubClient(splitHttp).SearchAsync(Credential("t"), splitConfig);
+Check(splitBodies.Count == 4 && splitBodies.All(query => query.Contains("label:\"needs repo:cleanup\""))
+    && !splitBodies.Skip(1).Any(query => query.Contains(" OR ") || query.Contains(" AND "))
+    && scopedSplitResult.PullRequests.Count == 4,
+    "Splitting an oversized Boolean scope preserves the quoted filter on every retry");
+splitConfig.ExtraQualifiers = "";
 
 var limitBodies = new List<string>();
 using var limitHttp = new HttpClient(new FakeHandler(async request =>

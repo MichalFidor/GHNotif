@@ -146,6 +146,8 @@ Mentions include PRs by any author (including your own). Extra scope qualifiers 
 
 GitHub search can't filter PRs by commit author, so commits by watched people are found by scanning open PRs (the last 50 commits of each) in the repositories that are already on the list from the other searches, minus excluded repositories. A PR in a repository where nobody you watch has an open PR, mention or review request won't be found. The commit author is matched, not the person who pushed, and each scanned repository batch costs extra GraphQL requests. Oversized batches are split to stay within GitHub's 1,000-result search limit; if one repository alone exceeds that limit, GHNotif reports that it could not scan it completely.
 
+Repository-scope processing preserves quoted values such as `label:"needs repo:cleanup"` and handles Boolean alternatives without leaving dangling operators. Alternatives with different filters use separate scans, always limited to discovered repositories. Scope expansion is limited to 32 branches; invalid or more complex scopes are reported rather than silently broadened. Ordinary macOS searches also fetch up to 1,000 results (20 pages of 50).
+
 The configuration is stored in `~/Library/Application Support/GHNotif/config.json`.
 On Windows: `%LOCALAPPDATA%/GHNotif/config.json`; dismissed, snoozed and seen PRs and collapsed repositories are kept in `state.json`, and the encrypted PAT in `token.dat`. Don't add these files to a repository and don't share your token.
 Settings are independent per platform and are not synchronized.
