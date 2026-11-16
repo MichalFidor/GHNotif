@@ -48,6 +48,18 @@ public enum SearchQueryBuilder {
         return result
     }
 
+    /// Searches for open PRs in the given repositories, used to find commits by watched users on other people's PRs.
+    /// Small batches keep each query below GitHub's 256-character search limit.
+    public static func repositoryQueries(repositories: [String], config: AppConfig, batchSize: Int = 5) -> [String] {
+        let extra = config.extraQualifiers.trimmingCharacters(in: .whitespacesAndNewlines)
+        let size = max(1, batchSize)
+        return stride(from: 0, to: repositories.count, by: size).map { start in
+            ([base(includeDrafts: config.includeDrafts)]
+                + repositories[start..<min(start + size, repositories.count)].map { "repo:\($0)" }
+                + (extra.isEmpty ? [] : [extra])).joined(separator: " ")
+        }
+    }
+
     /// Trims, strips a leading `@`, and removes case-insensitive duplicates while preserving order.
     public static func normalize(_ logins: [String]) -> [String] {
         var seen = Set<String>()

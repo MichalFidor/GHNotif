@@ -71,6 +71,19 @@ do {
           "drafts setting drops draft:false from every query")
 }
 
+do {
+    var config = AppConfig(users: ["tester"], extraQualifiers: "org:acme")
+    let repos = (1...7).map { "acme/r\($0)" }
+    let queries = SearchQueryBuilder.repositoryQueries(repositories: repos, config: config)
+    check(queries.count == 2 && queries[1] == "is:pr is:open draft:false repo:acme/r6 repo:acme/r7 org:acme",
+          "repository scan queries are batched and keep scope")
+    check(queries.allSatisfy { $0.count <= 256 }, "repository scan queries fit the search length limit")
+    config.includeDrafts = true
+    check(SearchQueryBuilder.repositoryQueries(repositories: ["a/b"], config: config) == ["is:pr is:open repo:a/b org:acme"],
+          "repository scan follows the drafts setting")
+    check(AppConfig(users: []).includeWatchedCommits, "commits by watched people are on by default")
+}
+
 // MARK: GitHubHost
 
 do {
@@ -296,6 +309,30 @@ do {
     check(!personal.isTeamReviewRequestOnly && team.isTeamReviewRequestOnly, "personal review request wins over team")
     check(PullRequestAlert.new(team).details == ["◉ Prośba o review do Twojego zespołu"], "team review alert text")
     check(merged.ssoBlockedOrgIDs == ["1", "2"] && merged.viewerLogin == "me", "SSO and viewer merged")
+}
+
+do {
+    func pr(_ id: String, repository: String = "o/r", author: String = "dev") -> PullRequest {
+        PullRequest(id: id, number: 1, title: "t", url: URL(string: "https://github.com/\(repository)/pull/1")!, repository: repository,
+                    author: author, authorAvatarURL: nil, createdAt: Date(), updatedAt: Date(), reviewDecision: nil, checks: nil)
+    }
+    check(GitHubClient.repositoriesToScan([pr("A", repository: "o/b"), pr("B", repository: "o/a"), pr("C", repository: "o/b"),
+                                           pr("D", repository: "x/skip")], excluding: ["X/SKIP"]) == ["o/a", "o/b"],
+          "scanned repositories are unique, sorted and skip exclusions")
+    var mentioned = pr("M")
+    mentioned.reasons = [.mention]
+    let outcome = GitHubClient.addingWatchedCommitters(
+        to: SearchOutcome(pullRequests: [mentioned, pr("W", author: "tester")], ssoBlockedOrgIDs: ["1"], viewerLogin: "me"),
+        scanned: [mentioned, pr("W", author: "tester"), pr("N"), pr("X")],
+        commitAuthors: ["M": ["dev", "Tester"], "W": ["tester"], "N": ["dev", "tester"], "X": ["dev", "someone"]],
+        watched: ["TESTER"], ssoBlockedOrgIDs: ["2"]
+    )
+    let reasons = Dictionary(uniqueKeysWithValues: outcome.pullRequests.map { ($0.id, $0.reasons) })
+    check(reasons == ["M": [.mention, .watchedCommitter], "W": [.watchedAuthor], "N": [.watchedCommitter]],
+          "watched commits on other people's PRs add a reason; own commits and unrelated PRs are ignored")
+    check(outcome.ssoBlockedOrgIDs == ["1", "2"] && outcome.viewerLogin == "me", "scan keeps SSO and viewer")
+    check(PullRequestAlert.new(outcome.pullRequests.first { $0.id == "N" }!).details
+            == ["+ Commity obserwowanej osoby w PR-ze od dev"], "watched commit alert text")
 }
 
 // MARK: Dismissal reactivation
@@ -539,6 +576,66 @@ do {
     check(try JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(config)) == config, "notification preferences round trip")
     check(try JSONDecoder().decode(AppConfig.self, from: Data(#"{"users":[]}"#.utf8)).notifications == NotificationPreferences(),
           "old configs get default notification preferences")
+}
+
+// MARK: Watched commits end to end
+
+final class MockGraphQL: URLProtocol {
+    nonisolated(unsafe) static var bodies: [String] = []
+    nonisolated(unsafe) static var respond: (String) -> String = { _ in "{}" }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let body = request.httpBodyStream.map { stream -> String in
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+            return String(decoding: data, as: UTF8.self)
+        } ?? String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+        Self.bodies.append(body)
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(Self.respond(body).utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+do {
+    func node(_ id: String, author: String, commits: [String]) -> String {
+        let authors = commits.map { #"{"commit":{"author":{"user":{"login":"\#($0)"}}}}"# }.joined(separator: ",")
+        return #"{"id":"\#(id)","number":1,"title":"t","url":"https://github.com/acme/app/pull/1","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","reviewDecision":null,"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"acme/app"},"commitAuthors":{"nodes":[\#(authors)]}}"#
+    }
+    func page(_ nodes: [String]) -> String {
+        #"{"data":{"viewer":{"login":"me"},"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+    }
+    MockGraphQL.respond = { body in
+        body.contains("repo:acme\\/app") || body.contains("repo:acme/app")
+            ? page([node("OWN", author: "tester", commits: ["tester"]), node("DEV", author: "dev", commits: ["dev", "tester"]),
+                    node("OTHER", author: "dev", commits: ["dev"])])
+            : page([node("OWN", author: "tester", commits: [])])
+    }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MockGraphQL.self]
+    let client = GitHubClient(token: "t", session: URLSession(configuration: configuration))
+    var config = AppConfig(users: ["tester"], includeMentions: false)
+    let result = try await client.searchPullRequests(config: config)
+    let reasons = Dictionary(uniqueKeysWithValues: result.pullRequests.map { ($0.id, $0.reasons) })
+    check(reasons == ["OWN": [.watchedAuthor], "DEV": [.watchedCommitter]], "watched tester's commits surface the dev's PR")
+    check(MockGraphQL.bodies.count == 2 && MockGraphQL.bodies.contains { $0.contains("commitAuthors") },
+          "one author search and one repository scan")
+    MockGraphQL.bodies = []
+    config.includeWatchedCommits = false
+    let withoutScan = try await client.searchPullRequests(config: config)
+    check(withoutScan.pullRequests.map(\.id) == ["OWN"] && MockGraphQL.bodies.count == 1, "scan is skipped when the option is off")
+} catch {
+    check(false, "watched commit search threw \(error)")
 }
 
 if failures > 0 {

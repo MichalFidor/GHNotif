@@ -20,6 +20,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var includeTeamReviewRequests: Bool
     /// Show draft PRs too; by default searches use `draft:false`.
     public var includeDrafts: Bool
+    /// Also show open PRs by other authors that contain commits by watched users, e.g. tests added by a QA engineer.
+    /// Only repositories already present in the other results are scanned.
+    public var includeWatchedCommits: Bool
     /// Hide PRs whose review decision is already "approved".
     public var hideApproved: Bool
     /// PRs open longer than this many days are highlighted; 0 turns it off.
@@ -37,7 +40,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public init(
         users: [String], extraQualifiers: String = "", refreshMinutes: Int = 5, notify: Bool = true,
         includeMentions: Bool = true, includeReviewRequests: Bool = false, includeTeamReviewRequests: Bool = false,
-        includeDrafts: Bool = false, hideApproved: Bool = false, staleAfterDays: Int = 7,
+        includeDrafts: Bool = false, includeWatchedCommits: Bool = true, hideApproved: Bool = false, staleAfterDays: Int = 7,
         host: String = GitHubHost.dotCom, autoDismissReviewed: Bool = true,
         excludedRepositories: [String] = [], excludedLabels: [String] = [], sortOrder: SortOrder = .recentlyUpdated,
         reviewReminder: ReviewReminderSettings = ReviewReminderSettings(), language: AppLanguage = .system,
@@ -51,6 +54,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.includeReviewRequests = includeReviewRequests
         self.includeTeamReviewRequests = includeTeamReviewRequests
         self.includeDrafts = includeDrafts
+        self.includeWatchedCommits = includeWatchedCommits
         self.hideApproved = hideApproved
         self.staleAfterDays = staleAfterDays
         self.host = host
@@ -77,6 +81,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         includeTeamReviewRequests = try container.decodeIfPresent(Bool.self, forKey: .includeTeamReviewRequests)
             ?? fallback.includeTeamReviewRequests
         includeDrafts = try container.decodeIfPresent(Bool.self, forKey: .includeDrafts) ?? fallback.includeDrafts
+        includeWatchedCommits = try container.decodeIfPresent(Bool.self, forKey: .includeWatchedCommits)
+            ?? fallback.includeWatchedCommits
         hideApproved = try container.decodeIfPresent(Bool.self, forKey: .hideApproved) ?? fallback.hideApproved
         staleAfterDays = max(0, try container.decodeIfPresent(Int.self, forKey: .staleAfterDays) ?? fallback.staleAfterDays)
         host = GitHubHost.normalize(try container.decodeIfPresent(String.self, forKey: .host) ?? fallback.host)

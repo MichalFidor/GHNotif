@@ -80,7 +80,7 @@ public sealed record PullRequest(
     public bool HasViewerReviewedCurrentHead(string? viewer) => ViewerReviewAt(viewer) is not null;
 }
 
-public enum MatchReason { WatchedAuthor, Mention, ReviewRequested, TeamReviewRequested }
+public enum MatchReason { WatchedAuthor, Mention, ReviewRequested, TeamReviewRequested, WatchedCommitter }
 public enum SortOrder { RecentlyUpdated, OldestFirst, LargestChanges }
 
 /// A comment or submitted review by a human (bots are skipped while parsing).
@@ -183,6 +183,8 @@ public static class ActivityText
         pr.Reasons.Contains(MatchReason.ReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Poproszono Cię o review", "Your review was requested"))
         : pr.Reasons.Contains(MatchReason.TeamReviewRequested) ? AlertEvent.ReviewRequested.Line(L("Prośba o review do Twojego zespołu", "Review requested from your team"))
         : pr.Reasons.Contains(MatchReason.Mention) ? AlertEvent.Mention.Line(L("Wspomniano Cię w PR-ze", "You were mentioned"))
+        : !pr.Reasons.Contains(MatchReason.WatchedAuthor) && pr.Reasons.Contains(MatchReason.WatchedCommitter)
+            ? AlertEvent.NewPullRequest.Line(L($"Commity obserwowanej osoby w PR-ze od {pr.Author}", $"Commits by someone you watch in a PR by {pr.Author}"))
         : AlertEvent.NewPullRequest.Line(L($"Nowy PR od {pr.Author}", $"New PR by {pr.Author}"));
 }
 public sealed record PullRequestReview(string Login, string? CommitOid, DateTimeOffset? SubmittedAt);
@@ -208,6 +210,9 @@ public sealed class Config
     public bool IncludeTeamReviewRequests { get; set; }
     /// Show draft PRs too; by default searches use `draft:false`.
     public bool IncludeDrafts { get; set; }
+    /// Also show open PRs by other authors that contain commits by watched users, e.g. tests added by a QA engineer.
+    /// Only repositories already present in the other results are scanned.
+    public bool IncludeWatchedCommits { get; set; } = true;
     /// Hide PRs whose review decision is already "approved".
     public bool HideApproved { get; set; }
     /// PRs open longer than this many days are highlighted; 0 turns it off.
@@ -239,7 +244,7 @@ public sealed class Config
     {
         Users = Users.ToList(), ExtraQualifiers = ExtraQualifiers, RefreshMinutes = RefreshMinutes, Notify = Notify,
         IncludeMentions = IncludeMentions, IncludeReviewRequests = IncludeReviewRequests,
-        IncludeTeamReviewRequests = IncludeTeamReviewRequests, IncludeDrafts = IncludeDrafts, HideApproved = HideApproved,
+        IncludeTeamReviewRequests = IncludeTeamReviewRequests, IncludeDrafts = IncludeDrafts, IncludeWatchedCommits = IncludeWatchedCommits, HideApproved = HideApproved,
         StaleAfterDays = StaleAfterDays, Host = Host, AutoDismissReviewed = AutoDismissReviewed, ExcludedRepositories = ExcludedRepositories.ToList(),
         ExcludedLabels = ExcludedLabels.ToList(), SortOrder = SortOrder, ReviewReminder = ReviewReminder.Copy(),
         Language = Language, Notifications = Notifications.Copy()
@@ -472,6 +477,12 @@ public static class QueryBuilder
         if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests)
             yield return (Viewer("review-requested:@me -author:@me"), MatchReason.TeamReviewRequested);
     }
+
+    /// Searches for open PRs in the given repositories, used to find commits by watched users on other people's PRs.
+    /// Small batches keep each query below GitHub's 256-character search limit.
+    public static IEnumerable<string> RepositoryQueries(IEnumerable<string> repositories, Config config, int batchSize = 5) =>
+        repositories.Chunk(batchSize).Select(batch =>
+            $"{Base(config.IncludeDrafts)} {string.Join(" ", batch.Select(repo => $"repo:{repo}"))} {config.ExtraQualifiers.Trim()}".Trim());
 
     public static string Base(bool includeDrafts) => includeDrafts ? "is:pr is:open" : "is:pr is:open draft:false";
 

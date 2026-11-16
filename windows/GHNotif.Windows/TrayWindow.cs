@@ -416,6 +416,8 @@ internal sealed class TrayWindow : Window
             badges.Children.Add(Ui.Status(Glyph.Person, Palette.Purple, L("Poproszono Cię o review", "Your review was requested")));
         else if (pr.IsTeamReviewRequestOnly)
             badges.Children.Add(Ui.Status(Glyph.People, Palette.Purple, L("Poproszono o review Twój zespół", "Your team's review was requested")));
+        if (pr.Reasons.Contains(MatchReason.WatchedCommitter))
+            badges.Children.Add(Ui.Status(Glyph.Code, Palette.Purple, L("Zawiera commity obserwowanych osób", "Contains commits by people you watch")));
         switch (pr.ReviewDecision)
         {
             case "APPROVED": badges.Children.Add(Ui.Status(Glyph.CompletedSolid, Palette.Green, L("Review: PR zatwierdzony", "Review: approved"))); break;
@@ -578,6 +580,7 @@ internal static class Glyph
     internal const string Eye = "\uE7B3";
     internal const string Person = "\uE77B";
     internal const string People = "\uE716";
+    internal const string Code = "\uE943";
 }
 
 internal static class Ui

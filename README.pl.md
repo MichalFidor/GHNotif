@@ -139,11 +139,14 @@ Priorytetem są PR-y obserwowanych osób, ale lista może też zawierać:
 
 - **wzmianki** (`mentions:@me`, domyślnie włączone) - otwarte PR-y dowolnych autorów, w których ktoś Cię wspomniał; oznaczone fioletowym `@`,
 - **prośby o review** (`user-review-requested:@me`, domyślnie wyłączone) - prośby skierowane do Ciebie osobiście; oznaczone ikoną osoby ze znakiem zapytania,
-- **prośby do zespołów** (`review-requested:@me`, domyślnie wyłączone, dostępne przy włączonych prośbach o review) - także prośby wysłane do Twoich zespołów, np. gdy ktoś doda cały zespół QA jako reviewera; oznaczone ikoną zespołu, gdy poproszono tylko zespół.
+- **prośby do zespołów** (`review-requested:@me`, domyślnie wyłączone, dostępne przy włączonych prośbach o review) - także prośby wysłane do Twoich zespołów, np. gdy ktoś doda cały zespół QA jako reviewera; oznaczone ikoną zespołu, gdy poproszono tylko zespół,
+- **commity obserwowanych** (domyślnie włączone, wymaga co najmniej jednej obserwowanej osoby) - PR-y innych osób zawierające commity obserwowanej osoby, np. testy dodane przez QA do PR-a developera; oznaczone fioletową ikoną gałęzi (na Windows ikoną kodu).
 
 W sekcji **Widoczność** możesz też **pokazywać drafty** (oznaczone etykietą Draft; domyślnie ukryte) i **ukrywać zatwierdzone PR-y** (decyzja review „Approved” na GitHubie). PR-y otwarte co najmniej tyle dni, ile ustawiono w Ogólnych, mają wiek na pomarańczowo z ikoną zegara.
 
 Wzmianki obejmują PR-y dowolnego autora (także Twoje). Dodatkowe kwalifikatory zakresu obowiązują w obu wyszukiwaniach. Po włączeniu opcji obecne PR-y nie wywołują powiadomień - tylko nowe.
+
+Wyszukiwarka GitHuba nie filtruje PR-ów po autorze commitów, więc commity obserwowanych są znajdowane przez przegląd otwartych PR-ów (ostatnich 50 commitów każdego) w repozytoriach, które już są na liście dzięki pozostałym wyszukiwaniom, z pominięciem wykluczonych repozytoriów. PR w repozytorium, w którym nikt z obserwowanych nie ma otwartego PR-a, wzmianki ani prośby o review, nie zostanie znaleziony. Liczy się autor commita, a nie osoba, która wykonała push, a każda paczka repozytoriów to dodatkowe zapytania GraphQL.
 
 Konfiguracja jest zapisywana w `~/Library/Application Support/GHNotif/config.json`.
 Na Windowsie: `%LOCALAPPDATA%/GHNotif/config.json`, stan załatwionych, odłożonych i widzianych PR-ów oraz zwiniętych repozytoriów w `state.json`, zaszyfrowany PAT w `token.dat`. Nie dodawaj tych plików do repozytorium i nie udostępniaj tokenu.
@@ -158,7 +161,7 @@ Przycisk z haczykiem po prawej stronie PR-a oznacza go jako załatwiony. PR znik
 
 Zmiana tytułu, etykiet czy samego statusu CI nie przywraca PR-a.
 
-Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już jest na liście, i pokazuje, kto co zrobił, np. `✓ anna - zatwierdzenie`, `piotr - prośba o zmiany`, `bob - komentarz` albo `dave - nowe commity`. To samo zdarzenie nie jest ponawiane przy kolejnych odświeżeniach. Przy commitach widać autora ostatniego commita (GitHub API nie podaje, kto wykonał push). Nowy PR jest opisany jako „Nowy PR od …”, „Poproszono Cię o review” lub „Wspomniano Cię w PR-ze”.
+Powiadomienie pojawia się także przy nowej aktywności na PR-ze, który już jest na liście, i pokazuje, kto co zrobił, np. `✓ anna - zatwierdzenie`, `piotr - prośba o zmiany`, `bob - komentarz` albo `dave - nowe commity`. To samo zdarzenie nie jest ponawiane przy kolejnych odświeżeniach. Przy commitach widać autora ostatniego commita (GitHub API nie podaje, kto wykonał push). Nowy PR jest opisany jako „Nowy PR od …”, „Poproszono Cię o review”, „Wspomniano Cię w PR-ze” lub „Commity obserwowanej osoby w PR-ze od …”.
 
 Opcjonalnie PR jest automatycznie oznaczany jako załatwiony po wysłaniu przez Ciebie review bieżącego commita, o ile po tym review nie było nowej aktywności innych osób. Nowy commit lub komentarz/review innej osoby przywraca go na listę. Kolejne odświeżenia bez zmian nie powtarzają powiadomienia o tym samym komentarzu. Opcję można wyłączyć w ustawieniach.
 
@@ -200,7 +203,7 @@ Interfejs jest dostępny po polsku i angielsku. W **Ustawienia → Ogólne → J
 
 ## Ikony i tooltipy
 
-Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania - prośbę o Twoje review, ikona zespołu - prośbę o review tylko do Twojego zespołu. Szara etykieta Draft oznacza draft, a pomarańczowy wiek z zegarem - PR otwarty dłużej niż ustawiona liczba dni. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
+Najedź kursorem na ikonę, aby zobaczyć wyjaśnienie. Fioletowe `@` oznacza wzmiankę, ikona osoby ze znakiem zapytania - prośbę o Twoje review, ikona zespołu - prośbę o review tylko do Twojego zespołu, ikona gałęzi (na Windows ikona kodu) - commity obserwowanych osób w cudzym PR-ze. Szara etykieta Draft oznacza draft, a pomarańczowy wiek z zegarem - PR otwarty dłużej niż ustawiona liczba dni. Zielony haczyk oznacza zatwierdzone review, dymek/wykrzyknik - prośbę o zmiany, oko - wymagane review. Kropka CI: zielona = sukces, czerwona = błąd, żółta = w toku. Osobny haczyk na końcu wiersza oznacza PR jako lokalnie załatwiony.
 
 Logo przedstawia rozgałęzienie PR z kropką powiadomienia. Kolorowe ikony aplikacji (`.icns`/`.ico`), logo do paska menu i jego wariant monochromatyczny są generowane ze wspólnego źródła:
 
@@ -272,7 +275,7 @@ Na Windowsie wpisy w pliku tekstowym mogą być też rozdzielone spacjami.
 
 ## Jak to działa
 
-Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…` (bez `draft:false`, gdy drafty są włączone), wyniki są łączone i deduplikowane. Wzmianki, prośby o review i prośby do zespołów to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia.
+Zamiast jednego zapytania z `OR` (API wyszukiwania GitHub dopuszcza maks. 5 operatorów logicznych) autorzy są dzieleni na paczki po 10; powtórzone kwalifikatory `author:` działają jak OR. Każda paczka to zapytanie GraphQL `is:pr is:open draft:false author:… author:…` (bez `draft:false`, gdy drafty są włączone), wyniki są łączone i deduplikowane. Wzmianki, prośby o review i prośby do zespołów to osobne zapytania; PR znaleziony kilkoma z nich ma wszystkie oznaczenia. Commity obserwowanych pochodzą z dodatkowego przeglądu `is:pr is:open repo:… repo:…` (paczki po 5 repozytoriów), który odczytuje też autorów ostatnich 50 commitów każdego PR-a.
 
 Na pasku menu macOS logo i licznik są rysowane jako jeden obraz, bo etykieta `MenuBarExtra` złożona z kilku widoków pokazuje tylko ich część.
 

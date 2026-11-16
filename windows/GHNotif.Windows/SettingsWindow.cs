@@ -24,6 +24,7 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox mentions = new() { Content = L("PR-y, w których ktoś mnie wspomniał (@)", "PRs where someone mentioned me (@)"), Margin = new Thickness(8) };
     private readonly CheckBox reviewRequests = new() { Content = L("PR-y z prośbą o moje review", "PRs requesting my review"), Margin = new Thickness(8) };
     private readonly CheckBox teamReviewRequests = new() { Content = L("…także prośby do moich zespołów", "…also requests to my teams"), Margin = new Thickness(28, 4, 8, 8) };
+    private readonly CheckBox watchedCommits = new() { Content = L("PR-y innych osób z commitami obserwowanych", "Other people's PRs with commits by watched people"), Margin = new Thickness(8) };
     private readonly CheckBox includeDrafts = new() { Content = L("Pokazuj drafty", "Show drafts"), Margin = new Thickness(8) };
     private readonly CheckBox hideApproved = new() { Content = L("Ukrywaj zatwierdzone PR-y", "Hide approved PRs"), Margin = new Thickness(8) };
     private readonly TextBox staleDays = new() { Width = 60, Margin = new Thickness(8), HorizontalAlignment = HorizontalAlignment.Left };
@@ -111,7 +112,10 @@ internal sealed class SettingsWindow : Window
         reviewRequests.Checked += (_, _) => teamReviewRequests.IsEnabled = true;
         reviewRequests.Unchecked += (_, _) => teamReviewRequests.IsEnabled = false;
         search.Children.Add(teamReviewRequests);
+        watchedCommits.IsChecked = app.Config.IncludeWatchedCommits;
+        search.Children.Add(watchedCommits);
         search.Children.Add(Ui.Text(L("Niezależnie od autora - wzmianki obejmują też Twoje PR-y. Prośby o review domyślnie obejmują tylko te skierowane do Ciebie osobiście. Prośby do zespołów (np. gdy ktoś doda cały zespół QA jako reviewera) są oznaczone ikoną zespołu - mogą mocno wydłużyć listę, dlatego obie opcje są domyślnie wyłączone.", "Regardless of author - mentions include your own PRs too. Review requests cover only those sent to you personally by default. Team requests (e.g. when someone adds the whole QA team as reviewer) are marked with a team icon - they can make the list much longer, so both options are off by default.")));
+        search.Children.Add(Ui.Text(L("Commity obserwowanych (np. testy dodane przez QA do PR-a developera) są wyszukiwane tylko w repozytoriach, które już są na liście, wśród ostatnich 50 commitów PR-a.", "Commits by watched people (e.g. tests a QA engineer added to a developer's PR) are found only in repositories already on the list, among the PR's last 50 commits.")));
         search.Children.Add(Heading(L("Widoczność", "Visibility")));
         includeDrafts.IsChecked = app.Config.IncludeDrafts;
         hideApproved.IsChecked = app.Config.HideApproved;
@@ -366,6 +370,7 @@ internal sealed class SettingsWindow : Window
         if (config.IncludeMentions) parts.Add(L("wzmianki", "mentions"));
         if (config.IncludeReviewRequests) parts.Add(L("prośby o review", "review requests"));
         if (config.IncludeReviewRequests && config.IncludeTeamReviewRequests) parts.Add(L("review zespołów", "team reviews"));
+        if (config.IncludeWatchedCommits && config.Users.Count > 0) parts.Add(L("commity obserwowanych", "commits by watched people"));
         if (config.IncludeDrafts) parts.Add(L("drafty", "drafts"));
         if (config.HideApproved) parts.Add(L("bez zatwierdzonych", "no approved"));
         var list = parts.Count == 0 ? L("tylko PR-y obserwowanych osób", "only PRs by watched people") : string.Join(", ", parts);
@@ -452,6 +457,7 @@ internal sealed class SettingsWindow : Window
         config.IncludeMentions = mentions.IsChecked == true;
         config.IncludeReviewRequests = reviewRequests.IsChecked == true;
         config.IncludeTeamReviewRequests = teamReviewRequests.IsChecked == true;
+        config.IncludeWatchedCommits = watchedCommits.IsChecked == true;
         config.IncludeDrafts = includeDrafts.IsChecked == true;
         config.HideApproved = hideApproved.IsChecked == true;
         config.StaleAfterDays = stale;

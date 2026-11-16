@@ -570,6 +570,7 @@ final class AppModel: ObservableObject {
         if config.users != old.users || config.extraQualifiers != old.extraQualifiers
             || config.includeMentions != old.includeMentions || config.includeReviewRequests != old.includeReviewRequests
             || config.includeTeamReviewRequests != old.includeTeamReviewRequests
+            || config.includeWatchedCommits != old.includeWatchedCommits
             || config.includeDrafts != old.includeDrafts || config.hideApproved != old.hideApproved
             || config.host != old.host
             || config.excludedRepositories != old.excludedRepositories || config.excludedLabels != old.excludedLabels

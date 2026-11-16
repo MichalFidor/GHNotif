@@ -172,7 +172,7 @@ using var http = new HttpClient(new FakeHandler(async request =>
     return response;
 }));
 var client = new GitHubClient(http);
-var result = await client.SearchAsync(Credential("test-token"), new Config { Users = ["example"], IncludeMentions = false });
+var result = await client.SearchAsync(Credential("test-token"), new Config { Users = ["example"], IncludeMentions = false, IncludeWatchedCommits = false });
 Check(requests.Count == 2 && requests[1].Contains("cursor"), "Pagination passes cursor");
 Check(result.PullRequests.Count == 2, "Deduplicate across pages");
 Check(result.BlockedOrganizations.SetEquals(["123"]), "SSO surfaced with search results");
@@ -188,7 +188,14 @@ Check(QueryBuilder.Searches(new Config { IncludeMentions = false, IncludeReviewR
 Check(!new Config { IncludeMentions = false }.HasSearches && new Config().HasSearches, "HasSearches");
 var legacyConfig = JsonSerializer.Deserialize<Config>("{\"users\":[\"a\"],\"notify\":false}",
     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
-Check(legacyConfig.IncludeMentions && !legacyConfig.IncludeReviewRequests, "Old config gets new defaults");
+Check(legacyConfig.IncludeMentions && !legacyConfig.IncludeReviewRequests && legacyConfig.IncludeWatchedCommits, "Old config gets new defaults");
+Check(new Config { IncludeWatchedCommits = false }.Copy().IncludeWatchedCommits == false, "Copy keeps the watched commits option");
+var repoQueries = QueryBuilder.RepositoryQueries(Enumerable.Range(1, 7).Select(i => $"acme/r{i}"), new Config { ExtraQualifiers = "org:acme" }).ToList();
+Check(repoQueries.Count == 2 && repoQueries[1] == "is:pr is:open draft:false repo:acme/r6 repo:acme/r7 org:acme"
+    && repoQueries.All(q => q.Length <= 256), "Repository scan queries are batched and keep scope");
+Check(GitHubClient.RepositoriesToScan([parsedPrForScan("o/b"), parsedPrForScan("o/a"), parsedPrForScan("o/b"), parsedPrForScan("x/skip")], ["X/SKIP"])
+    .SequenceEqual(["o/a", "o/b"]), "Scanned repositories are unique, sorted and skip exclusions");
+PullRequest parsedPrForScan(string repository) => new("id", 1, "t", "u", repository, "dev", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, null);
 Check(!legacyConfig.IncludeTeamReviewRequests && !legacyConfig.IncludeDrafts && !legacyConfig.HideApproved
     && legacyConfig.StaleAfterDays == 7 && legacyConfig.Host == "github.com", "New options default for old configs");
 var hostConfig = new Config { Host = "https://GitHub.Acme.com/", StaleAfterDays = -3 };
@@ -289,6 +296,34 @@ using var mergeHttp = new HttpClient(new FakeHandler(_ => Task.FromResult(new Ht
 var merged = await new GitHubClient(mergeHttp).SearchAsync(Credential("t"), new Config { Users = ["example"] });
 Check(merged.PullRequests.Single(pr => pr.Id == "one").Reasons.SetEquals([MatchReason.WatchedAuthor, MatchReason.Mention])
     && merged.PullRequests.Single(pr => pr.Id == "three").Reasons.SetEquals([MatchReason.Mention]), "Reasons merged across searches");
+
+string ScanNode(string id, string author, params string[] commitAuthors) =>
+    Node(id).Replace("{\"login\":\"example\",\"avatarUrl\":null}", $"{{\"login\":\"{author}\",\"avatarUrl\":null}}")
+        .Replace("\"additions\"", $"\"commitAuthors\":{{\"nodes\":[{string.Join(",", commitAuthors.Select(login => $"{{\"commit\":{{\"author\":{{\"user\":{{\"login\":\"{login}\"}}}}}}}}"))}]}},\"additions\"");
+var scanBodies = new List<string>();
+using var scanHttp = new HttpClient(new FakeHandler(async request =>
+{
+    var body = await request.Content!.ReadAsStringAsync();
+    scanBodies.Add(body);
+    return new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent(body.Contains("repo:example/demo")
+            ? Page(ScanNode("own", "tester", "tester") + "," + ScanNode("dev", "dev", "dev", "Tester") + "," + ScanNode("other", "dev", "dev"), false)
+            : Page(ScanNode("own", "tester"), false))
+    };
+}));
+var scanConfig = new Config { Users = ["tester"], IncludeMentions = false };
+var scannedResult = await new GitHubClient(scanHttp).SearchAsync(Credential("t"), scanConfig);
+Check(scannedResult.PullRequests.ToDictionary(pr => pr.Id, pr => pr.Reasons.Single()) is { Count: 2 } scanReasons
+    && scanReasons["own"] == MatchReason.WatchedAuthor && scanReasons["dev"] == MatchReason.WatchedCommitter,
+    "Watched tester's commits surface the dev's PR");
+Check(scanBodies.Count == 2 && scanBodies[1].Contains("commitAuthors"), "One author search and one repository scan");
+Check(ActivityText.NewPullRequest(scannedResult.PullRequests.Single(pr => pr.Id == "dev")) == "+ Commity obserwowanej osoby w PR-ze od dev",
+    "Watched commit alert text");
+scanBodies.Clear();
+scanConfig.IncludeWatchedCommits = false;
+Check((await new GitHubClient(scanHttp).SearchAsync(Credential("t"), scanConfig)).PullRequests.Select(pr => pr.Id).SequenceEqual(["own"])
+    && scanBodies.Count == 1, "Scan is skipped when the option is off");
 
 using var unauthorized = new HttpClient(new FakeHandler(_ =>
     Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))));

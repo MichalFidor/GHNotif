@@ -45,6 +45,22 @@ public struct GitHubClient: Sendable {
             return try await group.reduce(into: []) { $0.append($1) }
         }
         var merged = Self.merge(outcomes)
+        if config.includeWatchedCommits, !config.users.isEmpty {
+            let repositories = Self.repositoriesToScan(merged.pullRequests, excluding: config.excludedRepositories)
+            let queries = SearchQueryBuilder.repositoryQueries(repositories: repositories, config: config)
+            let scans = try await withThrowingTaskGroup(of: PageResults.self) { group in
+                for query in queries {
+                    group.addTask { try await fetchPages(query: query, graphQL: Self.commitScanQuery) }
+                }
+                return try await group.reduce(into: []) { $0.append($1) }
+            }
+            merged = Self.addingWatchedCommitters(
+                to: merged, scanned: scans.flatMap(\.pullRequests), commitAuthors: scans.reduce(into: [:]) {
+                    $0.merge($1.commitAuthors) { $1 }
+                },
+                watched: config.users, ssoBlockedOrgIDs: scans.reduce(into: Set()) { $0.formUnion($1.ssoBlockedOrgIDs) }
+            )
+        }
         merged = SearchOutcome(
             pullRequests: merged.pullRequests.filter(config.includes),
             ssoBlockedOrgIDs: merged.ssoBlockedOrgIDs,
@@ -70,23 +86,64 @@ public struct GitHubClient: Sendable {
         return SearchOutcome(pullRequests: sorted, ssoBlockedOrgIDs: blocked, viewerLogin: viewer)
     }
 
+    /// Repositories of the found PRs, minus excluded ones, in a stable order.
+    public static func repositoriesToScan(_ pullRequests: [PullRequest], excluding excluded: [String]) -> [String] {
+        var seen = Set(excluded.map { $0.lowercased() })
+        return pullRequests.map(\.repository).sorted().filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    /// Marks scanned PRs that contain commits by a watched user other than the PR author, adding new ones to the list.
+    public static func addingWatchedCommitters(
+        to outcome: SearchOutcome, scanned: [PullRequest], commitAuthors: [String: [String]], watched: [String],
+        ssoBlockedOrgIDs: Set<String> = []
+    ) -> SearchOutcome {
+        let watched = Set(watched.map { $0.lowercased() })
+        var byID = Dictionary(outcome.pullRequests.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for scannedPR in scanned {
+            let author = scannedPR.author.lowercased()
+            let hasWatchedCommit = (commitAuthors[scannedPR.id] ?? []).contains {
+                let login = $0.lowercased()
+                return login != author && watched.contains(login)
+            }
+            guard hasWatchedCommit else { continue }
+            var pr = byID[scannedPR.id] ?? scannedPR
+            pr.reasons = byID[scannedPR.id] == nil ? [.watchedCommitter] : pr.reasons.union([.watchedCommitter])
+            byID[pr.id] = pr
+        }
+        return SearchOutcome(
+            pullRequests: byID.values.sorted { $0.updatedAt > $1.updatedAt },
+            ssoBlockedOrgIDs: outcome.ssoBlockedOrgIDs.union(ssoBlockedOrgIDs), viewerLogin: outcome.viewerLogin
+        )
+    }
+
     public func search(query: String, maxPages: Int = 10) async throws -> SearchOutcome {
+        let pages = try await fetchPages(query: query, graphQL: Self.searchQuery, maxPages: maxPages)
+        return SearchOutcome(pullRequests: pages.pullRequests, ssoBlockedOrgIDs: pages.ssoBlockedOrgIDs, viewerLogin: pages.viewerLogin)
+    }
+
+    struct PageResults: Sendable {
+        var pullRequests: [PullRequest] = []
+        var commitAuthors: [String: [String]] = [:]
+        var ssoBlockedOrgIDs = Set<String>()
+        var viewerLogin: String?
+    }
+
+    private func fetchPages(query: String, graphQL: String, maxPages: Int = 10) async throws -> PageResults {
         var cursor: String?
-        var prs: [PullRequest] = []
-        var blocked = Set<String>()
-        var viewer: String?
+        var results = PageResults()
         for _ in 0..<maxPages {
             var variables: [String: String] = ["q": query]
             if let cursor { variables["after"] = cursor }
-            let (data, response) = try await post(query: Self.searchQuery, variables: variables)
-            blocked.formUnion(Self.ssoBlockedOrgIDs(from: response.value(forHTTPHeaderField: "X-GitHub-SSO")))
+            let (data, response) = try await post(query: graphQL, variables: variables)
+            results.ssoBlockedOrgIDs.formUnion(Self.ssoBlockedOrgIDs(from: response.value(forHTTPHeaderField: "X-GitHub-SSO")))
             let page = try Self.parseSearchResponse(data)
-            prs.append(contentsOf: page.pullRequests)
-            viewer = viewer ?? page.viewerLogin
+            results.pullRequests.append(contentsOf: page.pullRequests)
+            results.commitAuthors.merge(page.commitAuthors) { $1 }
+            results.viewerLogin = results.viewerLogin ?? page.viewerLogin
             guard page.hasNextPage, let next = page.endCursor else { break }
             cursor = next
         }
-        return SearchOutcome(pullRequests: prs, ssoBlockedOrgIDs: blocked, viewerLogin: viewer)
+        return results
     }
 
     /// Returns the canonical login for an existing user, or `nil` when no such user exists.
@@ -158,6 +215,8 @@ public struct GitHubClient: Sendable {
         public let hasNextPage: Bool
         public let endCursor: String?
         public let viewerLogin: String?
+        /// Commit author logins per PR id; only filled by the commit scan query.
+        public let commitAuthors: [String: [String]]
     }
 
     public static func parseSearchResponse(_ data: Data) throws -> SearchPage {
@@ -167,10 +226,14 @@ public struct GitHubClient: Sendable {
         guard let search = decoded.data?.search else {
             throw GitHubError.graphQL(decoded.errors?.map(\.message).joined(separator: "; ") ?? L("Pusta odpowiedź", "Empty response"))
         }
-        let prs = search.nodes.compactMap { $0.value?.pullRequest }
+        let nodes = search.nodes.compactMap(\.value)
+        var commitAuthors: [String: [String]] = [:]
+        for node in nodes {
+            if let authors = node.commitAuthors { commitAuthors[node.id] = authors.nodes.compactMap { $0.commit.author?.user?.login } }
+        }
         return SearchPage(
-            pullRequests: prs, hasNextPage: search.pageInfo.hasNextPage, endCursor: search.pageInfo.endCursor,
-            viewerLogin: decoded.data?.viewer?.login
+            pullRequests: nodes.map(\.pullRequest), hasNextPage: search.pageInfo.hasNextPage,
+            endCursor: search.pageInfo.endCursor, viewerLogin: decoded.data?.viewer?.login, commitAuthors: commitAuthors
         )
     }
 
@@ -187,13 +250,20 @@ public struct GitHubClient: Sendable {
         return []
     }
 
-    static let searchQuery = """
+    static let searchQuery = query(extraFields: "")
+
+    /// Same fields plus authors of the last 50 commits; a commit's single author keeps the query cheap.
+    static let commitScanQuery = query(extraFields: "commitAuthors: commits(last: 50) { nodes { commit { author { user { login } } } } }")
+
+    private static func query(extraFields: String) -> String {
+        """
     query($q: String!, $after: String) {
       viewer { login }
       search(query: $q, type: ISSUE, first: 50, after: $after) {
         pageInfo { hasNextPage endCursor }
         nodes {
           ... on PullRequest {
+            \(extraFields)
             id number title url createdAt updatedAt reviewDecision isDraft
             author { login avatarUrl }
             repository { nameWithOwner }
@@ -207,6 +277,7 @@ public struct GitHubClient: Sendable {
       }
     }
     """
+    }
 }
 
 // MARK: - GraphQL DTOs
@@ -318,6 +389,7 @@ private struct PRNode: Decodable {
     let author: Author?
     let repository: Repository
     let commits: Commits?
+    let commitAuthors: Commits?
     let comments: Comments?
     let reviews: Reviews?
     let additions: Int?
